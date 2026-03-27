@@ -7,3 +7,16 @@ build/
 *.egg
 .mypy_cache/
 .ruff_cache/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Agent sessions
+.claude/
