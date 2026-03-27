@@ -76,3 +76,92 @@ PromptInput {
 PromptInput:focus {
     border-top: solid $crt-bright;
 }
+
+/* ── Menu Screen ── */
+
+MenuScreen {
+    background: $crt-bg;
+    align: center middle;
+}
+
+#menu-container {
+    width: 65;
+    height: auto;
+    max-height: 80%;
+    align: center middle;
+    padding: 1 2;
+}
+
+#menu-title {
+    text-align: center;
+    color: $crt-bright;
+    border: heavy $crt-dim;
+    background: $crt-surface;
+    padding: 0 1;
+    margin-bottom: 1;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+#btn-new {
+    width: 100%;
+    margin: 1 0;
+    color: $crt-bg;
+    background: $crt-bright;
+    text-style: bold;
+}
+
+#btn-new:hover {
+    background: $crt-medium;
+}
+
+#btn-load {
+    width: 100%;
+    margin: 0 0 1 0;
+    color: $crt-bright;
+    background: $crt-surface;
+    border: tall $crt-dim;
+}
+
+#btn-load:hover {
+    border: tall $crt-bright;
+}
+
+#btn-load.-disabled {
+    color: $crt-dim;
+    border: tall $crt-surface;
+}
+
+#menu-footer {
+    text-align: center;
+    color: $crt-dim;
+    margin-top: 1;
+}
+
+#save-list {
+    height: auto;
+    max-height: 20;
+    overflow-y: auto;
+    margin-top: 1;
+    scrollbar-color: $crt-dim;
+    scrollbar-color-hover: $crt-bright;
+}
+
+#save-list Label {
+    text-align: center;
+    color: $crt-bright;
+    margin-bottom: 1;
+}
+
+.save-entry {
+    width: 100%;
+    margin: 0 0 1 0;
+    color: $crt-medium;
+    background: $crt-surface;
+    border: tall $crt-dim;
+}
+
+.save-entry:hover {
+    color: $crt-bright;
+    border: tall $crt-bright;
+}

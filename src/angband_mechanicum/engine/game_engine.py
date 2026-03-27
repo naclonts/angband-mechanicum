@@ -87,6 +87,34 @@ class GameEngine:
         self._client = anthropic.AsyncAnthropic()
         self._conversation_history: list[dict] = []
         self._error_count = 0
+        self._turn_count: int = 0
+        self._current_scene_art: str | None = None
+        self._info_panel: dict = {}
+
+    @property
+    def turn_count(self) -> int:
+        return self._turn_count
+
+    def to_dict(self) -> dict:
+        """Export full engine state for saving."""
+        return {
+            "conversation_history": list(self._conversation_history),
+            "turn_count": self._turn_count,
+            "current_scene_art": self._current_scene_art,
+            "info_panel": dict(self._info_panel),
+            "error_count": self._error_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "GameEngine":
+        """Restore engine state from a saved dict."""
+        engine = cls()
+        engine._conversation_history = data.get("conversation_history", [])
+        engine._turn_count = data.get("turn_count", 0)
+        engine._current_scene_art = data.get("current_scene_art")
+        engine._info_panel = data.get("info_panel", {})
+        engine._error_count = data.get("error_count", 0)
+        return engine
 
     async def process_input(self, text: str) -> GameResponse:
         """Send player input to Claude and return a structured GameResponse."""
@@ -136,6 +164,12 @@ class GameEngine:
             "role": "assistant",
             "content": raw_text,
         })
+
+        self._turn_count += 1
+
+        # Track latest info/scene for save state
+        if info_update:
+            self._info_panel.update(info_update)
 
         return GameResponse(
             narrative_text=narrative_text,
