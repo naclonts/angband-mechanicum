@@ -47,9 +47,11 @@ tk dep <id> <dep-id>       # Declare id depends on dep-id
 
 1. Run `tk ready` to see available tickets.
 2. Run `tk start <id>` before working on a ticket.
-3. Do the work. Use `tk add-note <id> "text"` to leave context for other agents.
-4. Run `tk close <id>` when done.
-5. Reference ticket IDs in commit messages (e.g., `am-hsdv: wire up LLM engine`).
+3. **Always use a worktree** for implementation work (`isolation: "worktree"` on the Agent tool). Multiple agents may be working on the codebase concurrently in separate worktrees — never assume you have exclusive access to the main working directory.
+4. Do the work. Use `tk add-note <id> "text"` to leave context for other agents.
+5. Run `tk close <id>` when done.
+6. Reference ticket IDs in commit messages (e.g., `am-hsdv: wire up LLM engine`).
+7. Parent agent merges the worktree branch back to main after subagent completes.
 
 ### Parallel Work with Worktrees
 
@@ -90,6 +92,8 @@ git merge scrollable-datalog
 3. Do the work, commit with ticket ID in message (e.g., `am-pyqp: add mypy strict config`)
 4. `tk close <id>`
 5. Exit — parent agent handles the merge
+
+**Concurrency awareness:** Assume other agents may be active in other worktrees at any time. Do not modify files outside your worktree. The parent agent is responsible for merge coordination.
 
 **Dependency chains:** If ticket B depends on ticket A (`tk dep B A`), do NOT run them in parallel. Run A first, merge it, then spawn B. Use `tk ready` to check what's unblocked.
 
