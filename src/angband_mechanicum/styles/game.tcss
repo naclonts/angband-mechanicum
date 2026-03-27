@@ -46,6 +46,10 @@ NarrativePane {
     border-title-style: bold;
 }
 
+NarrativePane:focus {
+    border: heavy $crt-bright;
+}
+
 #right-panel {
     layout: vertical;
     border: heavy $crt-dim;

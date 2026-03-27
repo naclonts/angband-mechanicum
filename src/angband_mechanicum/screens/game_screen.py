@@ -32,7 +32,7 @@ class GameScreen(Screen):
     def on_mount(self) -> None:
         self.query_one("#scene", ScenePane).border_title = "⛨ ENVIRONMENT"
         self.query_one("#portrait", PortraitPane).border_title = "⛨ OPERATIVE"
-        self.query_one("#narrative", NarrativePane).border_title = "⛨ DATALOG"
+        # NarrativePane manages its own border_title (scroll indicator)
         self.query_one("#right-panel").border_title = "⛨ STATUS"
         self.query_one("#info", InfoPanel).update_info(DEFAULT_INFO)
         self.query_one("#narrative", NarrativePane).append_narrative(INTRO_NARRATIVE)
