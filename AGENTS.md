@@ -51,12 +51,47 @@ tk dep <id> <dep-id>       # Declare id depends on dep-id
 4. Run `tk close <id>` when done.
 5. Reference ticket IDs in commit messages (e.g., `am-hsdv: wire up LLM engine`).
 
-### Orchestrating Subagents
+### Parallel Work with Worktrees
 
-1. **Parent agent** breaks work into tickets with dependencies (`tk create`, `tk dep`).
-2. **Subagents** each pick a `tk ready` ticket, `tk start` it, do the work, and `tk close` it.
-3. Downstream tickets become `tk ready` as their dependencies close.
-4. Use `tk add-note <id> "text"` to pass context between agents.
+This project uses **git worktrees** for parallel agent isolation. Each subagent works in its own worktree (separate branch + working directory), avoiding filesystem conflicts. Work merges back via branch merge or PR.
+
+**How it works:**
+
+1. **Parent agent** decomposes work into tickets with dependencies.
+2. **Parent spawns subagents** each in an isolated worktree (Claude Code: `isolation: "worktree"` on the Agent tool).
+3. Each subagent gets its own branch and full repo copy. No shared mutable state.
+4. Subagent does `tk start <id>`, works, commits, `tk close <id>`.
+5. Parent merges branches back to main (or opens PRs for review).
+
+**Why this works with `tk`:** Each ticket is its own `.md` file in `.tickets/`. Agents working different tickets edit different files, so git merges cleanly. No locking or coordination primitives needed.
+
+**Example — parent agent orchestrating two parallel tasks:**
+
+```bash
+# Create tickets
+tk create "Add strict typing" -t task --tags quality
+# → am-pyqp
+tk create "Scrollable datalog" -t feature --tags ui
+# → am-1ohi
+
+# Spawn subagents (pseudocode — actual syntax depends on agent platform)
+# Agent A: works am-pyqp in worktree, branch: typing
+# Agent B: works am-1ohi in worktree, branch: scrollable-datalog
+
+# After both complete, merge branches
+git merge typing
+git merge scrollable-datalog
+```
+
+**Subagent checklist (run these in your worktree):**
+
+1. `uv sync` — install deps in worktree's venv
+2. `tk start <id>` — claim your ticket
+3. Do the work, commit with ticket ID in message (e.g., `am-pyqp: add mypy strict config`)
+4. `tk close <id>`
+5. Exit — parent agent handles the merge
+
+**Dependency chains:** If ticket B depends on ticket A (`tk dep B A`), do NOT run them in parallel. Run A first, merge it, then spawn B. Use `tk ready` to check what's unblocked.
 
 ### Creating Good Tickets
 
