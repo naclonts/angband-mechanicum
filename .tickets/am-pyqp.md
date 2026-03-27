@@ -1,6 +1,6 @@
 ---
 id: am-pyqp
-status: open
+status: in_progress
 deps: []
 links: []
 created: 2026-03-27T20:42:59Z

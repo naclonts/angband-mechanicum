@@ -1,10 +1,12 @@
-"""Narrative pane — scrolling game text log with scroll indicator."""
+"""Narrative pane -- scrolling game text log with scroll indicator."""
+
+from __future__ import annotations
 
 from textual.binding import Binding
 from textual.widgets import RichLog
 
-_TITLE_DEFAULT = "\u26e8 DATALOG"
-_TITLE_MORE = "\u25b2 more \u2502 \u26e8 DATALOG"
+_TITLE_DEFAULT: str = "\u26e8 DATALOG"
+_TITLE_MORE: str = "\u25b2 more \u2502 \u26e8 DATALOG"
 
 
 class NarrativePane(RichLog):
@@ -16,9 +18,9 @@ class NarrativePane(RichLog):
 
     can_focus = True
 
-    def __init__(self, **kwargs) -> None:
-        super().__init__(markup=True, wrap=True, auto_scroll=True, **kwargs)
-        self._user_scrolled = False
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(markup=True, wrap=True, auto_scroll=True, **kwargs)  # type: ignore[arg-type]
+        self._user_scrolled: bool = False
 
     def on_mount(self) -> None:
         self.border_title = _TITLE_DEFAULT
@@ -36,7 +38,7 @@ class NarrativePane(RichLog):
             self._user_scrolled = False
             self.auto_scroll = True
         elif round(new_value) < round(old_value):
-            # Scrolled upward — user is reviewing history.
+            # Scrolled upward -- user is reviewing history.
             self._user_scrolled = True
             self.auto_scroll = False
 

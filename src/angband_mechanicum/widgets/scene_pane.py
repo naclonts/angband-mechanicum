@@ -1,4 +1,6 @@
-"""Scene pane — displays ASCII art of the current environment."""
+"""Scene pane -- displays ASCII art of the current environment."""
+
+from __future__ import annotations
 
 from textual.widgets import Static
 

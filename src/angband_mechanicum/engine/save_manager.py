@@ -1,4 +1,4 @@
-"""Save manager — handles serialization/deserialization of game state to JSON files."""
+"""Save manager -- handles serialization/deserialization of game state to JSON files."""
 
 from __future__ import annotations
 
@@ -8,14 +8,17 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _saves_dir() -> Path:
     """Return the save directory, respecting XDG_DATA_HOME."""
-    xdg_data = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
-    save_path = Path(xdg_data) / "angband-mechanicum" / "saves"
+    xdg_data: str = os.environ.get(
+        "XDG_DATA_HOME", os.path.expanduser("~/.local/share")
+    )
+    save_path: Path = Path(xdg_data) / "angband-mechanicum" / "saves"
     save_path.mkdir(parents=True, exist_ok=True)
     return save_path
 
@@ -40,17 +43,17 @@ class SaveManager:
     """Manages saving and loading game state as JSON files."""
 
     def __init__(self) -> None:
-        self._saves_dir = _saves_dir()
+        self._saves_dir: Path = _saves_dir()
 
-    def save(self, slot_id: str, state: dict) -> Path:
+    def save(self, slot_id: str, state: dict[str, Any]) -> Path:
         """Write game state to a JSON save file. Returns the file path."""
         state["meta"] = {
             "slot_id": slot_id,
             "timestamp": time.time(),
             "save_version": 1,
         }
-        file_path = self._saves_dir / f"{slot_id}.json"
-        tmp_path = file_path.with_suffix(".json.tmp")
+        file_path: Path = self._saves_dir / f"{slot_id}.json"
+        tmp_path: Path = file_path.with_suffix(".json.tmp")
         try:
             tmp_path.write_text(json.dumps(state, indent=2, ensure_ascii=False))
             tmp_path.replace(file_path)
@@ -62,13 +65,13 @@ class SaveManager:
             raise
         return file_path
 
-    def load(self, slot_id: str) -> dict:
+    def load(self, slot_id: str) -> dict[str, Any]:
         """Load game state from a JSON save file."""
-        file_path = self._saves_dir / f"{slot_id}.json"
+        file_path: Path = self._saves_dir / f"{slot_id}.json"
         if not file_path.exists():
             raise FileNotFoundError(f"No save file found: {file_path}")
-        text = file_path.read_text()
-        state = json.loads(text)
+        text: str = file_path.read_text()
+        state: dict[str, Any] = json.loads(text)
         logger.info("Game loaded from %s", file_path)
         return state
 
@@ -77,9 +80,9 @@ class SaveManager:
         saves: list[SaveMetadata] = []
         for path in self._saves_dir.glob("*.json"):
             try:
-                data = json.loads(path.read_text())
-                meta = data.get("meta", {})
-                info = data.get("info_panel", {})
+                data: dict[str, Any] = json.loads(path.read_text())
+                meta: dict[str, Any] = data.get("meta", {})
+                info: dict[str, str] = data.get("info_panel", {})
                 saves.append(SaveMetadata(
                     slot_id=meta.get("slot_id", path.stem),
                     timestamp=meta.get("timestamp", path.stat().st_mtime),
@@ -95,7 +98,7 @@ class SaveManager:
 
     def delete_save(self, slot_id: str) -> None:
         """Delete a save file."""
-        file_path = self._saves_dir / f"{slot_id}.json"
+        file_path: Path = self._saves_dir / f"{slot_id}.json"
         if file_path.exists():
             file_path.unlink()
             logger.info("Deleted save %s", file_path)

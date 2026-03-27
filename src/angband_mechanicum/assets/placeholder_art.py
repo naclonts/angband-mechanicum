@@ -1,6 +1,8 @@
 """Placeholder ASCII art for the game UI."""
 
-FORGE_SCENE = """\
+from __future__ import annotations
+
+FORGE_SCENE: str = """\
         ╔══════════════════════════════════════════════════╗
         ║            ⛨  FORGE-CATHEDRAL ALPHA  ⛨           ║
         ╠══════════════════════════════════════════════════╣
@@ -25,7 +27,7 @@ FORGE_SCENE = """\
         ║              Protects                          ║
         ╚══════════════════════════════════════════════════╝"""
 
-TECHPRIEST_PORTRAIT = """\
+TECHPRIEST_PORTRAIT: str = """\
       ┌───────────┐
       │  ╔═════╗  │
       │  ║ ◉ ▫ ║  │
@@ -43,7 +45,7 @@ TECHPRIEST_PORTRAIT = """\
       └──┴─────┴──┘
     MAGOS EXPLORATOR"""
 
-INTRO_NARRATIVE = """\
+INTRO_NARRATIVE: str = """\
 [bold]++ SIGNAL RECEIVED ++ PRIORITY: VERMILLION ++[/bold]
 
 You stand in the primary forge-cathedral of [bold]Angband Mechanicum[/bold], \
@@ -63,7 +65,7 @@ underhive awaits.[/dim]
 
 [bold]What do you do, Tech-Priest?[/bold]"""
 
-CANNED_RESPONSES = [
+CANNED_RESPONSES: list[str] = [
     (
         "You extend your mechadendrites and interface with the nearest "
         "data-terminal. Streams of binary cascade through your consciousness. "

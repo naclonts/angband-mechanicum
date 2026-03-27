@@ -1,21 +1,23 @@
-"""Game engine — processes player input and returns narrative responses via Claude API."""
+"""Game engine -- processes player input and returns narrative responses via Claude API."""
 
 from __future__ import annotations
 
 import json
 import logging
 from dataclasses import dataclass
+from typing import Any
 
 import anthropic
+from anthropic.types import MessageParam
 
 from angband_mechanicum.assets.placeholder_art import INTRO_NARRATIVE
 
-logger = logging.getLogger(__name__)
+logger: logging.Logger = logging.getLogger(__name__)
 
-MODEL = "claude-sonnet-4-20250514"
-MAX_TOKENS = 1024
+MODEL: str = "claude-sonnet-4-20250514"
+MAX_TOKENS: int = 1024
 
-SYSTEM_PROMPT = """\
+SYSTEM_PROMPT: str = """\
 You are the narrative engine for Angband Mechanicum, a text-based dungeon-crawling \
 RPG set in the Warhammer 40,000 universe. You narrate the world and respond to the \
 player's actions.
@@ -63,7 +65,7 @@ The player has just received this introduction:
 
 """ + INTRO_NARRATIVE.replace("[bold]", "").replace("[/bold]", "").replace("[dim]", "").replace("[/dim]", "")
 
-NOOSPHERE_ERRORS = [
+NOOSPHERE_ERRORS: list[str] = [
     "The Noosphere connection falters... static floods your cognition buffers. "
     "[dim]++ RETRY WHEN THE MACHINE SPIRIT IS WILLING ++[/dim]",
     "A cascade of corrupt data-packets disrupts the link. Your servo-skull emits "
@@ -77,25 +79,25 @@ NOOSPHERE_ERRORS = [
 class GameResponse:
     narrative_text: str
     scene_art: str | None = None
-    info_update: dict | None = None
+    info_update: dict[str, str] | None = None
 
 
 class GameEngine:
     """Processes player input via the Anthropic Claude API and returns narrative responses."""
 
     def __init__(self) -> None:
-        self._client = anthropic.AsyncAnthropic()
-        self._conversation_history: list[dict] = []
-        self._error_count = 0
+        self._client: anthropic.AsyncAnthropic = anthropic.AsyncAnthropic()
+        self._conversation_history: list[MessageParam] = []
+        self._error_count: int = 0
         self._turn_count: int = 0
         self._current_scene_art: str | None = None
-        self._info_panel: dict = {}
+        self._info_panel: dict[str, str] = {}
 
     @property
     def turn_count(self) -> int:
         return self._turn_count
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Export full engine state for saving."""
         return {
             "conversation_history": list(self._conversation_history),
@@ -106,7 +108,7 @@ class GameEngine:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "GameEngine":
+    def from_dict(cls, data: dict[str, Any]) -> GameEngine:
         """Restore engine state from a saved dict."""
         engine = cls()
         engine._conversation_history = data.get("conversation_history", [])
@@ -123,6 +125,10 @@ class GameEngine:
             "content": text,
         })
 
+        raw_text: str = ""
+        narrative_text: str
+        info_update: dict[str, str] | None
+
         try:
             message = await self._client.messages.create(
                 model=MODEL,
@@ -131,15 +137,15 @@ class GameEngine:
                 messages=self._conversation_history,
             )
 
-            raw_text = message.content[0].text
+            raw_text = message.content[0].text  # type: ignore[union-attr]
 
             # Parse the structured JSON response
-            response_data = json.loads(raw_text)
+            response_data: dict[str, Any] = json.loads(raw_text)
             narrative_text = response_data.get("narrative_text", raw_text)
             info_update = response_data.get("info_update")
 
         except json.JSONDecodeError:
-            # LLM returned non-JSON — use the raw text as narrative
+            # LLM returned non-JSON -- use the raw text as narrative
             logger.warning("Claude returned non-JSON response, using raw text")
             narrative_text = raw_text
             info_update = None
@@ -148,7 +154,7 @@ class GameEngine:
             logger.error("Anthropic API error: %s", exc)
             # Remove the failed user message so history stays consistent
             self._conversation_history.pop()
-            error_msg = NOOSPHERE_ERRORS[self._error_count % len(NOOSPHERE_ERRORS)]
+            error_msg: str = NOOSPHERE_ERRORS[self._error_count % len(NOOSPHERE_ERRORS)]
             self._error_count += 1
             return GameResponse(narrative_text=error_msg)
 

@@ -1,4 +1,6 @@
-"""Portrait pane — displays ASCII art of the player character."""
+"""Portrait pane -- displays ASCII art of the player character."""
+
+from __future__ import annotations
 
 from textual.widgets import Static
 

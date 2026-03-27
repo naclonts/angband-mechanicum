@@ -12,9 +12,28 @@ dependencies = [
     "anthropic>=0.40.0",
 ]
 
+[dependency-groups]
+dev = [
+    "mypy>=1.10",
+]
+
 [project.scripts]
 angband-mechanicum = "angband_mechanicum.app:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.mypy]
+strict = true
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "textual.*",
+]
+ignore_missing_imports = true

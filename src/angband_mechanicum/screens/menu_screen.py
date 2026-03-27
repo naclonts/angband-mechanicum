@@ -1,4 +1,4 @@
-"""Menu screen — New Game / Load Game selection on launch."""
+"""Menu screen -- New Game / Load Game selection on launch."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from textual.widgets import Button, Label, Static
 
 from angband_mechanicum.engine.save_manager import SaveManager, SaveMetadata
 
-TITLE_ART = """\
+TITLE_ART: str = """\
  ╔═══════════════════════════════════════════════════════════╗
  ║              ⛨  ANGBAND MECHANICUM  ⛨                    ║
  ║                                                          ║
@@ -18,10 +18,10 @@ TITLE_ART = """\
  ║       ++ CLEARANCE: MAGOS EXPLORATOR      ++             ║
  ╚═══════════════════════════════════════════════════════════╝"""
 
-FOOTER_TEXT = "[dim]++ THE OMNISSIAH PROTECTS ++ FLESH IS WEAK ++ THE MACHINE IS ETERNAL ++[/dim]"
+FOOTER_TEXT: str = "[dim]++ THE OMNISSIAH PROTECTS ++ FLESH IS WEAK ++ THE MACHINE IS ETERNAL ++[/dim]"
 
 
-class MenuScreen(Screen):
+class MenuScreen(Screen[None]):
     """Main menu with New Game and Load Game options."""
 
     def compose(self) -> ComposeResult:
@@ -35,12 +35,12 @@ class MenuScreen(Screen):
 
     def on_mount(self) -> None:
         self.query_one("#menu-title").border_title = "⛨ TERMINAL"
-        load_btn = self.query_one("#btn-load", Button)
-        saves = SaveManager().list_saves()
+        load_btn: Button = self.query_one("#btn-load", Button)
+        saves: list[SaveMetadata] = SaveManager().list_saves()
         if not saves:
             load_btn.disabled = True
             load_btn.label = "++ LOAD GAME ++ [NO SAVES]"
-        self._saves = saves
+        self._saves: list[SaveMetadata] = saves
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-new":
@@ -48,25 +48,25 @@ class MenuScreen(Screen):
         elif event.button.id == "btn-load":
             self._show_save_list()
         elif event.button.id and event.button.id.startswith("save-"):
-            slot_id = event.button.id.removeprefix("save-")
+            slot_id: str = event.button.id.removeprefix("save-")
             self._load_game(slot_id)
 
     def _start_new_game(self) -> None:
         from angband_mechanicum.engine.game_engine import GameEngine
         from angband_mechanicum.screens.game_screen import GameScreen
 
-        self.app.game_engine = GameEngine()
-        self.app.save_slot = _generate_slot_id()
+        self.app.game_engine = GameEngine()  # type: ignore[attr-defined]
+        self.app.save_slot = _generate_slot_id()  # type: ignore[attr-defined]
         self.app.switch_screen(GameScreen())
 
     def _show_save_list(self) -> None:
-        save_list = self.query_one("#save-list", Vertical)
+        save_list: Vertical = self.query_one("#save-list", Vertical)
         save_list.remove_children()
         if not self._saves:
             return
         save_list.mount(Label("[bold]++ SELECT SESSION TO RESTORE ++[/bold]"))
         for save in self._saves:
-            btn = Button(
+            btn: Button = Button(
                 f"{save.display_time}  |  {save.location}  |  Turn {save.turn_count}",
                 id=f"save-{save.slot_id}",
                 variant="default",
@@ -78,11 +78,11 @@ class MenuScreen(Screen):
         from angband_mechanicum.engine.game_engine import GameEngine
         from angband_mechanicum.screens.game_screen import GameScreen
 
-        manager = SaveManager()
+        manager: SaveManager = SaveManager()
         state = manager.load(slot_id)
-        engine = GameEngine.from_dict(state)
-        self.app.game_engine = engine
-        self.app.save_slot = slot_id
+        engine: GameEngine = GameEngine.from_dict(state)
+        self.app.game_engine = engine  # type: ignore[attr-defined]
+        self.app.save_slot = slot_id  # type: ignore[attr-defined]
         self.app.switch_screen(GameScreen(restored_state=state))
 
 

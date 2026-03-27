@@ -1,4 +1,6 @@
-"""Angband Mechanicum — main application."""
+"""Angband Mechanicum -- main application."""
+
+from __future__ import annotations
 
 from textual.app import App
 
@@ -7,7 +9,7 @@ from angband_mechanicum.screens.menu_screen import MenuScreen
 from angband_mechanicum.theme import CRT_GREEN
 
 
-class AngbandMechanicumApp(App):
+class AngbandMechanicumApp(App[None]):
     CSS_PATH = "styles/game.tcss"
     TITLE = "Angband Mechanicum"
     BINDINGS = [
@@ -16,7 +18,7 @@ class AngbandMechanicumApp(App):
 
     def __init__(self) -> None:
         super().__init__()
-        self.game_engine = GameEngine()
+        self.game_engine: GameEngine = GameEngine()
         self.save_slot: str | None = None
 
     def on_mount(self) -> None:

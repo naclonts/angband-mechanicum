@@ -1,8 +1,10 @@
 """CRT green terminal theme for Angband Mechanicum."""
 
+from __future__ import annotations
+
 from textual.theme import Theme
 
-CRT_GREEN = Theme(
+CRT_GREEN: Theme = Theme(
     name="crt-green",
     primary="#00ff41",
     secondary="#00cc33",
