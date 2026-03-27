@@ -165,3 +165,83 @@ MenuScreen {
     color: $crt-bright;
     border: tall $crt-bright;
 }
+
+/* ── API Key Screen ── */
+
+ApiKeyScreen {
+    background: $crt-bg;
+    align: center middle;
+}
+
+#apikey-container {
+    width: 65;
+    height: auto;
+    max-height: 90%;
+    align: center middle;
+    padding: 1 2;
+}
+
+#apikey-header {
+    text-align: center;
+    color: $crt-bright;
+    border: heavy $crt-dim;
+    background: $crt-surface;
+    padding: 0 1;
+    margin-bottom: 1;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+#apikey-instructions {
+    color: $crt-dim;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#apikey-input {
+    width: 100%;
+    margin: 1 0;
+    color: $crt-bright;
+    background: $crt-surface;
+    border: tall $crt-dim;
+}
+
+#apikey-input:focus {
+    border: tall $crt-bright;
+}
+
+#btn-session {
+    width: 100%;
+    margin: 1 0;
+    color: $crt-bg;
+    background: $crt-bright;
+    text-style: bold;
+}
+
+#btn-session:hover {
+    background: $crt-medium;
+}
+
+#btn-save-env {
+    width: 100%;
+    margin: 0 0 1 0;
+    color: $crt-bright;
+    background: $crt-surface;
+    border: tall $crt-dim;
+}
+
+#btn-save-env:hover {
+    border: tall $crt-bright;
+}
+
+#apikey-status {
+    color: $crt-bright;
+    text-align: center;
+    margin: 1 0;
+}
+
+#apikey-footer {
+    text-align: center;
+    color: $crt-dim;
+    margin-top: 1;
+}
