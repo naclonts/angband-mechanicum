@@ -1,0 +1,74 @@
+/* Angband Mechanicum — CRT Green Terminal Aesthetic */
+
+$crt-bright: #00ff41;
+$crt-medium: #00cc33;
+$crt-dim: #00aa22;
+$crt-bg: #0a0a0a;
+$crt-surface: #0d1a0d;
+
+GameScreen {
+    layout: grid;
+    grid-size: 2 2;
+    grid-columns: 3fr 1fr;
+    grid-rows: 2fr 3fr;
+    grid-gutter: 1;
+    background: $crt-bg;
+}
+
+ScenePane {
+    border: heavy $crt-dim;
+    color: $crt-bright;
+    background: $crt-surface;
+    overflow-y: auto;
+    padding: 0 1;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+PortraitPane {
+    border: heavy $crt-dim;
+    color: $crt-bright;
+    background: $crt-surface;
+    padding: 0 1;
+    content-align: center middle;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+NarrativePane {
+    border: heavy $crt-dim;
+    color: $crt-medium;
+    background: $crt-surface;
+    padding: 0 1;
+    scrollbar-color: $crt-dim;
+    scrollbar-color-hover: $crt-bright;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+#right-panel {
+    layout: vertical;
+    border: heavy $crt-dim;
+    background: $crt-surface;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+InfoPanel {
+    height: 1fr;
+    color: $crt-medium;
+    padding: 1 1;
+}
+
+PromptInput {
+    height: auto;
+    dock: bottom;
+    color: $crt-bright;
+    background: $crt-bg;
+    border-top: solid $crt-dim;
+    padding: 0 1;
+}
+
+PromptInput:focus {
+    border-top: solid $crt-bright;
+}

@@ -1,0 +1,19 @@
+[project]
+name = "angband-mechanicum"
+version = "0.1.0"
+description = "A CLI game: Adeptus Mechanicus Tech-Priest on a forge world"
+readme = "README.md"
+authors = [
+    { name = "Nathan Clonts", email = "nathanclonts@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=1.0.0",
+]
+
+[project.scripts]
+angband-mechanicum = "angband_mechanicum.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
