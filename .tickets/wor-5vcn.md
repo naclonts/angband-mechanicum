@@ -1,6 +1,6 @@
 ---
 id: wor-5vcn
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-03-27T23:15:03Z
