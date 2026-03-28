@@ -93,11 +93,23 @@ class GameScreen(Screen[None]):
     @work(exclusive=True)
     async def handle_command(self, text: str) -> None:
         narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
+        prompt: PromptInput = self.query_one("#prompt", PromptInput)
         narrative.append_narrative(f"\n[bold]> {text}[/bold]\n")
 
         self._narrative_log.append(f"\n[bold]> {text}[/bold]\n")
 
-        response = await self.app.game_engine.process_input(text)  # type: ignore[attr-defined]
+        # Show loading state while the engine processes
+        narrative.show_loading()
+        prompt.set_processing(True)
+
+        try:
+            response = await self.app.game_engine.process_input(text)  # type: ignore[attr-defined]
+        finally:
+            # Always clear loading state, even on error
+            narrative.hide_loading()
+            prompt.set_processing(False)
+            prompt.focus()
+
         narrative.append_narrative(response.narrative_text)
         self._narrative_log.append(response.narrative_text)
 
