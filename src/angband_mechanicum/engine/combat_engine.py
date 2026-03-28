@@ -376,7 +376,7 @@ def make_player(
         name="Magos Explorator",
         entity_id=entity_id,
         team=UnitTeam.PLAYER,
-        stats=CombatStats(max_hp=actual_max_hp, hp=actual_hp, attack=5, armor=2, movement=4, attack_range=1),
+        stats=CombatStats(max_hp=actual_max_hp, hp=actual_hp, attack=5, armor=2, movement=4, attack_range=3),
         x=x,
         y=y,
         symbol="@",
@@ -962,14 +962,24 @@ class CombatEngine:
         return reachable
 
     def get_attackable_units(self, unit: CombatUnit) -> list[CombatUnit]:
-        """Return enemy units within attack range of ``unit``."""
+        """Return enemy units within attack range of ``unit`` with valid LoS.
+
+        Melee attacks (range 1) always succeed if adjacent.  Ranged attacks
+        (range > 1) require clear line-of-sight through the grid.
+        """
         targets: list[CombatUnit] = []
         for other in self._units.values():
             if not other.alive or other.team == unit.team:
                 continue
             dist = manhattan_distance(unit.x, unit.y, other.x, other.y)
-            if dist <= unit.stats.attack_range:
-                targets.append(other)
+            if dist > unit.stats.attack_range:
+                continue
+            # Ranged attacks require line-of-sight; melee (dist 1) always works
+            if dist > 1 and not has_line_of_sight(
+                self._grid, unit.x, unit.y, other.x, other.y
+            ):
+                continue
+            targets.append(other)
         return targets
 
     # -- Player actions ------------------------------------------------------
@@ -1003,7 +1013,11 @@ class CombatEngine:
         return True
 
     def player_attack(self, target_unit_id: str) -> bool:
-        """Active player unit attacks the specified unit. Returns True on success."""
+        """Active player unit attacks the specified unit. Returns True on success.
+
+        Ranged attacks (distance > 1) require clear line-of-sight through the
+        grid, matching the same rules that enemy ranged AI uses.
+        """
         if self._phase != CombatPhase.PLAYER_TURN:
             return False
         unit = self.get_active_unit()
@@ -1018,9 +1032,26 @@ class CombatEngine:
         if dist > unit.stats.attack_range:
             self._add_log(f"{target.name} is out of range (dist={dist}, range={unit.stats.attack_range}).")
             return False
+        # Ranged attacks require line-of-sight; melee (dist 1) always works
+        if dist > 1 and not has_line_of_sight(
+            self._grid, unit.x, unit.y, target.x, target.y
+        ):
+            self._add_log(f"No line of sight to {target.name}!")
+            return False
+        # Flavour: describe ranged vs melee
+        is_ranged_shot = dist > 1
         actual = target.take_damage(unit.stats.attack)
         unit.total_damage_dealt += actual
-        self._add_log(f"{unit.name} attacks {target.name} for {actual} damage! (HP: {target.stats.hp}/{target.stats.max_hp})")
+        if is_ranged_shot:
+            self._add_log(
+                f"{unit.name} shoots {target.name} for {actual} damage! "
+                f"(HP: {target.stats.hp}/{target.stats.max_hp})"
+            )
+        else:
+            self._add_log(
+                f"{unit.name} attacks {target.name} for {actual} damage! "
+                f"(HP: {target.stats.hp}/{target.stats.max_hp})"
+            )
         unit.has_attacked = True
         if not target.alive:
             self._add_log(f"{target.name} destroyed!")

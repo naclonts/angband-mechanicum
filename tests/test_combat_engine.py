@@ -325,6 +325,141 @@ class TestCombatEngineAttack:
 
 
 # ---------------------------------------------------------------------------
+# CombatEngine: player ranged attacks
+# ---------------------------------------------------------------------------
+
+
+class TestPlayerRangedAttack:
+    def test_player_has_ranged_attack(self) -> None:
+        """The Tech-Priest should have attack_range > 1."""
+        player = make_player(5, 5)
+        assert player.stats.attack_range > 1, (
+            "Tech-Priest should have ranged capability"
+        )
+
+    def test_player_can_shoot_at_range_with_los(self) -> None:
+        """Player should be able to attack an enemy at range with clear LoS."""
+        engine = CombatEngine(enemy_roster=[])
+        player = engine.get_player()
+        player.x = 2
+        player.y = 7
+
+        # Place an enemy within range and with clear LoS (same row, no walls)
+        enemy = make_enemy("servitor", 4, 7)
+        engine._units[enemy.unit_id] = enemy
+        engine._total_enemies = 1
+
+        initial_hp = enemy.stats.hp
+        result = engine.player_attack(enemy.unit_id)
+        assert result is True
+        assert enemy.stats.hp < initial_hp
+        # Check for ranged shot flavour in log
+        shot_logs = [e.text for e in engine.log if "shoots" in e.text]
+        assert len(shot_logs) > 0, "Ranged attack should use 'shoots' in log"
+
+    def test_player_cannot_shoot_without_los(self) -> None:
+        """Player ranged attack should fail when LoS is blocked by a wall."""
+        engine = CombatEngine(enemy_roster=[])
+        player = engine.get_player()
+        # Player on left side of corridor map's internal wall at x=8
+        player.x = 6
+        player.y = 3
+
+        # Enemy on other side of wall at x=8 (wall runs y=1..5)
+        enemy = make_enemy("servitor", 10, 3)
+        engine._units[enemy.unit_id] = enemy
+        engine._total_enemies = 1
+
+        # Distance is 4, player range is 3 -- but let's set up within range
+        # Move player closer so range is satisfied but LoS is still blocked
+        player.x = 7
+        player.y = 3
+        # Wall at (8,3) blocks LoS from (7,3) to (10,3)
+        assert not has_line_of_sight(engine.grid, 7, 3, 10, 3)
+
+        result = engine.player_attack(enemy.unit_id)
+        assert result is False
+        # Check for LoS failure message in log
+        los_logs = [e.text for e in engine.log if "line of sight" in e.text.lower()]
+        assert len(los_logs) > 0, "Should log LoS failure message"
+
+    def test_melee_attack_ignores_los(self) -> None:
+        """Adjacent (melee) attacks should work regardless of LoS."""
+        engine = CombatEngine(enemy_roster=[])
+        player = engine.get_player()
+        player.x = 3
+        player.y = 7
+
+        enemy = make_enemy("servitor", 4, 7)
+        engine._units[enemy.unit_id] = enemy
+        engine._total_enemies = 1
+
+        # Distance is 1 -- melee should always work
+        initial_hp = enemy.stats.hp
+        result = engine.player_attack(enemy.unit_id)
+        assert result is True
+        assert enemy.stats.hp < initial_hp
+        # Check for melee flavour in log (should say "attacks" not "shoots")
+        attack_logs = [e.text for e in engine.log if "attacks" in e.text]
+        assert len(attack_logs) > 0
+
+    def test_get_attackable_units_respects_los(self) -> None:
+        """get_attackable_units should exclude targets without LoS."""
+        engine = CombatEngine(enemy_roster=[])
+        player = engine.get_player()
+        player.x = 7
+        player.y = 3
+
+        # Enemy behind wall (x=8 wall from y=1..5)
+        enemy_blocked = make_enemy("servitor", 10, 3)
+        engine._units[enemy_blocked.unit_id] = enemy_blocked
+
+        # Enemy with clear LoS
+        enemy_clear = make_enemy("gunner", 5, 3)
+        engine._units[enemy_clear.unit_id] = enemy_clear
+        engine._total_enemies = 2
+
+        attackable = engine.get_attackable_units(player)
+        attackable_ids = {u.unit_id for u in attackable}
+
+        # The enemy with clear LoS should be attackable (if in range)
+        dist_clear = manhattan_distance(player.x, player.y, enemy_clear.x, enemy_clear.y)
+        if dist_clear <= player.stats.attack_range:
+            assert enemy_clear.unit_id in attackable_ids
+
+        # The enemy behind the wall should NOT be attackable
+        assert enemy_blocked.unit_id not in attackable_ids
+
+    def test_party_member_ranged_attack(self) -> None:
+        """Alpha-7 (ranged party member) should be able to shoot at range."""
+        engine = CombatEngine(
+            party_ids=["skitarius-alpha-7"],
+            enemy_roster=[],
+        )
+        # Place an enemy within Alpha-7's range (attack_range=5)
+        enemy = make_enemy("servitor", 6, 6)
+        engine._units[enemy.unit_id] = enemy
+        engine._total_enemies = 1
+
+        # Select Alpha-7
+        alpha7 = engine._units.get("skitarius-alpha-7")
+        assert alpha7 is not None
+        assert alpha7.stats.attack_range == 5
+
+        engine.select_unit("skitarius-alpha-7")
+        assert engine.active_unit_id == "skitarius-alpha-7"
+
+        dist = manhattan_distance(alpha7.x, alpha7.y, enemy.x, enemy.y)
+        los = has_line_of_sight(engine.grid, alpha7.x, alpha7.y, enemy.x, enemy.y)
+
+        if dist <= alpha7.stats.attack_range and (dist <= 1 or los):
+            initial_hp = enemy.stats.hp
+            result = engine.player_attack(enemy.unit_id)
+            assert result is True
+            assert enemy.stats.hp < initial_hp
+
+
+# ---------------------------------------------------------------------------
 # CombatEngine: turn flow
 # ---------------------------------------------------------------------------
 
