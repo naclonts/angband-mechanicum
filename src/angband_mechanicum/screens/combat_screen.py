@@ -36,13 +36,21 @@ class CombatScreen(Screen[CombatResult]):
         Binding("right", "cursor_right", "Cursor right", show=False),
         Binding("m", "move_unit", "Move to cursor", show=True),
         Binding("a", "attack_target", "Attack at cursor", show=True),
+        Binding("tab", "next_unit", "Next unit", show=True),
         Binding("e", "end_turn", "End turn", show=True),
         Binding("q", "retreat", "Retreat", show=True),
     ]
 
-    def __init__(self, map_key: str = "corridor", **kwargs: object) -> None:
+    def __init__(
+        self,
+        map_key: str = "corridor",
+        party_ids: list[str] | None = None,
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
-        self._engine: CombatEngine = CombatEngine(map_key=map_key)
+        self._engine: CombatEngine = CombatEngine(
+            map_key=map_key, party_ids=party_ids
+        )
 
     @property
     def engine(self) -> CombatEngine:
@@ -98,8 +106,15 @@ class CombatScreen(Screen[CombatResult]):
 
     # -- Player actions ------------------------------------------------------
 
+    def action_next_unit(self) -> None:
+        """Cycle to the next living party unit."""
+        if self._engine.phase != CombatPhase.PLAYER_TURN:
+            return
+        self._engine.cycle_active_unit()
+        self._refresh_all()
+
     def action_move_unit(self) -> None:
-        """Move the player unit to the cursor position."""
+        """Move the active player unit to the cursor position."""
         if self._engine.phase != CombatPhase.PLAYER_TURN:
             return
         cx, cy = self._engine.cursor
@@ -107,7 +122,7 @@ class CombatScreen(Screen[CombatResult]):
         self._refresh_all()
 
     def action_attack_target(self) -> None:
-        """Attack the unit at the cursor position."""
+        """Attack the unit at the cursor position with the active unit."""
         if self._engine.phase != CombatPhase.PLAYER_TURN:
             return
         cx, cy = self._engine.cursor

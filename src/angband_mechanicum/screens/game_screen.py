@@ -187,7 +187,10 @@ class GameScreen(Screen[None]):
             self._narrative_log.append(summary)
             self.query_one("#prompt", PromptInput).focus()
 
-        self.app.push_screen(CombatScreen(), callback=on_combat_result)
+        party_ids: list[str] = self.app.game_engine.party_member_ids  # type: ignore[attr-defined]
+        self.app.push_screen(
+            CombatScreen(party_ids=party_ids), callback=on_combat_result
+        )
 
     def _autosave(self) -> None:
         """Save current game state to the session's save slot."""

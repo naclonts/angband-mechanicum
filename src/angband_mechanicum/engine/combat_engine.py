@@ -253,6 +253,48 @@ def make_player(x: int, y: int, entity_id: str | None = None) -> CombatUnit:
 
 
 # ---------------------------------------------------------------------------
+# Party member templates (allies derived from narrative game state)
+# ---------------------------------------------------------------------------
+
+PARTY_TEMPLATES: dict[str, dict[str, Any]] = {
+    "skitarius-alpha-7": {
+        "name": "Skitarius Alpha-7",
+        "symbol": "A",
+        "stats": {"max_hp": 12, "hp": 12, "attack": 4, "armor": 1, "movement": 4, "attack_range": 5},
+    },
+    "enginseer-volta": {
+        "name": "Enginseer Volta",
+        "symbol": "V",
+        "stats": {"max_hp": 14, "hp": 14, "attack": 6, "armor": 1, "movement": 3, "attack_range": 1},
+    },
+    "datasmith-kael": {
+        "name": "Datasmith Kael",
+        "symbol": "K",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 3, "armor": 0, "movement": 3, "attack_range": 3},
+    },
+}
+
+
+def make_party_member(entity_id: str, x: int, y: int) -> CombatUnit:
+    """Create a party member CombatUnit from PARTY_TEMPLATES.
+
+    The entity_id must exist in PARTY_TEMPLATES. The unit_id is set to
+    the entity_id for straightforward lookup.
+    """
+    tpl = PARTY_TEMPLATES[entity_id]
+    return CombatUnit(
+        unit_id=entity_id,
+        name=tpl["name"],
+        entity_id=entity_id,
+        team=UnitTeam.PLAYER,
+        stats=CombatStats(**tpl["stats"]),
+        x=x,
+        y=y,
+        symbol=tpl["symbol"],
+    )
+
+
+# ---------------------------------------------------------------------------
 # Combat phase tracking
 # ---------------------------------------------------------------------------
 
@@ -362,6 +404,7 @@ HARDCODED_MAPS: dict[str, dict[str, Any]] = {
         "name": "Sub-Level Corridor",
         "build": _build_corridor_map,
         "player_start": (2, 7),
+        "party_starts": [(3, 6), (3, 8), (2, 9)],  # near the player
         "enemies": [
             ("servitor", 10, 3),
             ("gunner", 16, 6),
@@ -421,7 +464,11 @@ class CombatEngine:
     No LLM API calls -- all logic is local computation.
     """
 
-    def __init__(self, map_key: str = "corridor") -> None:
+    def __init__(
+        self,
+        map_key: str = "corridor",
+        party_ids: list[str] | None = None,
+    ) -> None:
         map_def = HARDCODED_MAPS[map_key]
         self._map_name: str = map_def["name"]
         self._map_key: str = map_key
@@ -441,6 +488,28 @@ class CombatEngine:
         self._cursor_x = px
         self._cursor_y = py
 
+        # Place party members near the player
+        party_starts: list[tuple[int, int]] = map_def.get("party_starts", [])
+        effective_party = party_ids or []
+        for i, pid in enumerate(effective_party):
+            if pid not in PARTY_TEMPLATES:
+                continue
+            if i < len(party_starts):
+                mx, my = party_starts[i]
+            else:
+                # Fallback: offset from player start
+                mx, my = px + 1 + i, py
+            member = make_party_member(pid, mx, my)
+            self._units[member.unit_id] = member
+
+        # Track player unit ordering for multi-unit turns
+        self._player_unit_ids: list[str] = [
+            u.unit_id for u in self._units.values()
+            if u.team == UnitTeam.PLAYER
+        ]
+        self._active_unit_index: int = 0
+        self._active_unit_id: str = self._player_unit_ids[0]
+
         # Place enemies
         for template_key, ex, ey in map_def["enemies"]:
             enemy = make_enemy(template_key, ex, ey)
@@ -448,7 +517,8 @@ class CombatEngine:
             self._total_enemies += 1
 
         self._add_log(f"++ TACTICAL MODE: {self._map_name.upper()} ++")
-        self._add_log("Your turn. Select action: move / attack / end_turn")
+        active = self._units[self._active_unit_id]
+        self._add_log(f"Your turn. Active: {active.name}. move / attack / end_turn / Tab:next")
 
     # -- Properties ----------------------------------------------------------
 
@@ -480,9 +550,63 @@ class CombatEngine:
     def is_over(self) -> bool:
         return self._phase in (CombatPhase.VICTORY, CombatPhase.DEFEAT)
 
+    # -- Active unit management -----------------------------------------------
+
+    @property
+    def active_unit_id(self) -> str:
+        """The unit_id of the currently selected player unit."""
+        return self._active_unit_id
+
+    def get_active_unit(self) -> CombatUnit:
+        """Return the currently active player unit."""
+        return self._units[self._active_unit_id]
+
+    def select_unit(self, unit_id: str) -> bool:
+        """Switch active unit to the given unit_id. Returns True on success."""
+        if unit_id not in self._player_unit_ids:
+            return False
+        unit = self._units[unit_id]
+        if not unit.alive:
+            return False
+        self._active_unit_id = unit_id
+        self._active_unit_index = self._player_unit_ids.index(unit_id)
+        self._cursor_x = unit.x
+        self._cursor_y = unit.y
+        self._add_log(f"Selected {unit.name}.")
+        return True
+
+    def cycle_active_unit(self) -> str:
+        """Cycle to the next living player unit. Returns the new active unit_id."""
+        alive_ids = [
+            uid for uid in self._player_unit_ids
+            if self._units[uid].alive
+        ]
+        if not alive_ids:
+            return self._active_unit_id
+        # Find current position in alive list
+        try:
+            idx = alive_ids.index(self._active_unit_id)
+        except ValueError:
+            idx = -1
+        next_idx = (idx + 1) % len(alive_ids)
+        next_id = alive_ids[next_idx]
+        self._active_unit_id = next_id
+        self._active_unit_index = self._player_unit_ids.index(next_id)
+        unit = self._units[next_id]
+        self._cursor_x = unit.x
+        self._cursor_y = unit.y
+        self._add_log(f"Selected {unit.name}.")
+        return next_id
+
+    @property
+    def player_unit_ids(self) -> list[str]:
+        """Ordered list of all player-team unit IDs (alive or dead)."""
+        return list(self._player_unit_ids)
+
     # -- Unit queries --------------------------------------------------------
 
     def get_player(self) -> CombatUnit:
+        """Return the player Tech-Priest unit (always unit_id='player')."""
         return self._units["player"]
 
     def get_units(self) -> list[CombatUnit]:
@@ -564,51 +688,63 @@ class CombatEngine:
             self._cursor_y = ny
 
     def player_move(self, target_x: int, target_y: int) -> bool:
-        """Move the player unit to (target_x, target_y). Returns True on success."""
+        """Move the active player unit to (target_x, target_y). Returns True on success."""
         if self._phase != CombatPhase.PLAYER_TURN:
             return False
-        player = self.get_player()
-        if not player.alive or player.has_moved:
-            self._add_log("Already moved this turn.")
+        unit = self.get_active_unit()
+        if not unit.alive or unit.has_moved:
+            self._add_log(f"{unit.name} already moved this turn.")
             return False
-        reachable = self.get_reachable_tiles(player)
+        reachable = self.get_reachable_tiles(unit)
         if (target_x, target_y) not in reachable:
             self._add_log("Cannot reach that tile.")
             return False
-        player.x = target_x
-        player.y = target_y
-        player.has_moved = True
-        self._add_log(f"Moved to ({target_x},{target_y}).")
+        unit.x = target_x
+        unit.y = target_y
+        unit.has_moved = True
+        self._add_log(f"{unit.name} moved to ({target_x},{target_y}).")
         self._cursor_x = target_x
         self._cursor_y = target_y
         return True
 
     def player_attack(self, target_unit_id: str) -> bool:
-        """Player attacks the specified unit. Returns True on success."""
+        """Active player unit attacks the specified unit. Returns True on success."""
         if self._phase != CombatPhase.PLAYER_TURN:
             return False
-        player = self.get_player()
-        if not player.alive or player.has_attacked:
-            self._add_log("Already attacked this turn.")
+        unit = self.get_active_unit()
+        if not unit.alive or unit.has_attacked:
+            self._add_log(f"{unit.name} already attacked this turn.")
             return False
         target = self._units.get(target_unit_id)
         if not target or not target.alive:
             self._add_log("Invalid target.")
             return False
-        dist = manhattan_distance(player.x, player.y, target.x, target.y)
-        if dist > player.stats.attack_range:
-            self._add_log(f"{target.name} is out of range (dist={dist}, range={player.stats.attack_range}).")
+        dist = manhattan_distance(unit.x, unit.y, target.x, target.y)
+        if dist > unit.stats.attack_range:
+            self._add_log(f"{target.name} is out of range (dist={dist}, range={unit.stats.attack_range}).")
             return False
-        actual = target.take_damage(player.stats.attack)
-        self._add_log(f"Attacked {target.name} for {actual} damage! (HP: {target.stats.hp}/{target.stats.max_hp})")
-        player.has_attacked = True
+        actual = target.take_damage(unit.stats.attack)
+        self._add_log(f"{unit.name} attacks {target.name} for {actual} damage! (HP: {target.stats.hp}/{target.stats.max_hp})")
+        unit.has_attacked = True
         if not target.alive:
             self._add_log(f"{target.name} destroyed!")
         self._check_end_conditions()
         return True
 
+    def _all_player_units_done(self) -> bool:
+        """Check if all living player units have used their actions."""
+        for uid in self._player_unit_ids:
+            unit = self._units[uid]
+            if unit.alive and (not unit.has_moved or not unit.has_attacked):
+                return False
+        return True
+
     def end_player_turn(self) -> None:
-        """End the player's turn and begin enemy phase."""
+        """End the player's turn and begin enemy phase.
+
+        Only proceeds when called explicitly -- the player decides when
+        all party members have acted (or chooses to end early).
+        """
         if self._phase != CombatPhase.PLAYER_TURN:
             return
         self._add_log("-- End of player turn --")
@@ -617,38 +753,61 @@ class CombatEngine:
 
     # -- Enemy AI ------------------------------------------------------------
 
+    def _find_nearest_player_unit(
+        self, enemy: CombatUnit
+    ) -> CombatUnit | None:
+        """Find the nearest living player-team unit to the given enemy."""
+        best: CombatUnit | None = None
+        best_dist = 9999
+        for u in self.get_alive_units(UnitTeam.PLAYER):
+            dist = manhattan_distance(enemy.x, enemy.y, u.x, u.y)
+            if dist < best_dist:
+                best_dist = dist
+                best = u
+        return best
+
     def _run_enemy_turn(self) -> None:
-        """Execute AI for all living enemy units."""
+        """Execute AI for all living enemy units.
+
+        Enemies target the nearest player-team unit (not just the Tech-Priest).
+        """
         self._add_log(f"[Turn {self._turn}] Enemy phase")
-        player = self.get_player()
-        if not player.alive:
+        player_units = self.get_alive_units(UnitTeam.PLAYER)
+        if not player_units:
             self._check_end_conditions()
             return
 
         occupied = self._occupied_positions()
 
         for enemy in self.get_alive_units(UnitTeam.ENEMY):
-            dist = manhattan_distance(enemy.x, enemy.y, player.x, player.y)
+            target = self._find_nearest_player_unit(enemy)
+            if target is None:
+                continue
+            dist = manhattan_distance(enemy.x, enemy.y, target.x, target.y)
 
             # Attack if in range
             if dist <= enemy.stats.attack_range:
-                actual = player.take_damage(enemy.stats.attack)
+                actual = target.take_damage(enemy.stats.attack)
                 self._add_log(
-                    f"{enemy.name} attacks you for {actual} damage! "
-                    f"(HP: {player.stats.hp}/{player.stats.max_hp})"
+                    f"{enemy.name} attacks {target.name} for {actual} damage! "
+                    f"(HP: {target.stats.hp}/{target.stats.max_hp})"
                 )
-                if not player.alive:
-                    self._add_log("++ CRITICAL FAILURE: SYSTEMS OFFLINE ++")
+                if not target.alive:
+                    if target.unit_id == "player":
+                        self._add_log("++ CRITICAL FAILURE: SYSTEMS OFFLINE ++")
+                    else:
+                        self._add_log(f"{target.name} is down!")
                     self._check_end_conditions()
-                    return
+                    if self.is_over:
+                        return
             else:
-                # Move toward player
+                # Move toward target
                 occupied.discard((enemy.x, enemy.y))
                 steps_remaining = enemy.stats.movement
                 while steps_remaining > 0:
                     nx, ny = _step_toward(
                         self._grid, enemy.x, enemy.y,
-                        player.x, player.y, occupied,
+                        target.x, target.y, occupied,
                     )
                     if (nx, ny) == (enemy.x, enemy.y):
                         break  # stuck
@@ -661,37 +820,56 @@ class CombatEngine:
                 occupied.add((enemy.x, enemy.y))
 
                 # Check if now in attack range after moving
-                dist = manhattan_distance(enemy.x, enemy.y, player.x, player.y)
+                dist = manhattan_distance(enemy.x, enemy.y, target.x, target.y)
                 if dist <= enemy.stats.attack_range:
-                    actual = player.take_damage(enemy.stats.attack)
+                    actual = target.take_damage(enemy.stats.attack)
                     self._add_log(
-                        f"{enemy.name} advances and attacks for {actual} damage! "
-                        f"(HP: {player.stats.hp}/{player.stats.max_hp})"
+                        f"{enemy.name} advances and attacks {target.name} for {actual} damage! "
+                        f"(HP: {target.stats.hp}/{target.stats.max_hp})"
                     )
-                    if not player.alive:
-                        self._add_log("++ CRITICAL FAILURE: SYSTEMS OFFLINE ++")
+                    if not target.alive:
+                        if target.unit_id == "player":
+                            self._add_log("++ CRITICAL FAILURE: SYSTEMS OFFLINE ++")
+                        else:
+                            self._add_log(f"{target.name} is down!")
                         self._check_end_conditions()
-                        return
+                        if self.is_over:
+                            return
                 else:
-                    self._add_log(f"{enemy.name} moves toward you.")
+                    self._add_log(f"{enemy.name} moves toward {target.name}.")
 
         self._check_end_conditions()
         if not self.is_over:
             self._begin_player_turn()
 
     def _begin_player_turn(self) -> None:
-        """Reset player unit flags and start a new player turn."""
+        """Reset all player unit flags and start a new player turn."""
         self._turn += 1
         self._phase = CombatPhase.PLAYER_TURN
-        player = self.get_player()
-        player.has_moved = False
-        player.has_attacked = False
-        self._add_log(f"[Turn {self._turn}] Your turn. move / attack / end_turn")
+        for uid in self._player_unit_ids:
+            unit = self._units[uid]
+            if unit.alive:
+                unit.has_moved = False
+                unit.has_attacked = False
+        # Select the first living player unit
+        for uid in self._player_unit_ids:
+            if self._units[uid].alive:
+                self._active_unit_id = uid
+                self._active_unit_index = self._player_unit_ids.index(uid)
+                break
+        active = self._units[self._active_unit_id]
+        self._cursor_x = active.x
+        self._cursor_y = active.y
+        self._add_log(f"[Turn {self._turn}] Your turn. Active: {active.name}. move / attack / end_turn / Tab:next")
 
     # -- Win/loss checks -----------------------------------------------------
 
     def _check_end_conditions(self) -> None:
-        """Check for victory or defeat."""
+        """Check for victory or defeat.
+
+        Defeat occurs when the player Tech-Priest (unit_id='player') falls.
+        Party members can be downed without ending the battle.
+        """
         player = self.get_player()
         if not player.alive:
             self._phase = CombatPhase.DEFEAT
@@ -736,6 +914,9 @@ class CombatEngine:
             "total_enemies": self._total_enemies,
             "cursor_x": self._cursor_x,
             "cursor_y": self._cursor_y,
+            "player_unit_ids": list(self._player_unit_ids),
+            "active_unit_id": self._active_unit_id,
+            "active_unit_index": self._active_unit_index,
         }
 
     @classmethod
@@ -753,4 +934,8 @@ class CombatEngine:
         engine._total_enemies = data["total_enemies"]
         engine._cursor_x = data.get("cursor_x", 0)
         engine._cursor_y = data.get("cursor_y", 0)
+        # Multi-unit state (backwards-compatible with old saves)
+        engine._player_unit_ids = data.get("player_unit_ids", ["player"])
+        engine._active_unit_id = data.get("active_unit_id", "player")
+        engine._active_unit_index = data.get("active_unit_index", 0)
         return engine

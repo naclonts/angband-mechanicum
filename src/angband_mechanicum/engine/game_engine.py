@@ -170,6 +170,13 @@ class GameResponse:
 class GameEngine:
     """Processes player input via the Anthropic Claude API and returns narrative responses."""
 
+    # Default party members — entity IDs matching the seeded entities
+    DEFAULT_PARTY_IDS: list[str] = [
+        "skitarius-alpha-7",
+        "enginseer-volta",
+        "datasmith-kael",
+    ]
+
     def __init__(self) -> None:
         self._client: anthropic.AsyncAnthropic = anthropic.AsyncAnthropic()
         self._conversation_history: list[MessageParam] = []
@@ -179,6 +186,7 @@ class GameEngine:
         self._info_panel: dict[str, str] = {}
         self._history: GameHistory = GameHistory()
         self._seed_starting_entities()
+        self._party_member_ids: list[str] = list(self.DEFAULT_PARTY_IDS)
         self._log_path: Path = (
             _log_dir() / f"convo_{int(time.time())}.jsonl"
         )
@@ -196,6 +204,11 @@ class GameEngine:
     @property
     def turn_count(self) -> int:
         return self._turn_count
+
+    @property
+    def party_member_ids(self) -> list[str]:
+        """Entity IDs of current party members (excluding the player Tech-Priest)."""
+        return list(self._party_member_ids)
 
     @property
     def history(self) -> GameHistory:
@@ -289,6 +302,7 @@ class GameEngine:
             "info_panel": dict(self._info_panel),
             "error_count": self._error_count,
             "history": self._history.to_dict(),
+            "party_member_ids": list(self._party_member_ids),
         }
 
     @classmethod
@@ -301,6 +315,9 @@ class GameEngine:
         engine._current_scene_art = data.get("current_scene_art")
         engine._info_panel = data.get("info_panel", {})
         engine._error_count = data.get("error_count", 0)
+        engine._party_member_ids = data.get(
+            "party_member_ids", list(cls.DEFAULT_PARTY_IDS)
+        )
         engine._log_path = _log_dir() / f"convo_{int(time.time())}.jsonl"
         engine._scene_pane_width = DEFAULT_ART_WIDTH
         engine._scene_pane_height = DEFAULT_ART_HEIGHT
