@@ -1,6 +1,6 @@
 ---
 id: am-m1n1
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-03-28T00:35:44Z
