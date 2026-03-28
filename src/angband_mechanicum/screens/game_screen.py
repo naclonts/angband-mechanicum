@@ -213,6 +213,9 @@ class GameScreen(Screen[None]):
             narrative_pane.append_narrative(summary)
             self._narrative_log.append(summary)
 
+            # Persist combat result in engine history and LLM conversation
+            engine.record_combat_result(result)
+
             # Update the info panel with the current integrity
             self._update_integrity_display()
 
