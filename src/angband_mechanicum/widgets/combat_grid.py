@@ -8,6 +8,7 @@ from textual.widgets import Static
 
 from angband_mechanicum.engine.combat_engine import (
     CombatEngine,
+    CombatPhase,
     CombatUnit,
     Terrain,
     UnitTeam,
@@ -40,6 +41,8 @@ def render_grid(engine: CombatEngine) -> str:
     - Column/row numbers for reference
     - The currently selected party member is shown with an underline
       indicator so the player always knows who they are controlling.
+    - When a unit is selected and hasn't moved yet, reachable floor
+      tiles are highlighted with a subtle brighter green.
     """
     grid = engine.grid
     cx, cy = engine.cursor
@@ -48,6 +51,13 @@ def render_grid(engine: CombatEngine) -> str:
     for u in engine.get_units():
         if u.alive:
             units_by_pos[(u.x, u.y)] = u
+
+    # Compute movement range overlay for the active unit
+    reachable: set[tuple[int, int]] = set()
+    if engine.phase == CombatPhase.PLAYER_TURN:
+        active_unit = engine.get_active_unit()
+        if active_unit.alive and not active_unit.has_moved:
+            reachable = engine.get_reachable_tiles(active_unit)
 
     lines: list[str] = []
 
@@ -111,12 +121,14 @@ def render_grid(engine: CombatEngine) -> str:
             else:
                 tile = grid.get_tile(x, y)
                 raw = _TERRAIN_CHARS.get(tile.terrain, "?")
+                in_range = (x, y) in reachable
                 if tile.terrain == Terrain.WALL:
-                    char = f"[dim]{raw}[/dim]"
-                elif tile.terrain == Terrain.DEBRIS:
                     char = f"[dim]{raw}[/dim]"
                 elif tile.terrain == Terrain.TERMINAL:
                     char = f"[bold]{raw}[/bold]"
+                elif in_range:
+                    # Subtle movement range highlight: brighter green
+                    char = f"[#55cc55]{raw}[/#55cc55]"
                 else:
                     char = f"[dim]{raw}[/dim]"
 
