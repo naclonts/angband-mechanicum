@@ -74,12 +74,12 @@ PromptInput {
     dock: bottom;
     color: $crt-bright;
     background: $crt-bg;
-    border-top: heavy $crt-dim;
+    border: heavy $crt-dim;
     padding: 0 1;
 }
 
 PromptInput:focus {
-    border-top: heavy $crt-bright;
+    border: heavy $crt-bright;
 }
 
 PromptInput.-processing {

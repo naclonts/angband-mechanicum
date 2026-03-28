@@ -315,3 +315,58 @@ class TestErrorHandling:
 
             assert app.game_engine.turn_count == 1
             assert len(app.game_engine._conversation_history) == 2
+
+
+# ---------------------------------------------------------------------------
+# Test: prompt pane border consistency
+# ---------------------------------------------------------------------------
+
+class TestPromptBorder:
+    @pytest.mark.asyncio
+    async def test_prompt_border_all_sides_consistent(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The prompt pane should have the same border style on all four sides."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app)
+            prompt = app.screen.query_one("#prompt", PromptInput)
+
+            top_style, _ = prompt.styles.border_top
+            bottom_style, _ = prompt.styles.border_bottom
+            left_style, _ = prompt.styles.border_left
+            right_style, _ = prompt.styles.border_right
+
+            assert top_style == "heavy", f"border-top style is '{top_style}', expected 'heavy'"
+            assert bottom_style == "heavy", f"border-bottom style is '{bottom_style}', expected 'heavy'"
+            assert left_style == "heavy", f"border-left style is '{left_style}', expected 'heavy'"
+            assert right_style == "heavy", f"border-right style is '{right_style}', expected 'heavy'"
+
+    @pytest.mark.asyncio
+    async def test_prompt_border_color_matches_when_focused(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When focused, all four border sides should share the same color."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app)
+            prompt = app.screen.query_one("#prompt", PromptInput)
+            prompt.focus()
+            await pilot.pause()
+
+            _, top_color = prompt.styles.border_top
+            _, bottom_color = prompt.styles.border_bottom
+            _, left_color = prompt.styles.border_left
+            _, right_color = prompt.styles.border_right
+
+            assert top_color == bottom_color, (
+                f"border-top color {top_color} != border-bottom color {bottom_color}"
+            )
+            assert top_color == left_color, (
+                f"border-top color {top_color} != border-left color {left_color}"
+            )
+            assert top_color == right_color, (
+                f"border-top color {top_color} != border-right color {right_color}"
+            )
