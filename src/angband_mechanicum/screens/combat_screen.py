@@ -63,6 +63,7 @@ class CombatScreen(Screen[CombatResult]):
         party_ids: list[str] | None = None,
         enemy_roster: list[tuple[str, int, int]] | None = None,
         map_def: dict | None = None,
+        player_name: str = "Magos Explorator",
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
@@ -73,6 +74,7 @@ class CombatScreen(Screen[CombatResult]):
             party_ids=party_ids,
             enemy_roster=enemy_roster,
             map_def=map_def,
+            player_name=player_name,
         )
 
     @property

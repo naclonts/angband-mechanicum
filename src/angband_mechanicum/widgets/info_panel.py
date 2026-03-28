@@ -13,6 +13,13 @@ DEFAULT_INFO: dict[str, str] = {
     "NOOSPHERE": "CONNECTED",
 }
 
+
+def default_info(player_name: str = "Magos Explorator") -> dict[str, str]:
+    """Return default info panel data with the given player name."""
+    info = dict(DEFAULT_INFO)
+    info["DESIGNATION"] = player_name
+    return info
+
 # Width of HP bars in characters (filled + empty segments)
 _BAR_WIDTH: int = 8
 

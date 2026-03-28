@@ -288,6 +288,101 @@ ApiKeyScreen {
     margin-top: 1;
 }
 
+/* ── Character Setup Screen ── */
+
+CharacterSetupScreen {
+    background: $crt-bg;
+    align: center middle;
+}
+
+#charsetup-container {
+    width: 65;
+    height: auto;
+    max-height: 90%;
+    align: center middle;
+    padding: 1 2;
+}
+
+#charsetup-header {
+    text-align: center;
+    color: $crt-bright;
+    border: heavy $crt-dim;
+    background: $crt-surface;
+    padding: 0 1;
+    margin-bottom: 1;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+#charsetup-instructions {
+    color: $crt-dim;
+    text-align: center;
+    margin-bottom: 1;
+}
+
+#charsetup-input {
+    width: 100%;
+    margin: 1 0;
+    color: $crt-bright;
+    background: $crt-surface;
+    border: tall $crt-dim;
+}
+
+#charsetup-input:focus {
+    border: tall $crt-bright;
+}
+
+#btn-confirm {
+    width: 100%;
+    margin: 1 0;
+    color: $crt-bright;
+    background: $crt-surface;
+    border: tall $crt-dim;
+    text-style: bold;
+}
+
+#btn-confirm:focus {
+    color: $crt-bg;
+    background: $crt-bright;
+    border: tall $crt-bright;
+}
+
+#btn-confirm:hover {
+    background: $crt-medium;
+}
+
+#charsetup-suggestions-label {
+    text-align: center;
+    color: $crt-bright;
+    margin-top: 1;
+}
+
+.suggest-entry {
+    width: 100%;
+    margin: 0 0 1 0;
+    color: $crt-medium;
+    background: $crt-surface;
+    border: tall $crt-dim;
+}
+
+.suggest-entry:focus {
+    color: $crt-bg;
+    background: $crt-bright;
+    border: tall $crt-bright;
+    text-style: bold;
+}
+
+.suggest-entry:hover {
+    color: $crt-bright;
+    border: tall $crt-bright;
+}
+
+#charsetup-footer {
+    text-align: center;
+    color: $crt-dim;
+    margin-top: 1;
+}
+
 /* ── Help Overlay ── */
 
 HelpOverlay {

@@ -99,7 +99,7 @@ RPG set in the Warhammer 40,000 universe. You narrate the world and respond to t
 player's actions.
 
 ## Setting
-The player is a **Tech-Priest Magos Explorator** of the Adeptus Mechanicus. They are \
+The player is a **Tech-Priest {player_name}** of the Adeptus Mechanicus. They are \
 stationed on the forge world **Metallica Secundus**, in the great manufactorum-city \
 **Angband Mechanicum**. A priority signal has been received — seismic anomalies and \
 unidentified energy signatures detected in the deep strata beneath the forge. The \
@@ -243,8 +243,9 @@ class GameEngine:
         "enginseer-volta",
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, player_name: str = "Magos Explorator") -> None:
         self._client: anthropic.AsyncAnthropic = anthropic.AsyncAnthropic()
+        self._player_name: str = player_name
         self._conversation_history: list[MessageParam] = []
         self._error_count: int = 0
         self._turn_count: int = 0
@@ -269,6 +270,10 @@ class GameEngine:
         """
         self._scene_pane_width = max(width, 20)
         self._scene_pane_height = max(height, 6)
+
+    @property
+    def player_name(self) -> str:
+        return self._player_name
 
     @property
     def integrity(self) -> int:
@@ -359,7 +364,9 @@ class GameEngine:
 
     def _build_system_prompt(self) -> str:
         """Build the full system prompt with dynamic entity registry and scene dimensions."""
-        prompt = _SYSTEM_PROMPT_BASE + _build_scene_art_instructions(
+        prompt = _SYSTEM_PROMPT_BASE.replace(
+            "{player_name}", self._player_name
+        ) + _build_scene_art_instructions(
             self._scene_pane_width, self._scene_pane_height
         ) + _STORY_SUFFIX
         registry_context = self._history.get_registry_context()
@@ -684,6 +691,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
     def to_dict(self) -> dict[str, Any]:
         """Export full engine state for saving."""
         return {
+            "player_name": self._player_name,
             "conversation_history": list(self._conversation_history),
             "turn_count": self._turn_count,
             "current_scene_art": self._current_scene_art,
@@ -701,6 +709,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
         """Restore engine state from a saved dict."""
         engine = cls.__new__(cls)
         engine._client = anthropic.AsyncAnthropic()
+        engine._player_name = data.get("player_name", "Magos Explorator")
         engine._conversation_history = data.get("conversation_history", [])
         engine._turn_count = data.get("turn_count", 0)
         engine._current_scene_art = data.get("current_scene_art")

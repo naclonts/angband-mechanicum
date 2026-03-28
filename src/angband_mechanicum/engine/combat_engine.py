@@ -590,6 +590,7 @@ def make_player(
     entity_id: str | None = None,
     hp: int | None = None,
     max_hp: int | None = None,
+    name: str = "Magos Explorator",
 ) -> CombatUnit:
     """Create the player Tech-Priest unit.
 
@@ -600,7 +601,7 @@ def make_player(
     actual_hp = hp if hp is not None else actual_max_hp
     return CombatUnit(
         unit_id="player",
-        name="Magos Explorator",
+        name=name,
         entity_id=entity_id,
         team=UnitTeam.PLAYER,
         stats=CombatStats(max_hp=actual_max_hp, hp=actual_hp, attack=5, armor=2, movement=4, attack_range=8),
@@ -994,6 +995,7 @@ class CombatEngine:
         party_ids: list[str] | None = None,
         enemy_roster: list[tuple[str, int, int]] | None = None,
         map_def: dict[str, Any] | None = None,
+        player_name: str = "Magos Explorator",
     ) -> None:
         if map_def is None:
             map_def = HARDCODED_MAPS[map_key]
@@ -1010,7 +1012,7 @@ class CombatEngine:
 
         # Place player (use story-mode integrity when provided)
         px, py = map_def["player_start"]
-        player = make_player(px, py, hp=player_hp, max_hp=player_max_hp)
+        player = make_player(px, py, hp=player_hp, max_hp=player_max_hp, name=player_name)
         self._units[player.unit_id] = player
         self._cursor_x = px
         self._cursor_y = py
