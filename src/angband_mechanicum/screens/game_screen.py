@@ -13,6 +13,7 @@ from textual.screen import Screen
 from textual.widgets import Input
 from textual import work
 
+from angband_mechanicum.assets.npc_portraits import NPCPortraitStore
 from angband_mechanicum.assets.placeholder_art import (
     FORGE_SCENE,
     INTRO_NARRATIVE,
@@ -54,6 +55,8 @@ class GameScreen(Screen[None]):
         self._save_manager: SaveManager = SaveManager()
         self._narrative_log: list[str] = []
         self._pending_room_hint: dict | None = None
+        self._npc_portraits: NPCPortraitStore = NPCPortraitStore()
+        self._showing_npc_portrait: bool = False
 
     def compose(self) -> ComposeResult:
         yield ScenePane(FORGE_SCENE, id="scene")
@@ -171,6 +174,9 @@ class GameScreen(Screen[None]):
 
         if response.scene_art:
             self.query_one("#scene", ScenePane).update_scene(response.scene_art)
+
+        # Swap portrait when an NPC is speaking
+        self._update_speaking_portrait(response.speaking_npc)
 
         # Push deterministic status (integrity + party HP + info fields)
         self._push_status_to_panel()
@@ -340,6 +346,31 @@ class GameScreen(Screen[None]):
             ),
             callback=on_combat_result,
         )
+
+    def _update_speaking_portrait(self, speaking_npc: str | None) -> None:
+        """Swap the portrait pane to show the speaking NPC or restore the player."""
+        portrait_pane: PortraitPane = self.query_one("#portrait", PortraitPane)
+        engine = self.app.game_engine  # type: ignore[attr-defined]
+
+        if speaking_npc:
+            # Look up entity for name/description
+            entity = engine.history.get_entity(speaking_npc)
+            if entity:
+                art = self._npc_portraits.assign_portrait(
+                    entity_id=speaking_npc,
+                    name=entity.name,
+                    description=entity.description,
+                )
+                portrait_pane.update_portrait(art)
+                portrait_pane.set_border_title(f"⛨ {entity.name.upper()}")
+                self._showing_npc_portrait = True
+                return
+
+        # No speaking NPC or entity not found -- restore player portrait
+        if self._showing_npc_portrait:
+            portrait_pane.update_portrait(TECHPRIEST_PORTRAIT)
+            portrait_pane.set_border_title("⛨ OPERATIVE")
+            self._showing_npc_portrait = False
 
     def _update_integrity_display(self) -> None:
         """Push the current integrity value into the info panel."""

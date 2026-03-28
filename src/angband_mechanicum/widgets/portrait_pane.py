@@ -1,4 +1,4 @@
-"""Portrait pane -- displays ASCII art of the player character."""
+"""Portrait pane -- displays ASCII art of the player character or NPCs."""
 
 from __future__ import annotations
 
@@ -15,3 +15,7 @@ class PortraitPane(Static):
         """Load and display a portrait by its id from the portraits catalog."""
         art = get_portrait(portrait_id)
         self.update(art)
+
+    def set_border_title(self, title: str) -> None:
+        """Update the pane's border title (e.g. NPC name or 'OPERATIVE')."""
+        self.border_title = title
