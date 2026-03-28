@@ -363,3 +363,79 @@ CombatInfo {
     border-title-color: $crt-bright;
     border-title-style: bold;
 }
+
+/* ── Story Select Screen ── */
+
+StorySelectScreen {
+    background: $crt-bg;
+    align: center middle;
+}
+
+#story-select-container {
+    width: 70;
+    height: auto;
+    max-height: 95%;
+    align: center middle;
+    padding: 0 2;
+}
+
+#story-header {
+    text-align: center;
+    color: $crt-bright;
+    background: $crt-surface;
+    margin-bottom: 1;
+}
+
+#btn-random {
+    width: 100%;
+    margin: 0 0 1 0;
+    color: $crt-bright;
+    background: $crt-surface;
+    border: tall $crt-dim;
+    text-style: bold;
+}
+
+#btn-random:focus {
+    color: $crt-bg;
+    background: $crt-bright;
+    border: tall $crt-bright;
+}
+
+#btn-random:hover {
+    background: $crt-medium;
+}
+
+#story-list {
+    height: auto;
+    max-height: 60;
+    scrollbar-color: $crt-dim;
+    scrollbar-color-hover: $crt-bright;
+}
+
+.story-entry {
+    width: 100%;
+    height: auto;
+    min-height: 3;
+    margin: 0 0 1 0;
+    color: $crt-medium;
+    background: $crt-surface;
+    border: tall $crt-dim;
+}
+
+.story-entry:focus {
+    color: $crt-bg;
+    background: $crt-bright;
+    border: tall $crt-bright;
+    text-style: bold;
+}
+
+.story-entry:hover {
+    color: $crt-bright;
+    border: tall $crt-bright;
+}
+
+#story-footer {
+    text-align: center;
+    color: $crt-dim;
+    margin-top: 1;
+}

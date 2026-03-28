@@ -50,12 +50,23 @@ class MenuScreen(Screen[None]):
             self._load_game(slot_id)
 
     def _start_new_game(self) -> None:
-        from angband_mechanicum.engine.game_engine import GameEngine
-        from angband_mechanicum.screens.game_screen import GameScreen
+        from angband_mechanicum.engine.story_starts import StoryStart
+        from angband_mechanicum.screens.story_select_screen import StorySelectScreen
 
-        self.app.game_engine = GameEngine()  # type: ignore[attr-defined]
-        self.app.save_slot = _generate_slot_id()  # type: ignore[attr-defined]
-        self.app.switch_screen(GameScreen())
+        def on_story_selected(story: StoryStart | None) -> None:
+            if story is None:
+                # Player backed out — stay on menu
+                return
+            from angband_mechanicum.engine.game_engine import GameEngine
+            from angband_mechanicum.screens.game_screen import GameScreen
+
+            engine = GameEngine()
+            engine.apply_story_start(story)
+            self.app.game_engine = engine  # type: ignore[attr-defined]
+            self.app.save_slot = _generate_slot_id()  # type: ignore[attr-defined]
+            self.app.switch_screen(GameScreen(story_start=story))
+
+        self.app.push_screen(StorySelectScreen(), callback=on_story_selected)
 
     def _show_save_list(self) -> None:
         save_list: Vertical = self.query_one("#save-list", Vertical)
