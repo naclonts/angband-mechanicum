@@ -211,7 +211,9 @@ class CombatUnit:
 # ---------------------------------------------------------------------------
 
 ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
-    # -- Mechanicum threats --
+    # ===================================================================
+    # Mechanicum threats
+    # ===================================================================
     "servitor": {
         "name": "Rogue Servitor",
         "symbol": "S",
@@ -227,7 +229,44 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
         "symbol": "O",
         "stats": {"max_hp": 15, "hp": 15, "attack": 5, "armor": 2, "movement": 2, "attack_range": 1},
     },
-    # -- Hive scum --
+    "tech_thrall": {
+        "name": "Tech-Thrall",
+        "symbol": "\u00a4",
+        "stats": {"max_hp": 6, "hp": 6, "attack": 2, "armor": 1, "movement": 3, "attack_range": 1},
+    },
+    "electro_priest_fulgurite": {
+        "name": "Fulgurite Electro-Priest",
+        "symbol": "\u00a3",
+        "stats": {"max_hp": 9, "hp": 9, "attack": 6, "armor": 0, "movement": 4, "attack_range": 1},
+    },
+    "electro_priest_corpuscarii": {
+        "name": "Corpuscarii Electro-Priest",
+        "symbol": "\u00a5",
+        "stats": {"max_hp": 8, "hp": 8, "attack": 4, "armor": 0, "movement": 4, "attack_range": 6},
+    },
+    "datasmith": {
+        "name": "Cybernetica Datasmith",
+        "symbol": "\u00a7",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 3, "armor": 2, "movement": 3, "attack_range": 5},
+    },
+    "kastelan_robot": {
+        "name": "Kastelan Robot",
+        "symbol": "K",
+        "stats": {"max_hp": 25, "hp": 25, "attack": 7, "armor": 4, "movement": 2, "attack_range": 8},
+    },
+    "sicarian_infiltrator": {
+        "name": "Sicarian Infiltrator",
+        "symbol": "\u00b6",
+        "stats": {"max_hp": 9, "hp": 9, "attack": 5, "armor": 1, "movement": 5, "attack_range": 1},
+    },
+    "sicarian_ruststalker": {
+        "name": "Sicarian Ruststalker",
+        "symbol": "\u00ae",
+        "stats": {"max_hp": 8, "hp": 8, "attack": 6, "armor": 1, "movement": 5, "attack_range": 1},
+    },
+    # ===================================================================
+    # Hive scum
+    # ===================================================================
     "thug": {
         "name": "Underhive Thug",
         "symbol": "T",
@@ -238,7 +277,9 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
         "symbol": "g",
         "stats": {"max_hp": 7, "hp": 7, "attack": 3, "armor": 0, "movement": 3, "attack_range": 6},
     },
-    # -- Chaos --
+    # ===================================================================
+    # Chaos
+    # ===================================================================
     "cultist": {
         "name": "Chaos Cultist",
         "symbol": "c",
@@ -259,7 +300,44 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
         "symbol": "M",
         "stats": {"max_hp": 18, "hp": 18, "attack": 6, "armor": 3, "movement": 3, "attack_range": 7},
     },
-    # -- Tyranid --
+    "plague_marine": {
+        "name": "Plague Marine",
+        "symbol": "P",
+        "stats": {"max_hp": 20, "hp": 20, "attack": 5, "armor": 4, "movement": 2, "attack_range": 6},
+    },
+    "noise_marine": {
+        "name": "Noise Marine",
+        "symbol": "N",
+        "stats": {"max_hp": 16, "hp": 16, "attack": 6, "armor": 3, "movement": 3, "attack_range": 10},
+    },
+    "bloodletter": {
+        "name": "Bloodletter",
+        "symbol": "\u2020",
+        "stats": {"max_hp": 12, "hp": 12, "attack": 8, "armor": 1, "movement": 4, "attack_range": 1},
+    },
+    "plaguebearer": {
+        "name": "Plaguebearer",
+        "symbol": "\u2021",
+        "stats": {"max_hp": 14, "hp": 14, "attack": 4, "armor": 3, "movement": 2, "attack_range": 1},
+    },
+    "daemonette": {
+        "name": "Daemonette",
+        "symbol": "\u00b1",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 6, "armor": 0, "movement": 5, "attack_range": 1},
+    },
+    "obliterator": {
+        "name": "Obliterator",
+        "symbol": "\u00d8",
+        "stats": {"max_hp": 22, "hp": 22, "attack": 7, "armor": 4, "movement": 2, "attack_range": 12},
+    },
+    "possessed": {
+        "name": "Possessed",
+        "symbol": "\u00de",
+        "stats": {"max_hp": 16, "hp": 16, "attack": 7, "armor": 2, "movement": 4, "attack_range": 1},
+    },
+    # ===================================================================
+    # Tyranid
+    # ===================================================================
     "hormagaunt": {
         "name": "Hormagaunt",
         "symbol": "h",
@@ -275,7 +353,39 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
         "symbol": "W",
         "stats": {"max_hp": 16, "hp": 16, "attack": 6, "armor": 2, "movement": 4, "attack_range": 5},
     },
-    # -- Ork --
+    "genestealer": {
+        "name": "Genestealer",
+        "symbol": "X",
+        "stats": {"max_hp": 8, "hp": 8, "attack": 7, "armor": 1, "movement": 6, "attack_range": 1},
+    },
+    "lictor": {
+        "name": "Lictor",
+        "symbol": "L",
+        "stats": {"max_hp": 14, "hp": 14, "attack": 8, "armor": 2, "movement": 5, "attack_range": 1},
+    },
+    "ravener": {
+        "name": "Ravener",
+        "symbol": "R",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 5, "armor": 1, "movement": 6, "attack_range": 1},
+    },
+    "carnifex": {
+        "name": "Carnifex",
+        "symbol": "C",
+        "stats": {"max_hp": 30, "hp": 30, "attack": 9, "armor": 4, "movement": 3, "attack_range": 1},
+    },
+    "zoanthrope": {
+        "name": "Zoanthrope",
+        "symbol": "\u00d0",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 7, "armor": 2, "movement": 3, "attack_range": 12},
+    },
+    "gargoyle": {
+        "name": "Gargoyle",
+        "symbol": "V",
+        "stats": {"max_hp": 4, "hp": 4, "attack": 2, "armor": 0, "movement": 6, "attack_range": 5},
+    },
+    # ===================================================================
+    # Ork
+    # ===================================================================
     "ork_boy": {
         "name": "Ork Boy",
         "symbol": "o",
@@ -286,7 +396,118 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
         "symbol": "s",
         "stats": {"max_hp": 9, "hp": 9, "attack": 3, "armor": 1, "movement": 3, "attack_range": 7},
     },
-    # -- Generic / misc --
+    "meganob": {
+        "name": "Meganob",
+        "symbol": "\u00d1",
+        "stats": {"max_hp": 20, "hp": 20, "attack": 7, "armor": 4, "movement": 2, "attack_range": 1},
+    },
+    "loota": {
+        "name": "Loota",
+        "symbol": "\u00a2",
+        "stats": {"max_hp": 9, "hp": 9, "attack": 5, "armor": 1, "movement": 2, "attack_range": 12},
+    },
+    "burna_boy": {
+        "name": "Burna Boy",
+        "symbol": "b",
+        "stats": {"max_hp": 9, "hp": 9, "attack": 4, "armor": 1, "movement": 3, "attack_range": 5},
+    },
+    "kommando": {
+        "name": "Kommando",
+        "symbol": "k",
+        "stats": {"max_hp": 9, "hp": 9, "attack": 4, "armor": 1, "movement": 5, "attack_range": 1},
+    },
+    "warboss": {
+        "name": "Warboss",
+        "symbol": "\u00df",
+        "stats": {"max_hp": 28, "hp": 28, "attack": 9, "armor": 3, "movement": 3, "attack_range": 1},
+    },
+    "weirdboy": {
+        "name": "Weirdboy",
+        "symbol": "w",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 6, "armor": 0, "movement": 3, "attack_range": 10},
+    },
+    # ===================================================================
+    # Necron
+    # ===================================================================
+    "necron_warrior": {
+        "name": "Necron Warrior",
+        "symbol": "n",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 4, "armor": 3, "movement": 3, "attack_range": 8},
+    },
+    "necron_immortal": {
+        "name": "Necron Immortal",
+        "symbol": "I",
+        "stats": {"max_hp": 12, "hp": 12, "attack": 5, "armor": 3, "movement": 3, "attack_range": 10},
+    },
+    "lychguard": {
+        "name": "Lychguard",
+        "symbol": "\u00c6",
+        "stats": {"max_hp": 16, "hp": 16, "attack": 6, "armor": 4, "movement": 3, "attack_range": 1},
+    },
+    "necron_destroyer": {
+        "name": "Necron Destroyer",
+        "symbol": "D",
+        "stats": {"max_hp": 14, "hp": 14, "attack": 6, "armor": 3, "movement": 4, "attack_range": 10},
+    },
+    "wraith": {
+        "name": "Canoptek Wraith",
+        "symbol": "\u00b5",
+        "stats": {"max_hp": 12, "hp": 12, "attack": 5, "armor": 2, "movement": 6, "attack_range": 1},
+    },
+    "scarab_swarm": {
+        "name": "Scarab Swarm",
+        "symbol": "\u00ab",
+        "stats": {"max_hp": 4, "hp": 4, "attack": 2, "armor": 1, "movement": 5, "attack_range": 1},
+    },
+    # ===================================================================
+    # Eldar / Drukhari
+    # ===================================================================
+    "kabalite_warrior": {
+        "name": "Kabalite Warrior",
+        "symbol": "e",
+        "stats": {"max_hp": 7, "hp": 7, "attack": 4, "armor": 1, "movement": 4, "attack_range": 8},
+    },
+    "wych": {
+        "name": "Wych",
+        "symbol": "y",
+        "stats": {"max_hp": 7, "hp": 7, "attack": 5, "armor": 0, "movement": 6, "attack_range": 1},
+    },
+    "incubus": {
+        "name": "Incubus",
+        "symbol": "\u00ce",
+        "stats": {"max_hp": 12, "hp": 12, "attack": 7, "armor": 2, "movement": 4, "attack_range": 1},
+    },
+    "ranger": {
+        "name": "Eldar Ranger",
+        "symbol": "r",
+        "stats": {"max_hp": 6, "hp": 6, "attack": 5, "armor": 0, "movement": 4, "attack_range": 15},
+    },
+    "warp_spider": {
+        "name": "Warp Spider",
+        "symbol": "\u00a9",
+        "stats": {"max_hp": 8, "hp": 8, "attack": 4, "armor": 1, "movement": 6, "attack_range": 6},
+    },
+    # ===================================================================
+    # Imperial (gone rogue)
+    # ===================================================================
+    "renegade_guardsman": {
+        "name": "Renegade Guardsman",
+        "symbol": "q",
+        "stats": {"max_hp": 6, "hp": 6, "attack": 3, "armor": 1, "movement": 3, "attack_range": 8},
+    },
+    "rogue_psyker": {
+        "name": "Rogue Psyker",
+        "symbol": "\u00bf",
+        "stats": {"max_hp": 7, "hp": 7, "attack": 6, "armor": 0, "movement": 3, "attack_range": 10},
+    },
+    "corrupted_commissar": {
+        "name": "Corrupted Commissar",
+        "symbol": "\u00c7",
+        "stats": {"max_hp": 12, "hp": 12, "attack": 5, "armor": 2, "movement": 3, "attack_range": 7},
+    },
+    # ===================================================================
+    # Generic / misc
+    # ===================================================================
     "heretic": {
         "name": "Heretek",
         "symbol": "H",
