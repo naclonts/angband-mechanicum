@@ -1,6 +1,6 @@
 ---
 id: am-clj1
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-03-28T00:36:45Z
