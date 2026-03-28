@@ -57,6 +57,7 @@ class CombatScreen(Screen[CombatResult]):
 
     def on_mount(self) -> None:
         self.title = f"TACTICAL: {self._engine.map_name.upper()}"
+        self.query_one("#combat-grid", CombatGrid).focus()
 
     # -- Refresh helpers -----------------------------------------------------
 

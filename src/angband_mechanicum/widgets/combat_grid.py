@@ -119,6 +119,8 @@ def render_grid(engine: CombatEngine) -> str:
 class CombatGrid(Static):
     """Widget that renders the tactical combat grid."""
 
+    can_focus = True  # Grid should hold focus so arrow keys reach screen bindings
+
     def __init__(self, engine: CombatEngine, **kwargs: object) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._engine: CombatEngine = engine
