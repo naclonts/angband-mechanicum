@@ -8,7 +8,7 @@ from typing import Any
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.events import Resize
+from textual.events import Key, Resize
 from textual.screen import Screen
 from textual.widgets import Input
 from textual import work
@@ -39,7 +39,8 @@ class GameScreen(Screen[None]):
     STORY_HOTKEYS: list[tuple[str, str]] = [
         ("Enter", "Submit command"),
         ("Tab", "Cycle panes"),
-        ("/combat", "Enter combat mode"),
+        ("c", "Begin combat (when prompted)"),
+        ("/combat", "Enter combat mode (manual)"),
         ("h", "This help"),
     ]
 
@@ -52,6 +53,7 @@ class GameScreen(Screen[None]):
         self._restored_state: dict[str, Any] | None = restored_state
         self._save_manager: SaveManager = SaveManager()
         self._narrative_log: list[str] = []
+        self._combat_pending: bool = False
 
     def compose(self) -> ComposeResult:
         yield ScenePane(FORGE_SCENE, id="scene")
@@ -134,6 +136,9 @@ class GameScreen(Screen[None]):
 
     @work(exclusive=True)
     async def handle_command(self, text: str) -> None:
+        # Clear any pending combat trigger -- the player chose to type instead
+        self._combat_pending = False
+
         # Intercept /combat command before sending to LLM
         if text.strip().lower() == "/combat":
             await self._enter_combat()
@@ -169,8 +174,103 @@ class GameScreen(Screen[None]):
         if response.info_update:
             self.query_one("#info", InfoPanel).update_info(response.info_update)
 
+        # If the LLM signalled combat, show a prompt and set the pending flag
+        if response.combat_trigger:
+            combat_prompt = (
+                "\n[bold]++ HOSTILE CONTACT ++ COMBAT PROTOCOLS STANDING BY ++[/bold]\n"
+                "[bold]Press C to begin combat[/bold]\n"
+            )
+            narrative.append_narrative(combat_prompt)
+            self._narrative_log.append(combat_prompt)
+            self._combat_pending = True
+
         # Autosave after each successful command
         self._autosave()
+
+    def on_key(self, event: Key) -> None:
+        """Intercept the C key to enter combat when a trigger is pending.
+
+        We use on_key instead of a binding so that the key only gets consumed
+        when combat is actually pending -- otherwise it passes through to the
+        Input widget as normal typed text.
+        """
+        if event.key == "c" and self._combat_pending:
+            event.prevent_default()
+            event.stop()
+            self._combat_pending = False
+            self._enter_combat_from_trigger()
+
+    @work(exclusive=True)
+    async def _enter_combat_from_trigger(self) -> None:
+        """Enter combat from an LLM-driven combat trigger (C key)."""
+        narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
+        prompt: PromptInput = self.query_one("#prompt", PromptInput)
+        engine = self.app.game_engine  # type: ignore[attr-defined]
+
+        narrative.append_narrative(
+            "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+        )
+        self._narrative_log.append(
+            "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+        )
+
+        # Generate encounter via the LLM (with loading indicator)
+        narrative.show_loading()
+        prompt.set_processing(True)
+        try:
+            encounter = await engine.generate_encounter()
+        finally:
+            narrative.hide_loading()
+            prompt.set_processing(False)
+
+        # Show the encounter description
+        desc = encounter.get("encounter_description", "Hostile contacts detected.")
+        narrative.append_narrative(f"\n[dim]{desc}[/dim]\n")
+        self._narrative_log.append(f"\n[dim]{desc}[/dim]\n")
+
+        enemy_roster: list[tuple[str, int, int]] = encounter.get("enemy_roster", [])
+
+        def on_combat_result(result: CombatResult | None) -> None:
+            """Handle combat result when CombatScreen is dismissed."""
+            if result is None:
+                return
+
+            engine = self.app.game_engine  # type: ignore[attr-defined]
+            engine.set_integrity(result.player_hp_remaining)
+
+            narrative_pane: NarrativePane = self.query_one("#narrative", NarrativePane)
+            if result.victory:
+                summary = (
+                    f"\n[bold]++ COMBAT RESOLVED: VICTORY ++[/bold]\n"
+                    f"Hostiles neutralised: {result.enemies_defeated}/{result.enemies_total}\n"
+                    f"Integrity remaining: {result.player_hp_remaining}/{result.player_hp_max}\n"
+                    f"Turns elapsed: {result.turn_count}\n"
+                    f"[dim]++ THE OMNISSIAH IS PLEASED ++[/dim]\n"
+                )
+            else:
+                summary = (
+                    f"\n[bold]++ COMBAT RESOLVED: {'RETREAT' if result.player_hp_remaining > 0 else 'DEFEAT'} ++[/bold]\n"
+                    f"Hostiles neutralised: {result.enemies_defeated}/{result.enemies_total}\n"
+                    f"Integrity remaining: {result.player_hp_remaining}/{result.player_hp_max}\n"
+                    f"Turns elapsed: {result.turn_count}\n"
+                    f"[dim]++ THE MACHINE SPIRIT ENDURES ++[/dim]\n"
+                )
+            narrative_pane.append_narrative(summary)
+            self._narrative_log.append(summary)
+
+            engine.record_combat_result(result)
+            self._update_integrity_display()
+            self.query_one("#prompt", PromptInput).focus()
+
+        self.app.push_screen(
+            CombatScreen(
+                player_hp=engine.integrity,
+                player_max_hp=engine.max_integrity,
+                party_ids=engine.party_member_ids,
+                enemy_roster=enemy_roster if enemy_roster else None,
+            ),
+            callback=on_combat_result,
+        )
 
     async def _enter_combat(self) -> None:
         """Generate an encounter via the LLM, then push the CombatScreen."""

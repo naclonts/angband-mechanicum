@@ -123,8 +123,18 @@ You MUST respond with a valid JSON object. No text outside the JSON. The schema:
   "narrative_text": "The main narrative response to the player (string, required)",
   "scene_art": "ASCII/unicode art for the environment pane (string or null)",
   "info_update": null or { "key": "value" } dict to update status fields,
-  "entities": [array of entity references — see Entity Tracking below]
+  "entities": [array of entity references — see Entity Tracking below],
+  "combat_trigger": true or false (default false)
 }
+
+### Combat Trigger
+Set "combat_trigger" to true when the narrative naturally leads to combat — for \
+example, when hostiles are encountered, ambushes spring, creatures attack, or the \
+player initiates violence. Do NOT trigger combat for every tense moment; only when \
+actual fighting would logically begin. When combat_trigger is true, write the \
+narrative_text to set the scene for the fight (describe the enemies appearing, the \
+threat emerging, etc.) but do NOT narrate the combat itself — the game has a \
+separate tactical combat system for that.
 
 The scene_art field should contain ASCII/unicode art depicting the current environment. \
 Provide it when the scene or location changes; set to null if the environment has not \
@@ -172,6 +182,7 @@ class GameResponse:
     narrative_text: str
     scene_art: str | None = None
     info_update: dict[str, str] | None = None
+    combat_trigger: bool = False
 
 
 class GameEngine:
@@ -598,6 +609,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
         scene_art: str | None = None
         info_update: dict[str, str] | None
         entities_data: list[dict[str, Any]] = []
+        combat_trigger: bool = False
         system_prompt = self._build_system_prompt()
 
         try:
@@ -616,6 +628,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
             scene_art = response_data.get("scene_art")
             info_update = response_data.get("info_update")
             entities_data = response_data.get("entities", [])
+            combat_trigger = bool(response_data.get("combat_trigger", False))
 
             self._log_turn(system_prompt, list(self._conversation_history), raw_text)
 
@@ -681,4 +694,5 @@ You MUST respond with ONLY a valid JSON object, no other text:
             narrative_text=narrative_text,
             scene_art=scene_art,
             info_update=info_update,
+            combat_trigger=combat_trigger,
         )
