@@ -7,6 +7,7 @@ from textual.widgets import Static
 from angband_mechanicum.engine.combat_engine import (
     CombatEngine,
     CombatPhase,
+    CombatUnit,
     UnitTeam,
 )
 
@@ -17,9 +18,39 @@ def _hp_bar(hp: int, max_hp: int, width: int = 10) -> str:
     return "[" + "=" * filled + "-" * (width - filled) + "]"
 
 
+def _render_unit_block(
+    unit: CombatUnit,
+    is_active: bool,
+    reference_unit: CombatUnit | None = None,
+) -> list[str]:
+    """Render a stat block for a single player-team unit.
+
+    ``reference_unit`` is used for distance calculations (enemies only).
+    """
+    lines: list[str] = []
+    if not unit.alive:
+        lines.append(f"[dim]{unit.symbol} {unit.name} -- DOWN[/dim]")
+        return lines
+
+    marker = " <<" if is_active else ""
+    lines.append(f"[bold]{unit.symbol} {unit.name}{marker}[/bold]")
+    lines.append(f"  HP:   {_hp_bar(unit.stats.hp, unit.stats.max_hp)} {unit.stats.hp}/{unit.stats.max_hp}")
+    lines.append(f"  ATK:  {unit.stats.attack}  ARM: {unit.stats.armor}")
+    lines.append(f"  MOVE: {unit.stats.movement}  RNG: {unit.stats.attack_range}")
+    lines.append(f"  POS:  ({unit.x},{unit.y})")
+
+    status_parts: list[str] = []
+    if unit.has_moved:
+        status_parts.append("moved")
+    if unit.has_attacked:
+        status_parts.append("attacked")
+    if status_parts:
+        lines.append(f"  DONE: {', '.join(status_parts)}")
+    return lines
+
+
 def render_combat_info(engine: CombatEngine) -> str:
     """Build the info text for the combat sidebar."""
-    player = engine.get_player()
     lines: list[str] = []
 
     # Phase
@@ -34,23 +65,20 @@ def render_combat_info(engine: CombatEngine) -> str:
     lines.append(f"MAP:   {engine.map_name}")
     lines.append("")
 
-    # Player stats
-    lines.append("[bold]-- MAGOS EXPLORATOR --[/bold]")
-    lines.append(f"HP:    {_hp_bar(player.stats.hp, player.stats.max_hp)} {player.stats.hp}/{player.stats.max_hp}")
-    lines.append(f"ATK:   {player.stats.attack}  ARM: {player.stats.armor}")
-    lines.append(f"MOVE:  {player.stats.movement}  RNG: {player.stats.attack_range}")
-    lines.append(f"POS:   ({player.x},{player.y})")
-
-    status_parts: list[str] = []
-    if player.has_moved:
-        status_parts.append("moved")
-    if player.has_attacked:
-        status_parts.append("attacked")
-    if status_parts:
-        lines.append(f"DONE:  {', '.join(status_parts)}")
+    # All player-team units
+    active_id = engine.active_unit_id
+    player_units = [
+        engine._units[uid] for uid in engine.player_unit_ids
+    ]
+    player_count = sum(1 for u in player_units if u.alive)
+    lines.append(f"[bold]-- PARTY ({player_count} active) --[/bold]")
+    for unit in player_units:
+        is_active = unit.unit_id == active_id
+        lines.extend(_render_unit_block(unit, is_active))
     lines.append("")
 
     # Enemies
+    player = engine.get_player()
     enemies = engine.get_alive_units(UnitTeam.ENEMY)
     lines.append(f"[bold]-- HOSTILES ({len(enemies)}) --[/bold]")
     for e in enemies:
@@ -75,6 +103,7 @@ def render_combat_info(engine: CombatEngine) -> str:
     lines.append("[dim]Arrow keys: move cursor[/dim]")
     lines.append("[dim]m: move to cursor[/dim]")
     lines.append("[dim]a: attack at cursor[/dim]")
+    lines.append("[dim]Tab: next unit[/dim]")
     lines.append("[dim]e: end turn[/dim]")
     lines.append("[dim]q: retreat (forfeit)[/dim]")
 

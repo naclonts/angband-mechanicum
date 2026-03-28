@@ -218,12 +218,13 @@ class GameScreen(Screen[None]):
 
             self.query_one("#prompt", PromptInput).focus()
 
-        # Pass current integrity into the combat screen
+        # Pass current integrity and party into the combat screen
         engine = self.app.game_engine  # type: ignore[attr-defined]
         self.app.push_screen(
             CombatScreen(
                 player_hp=engine.integrity,
                 player_max_hp=engine.max_integrity,
+                party_ids=engine.party_member_ids,
             ),
             callback=on_combat_result,
         )

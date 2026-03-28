@@ -37,6 +37,7 @@ class CombatScreen(Screen[CombatResult]):
         Binding("right", "cursor_right", "Cursor right", show=False),
         Binding("m", "move_unit", "Move to cursor", show=True),
         Binding("a", "attack_target", "Attack at cursor", show=True),
+        Binding("tab", "next_unit", "Next unit", show=True),
         Binding("e", "end_turn", "End turn", show=True),
         Binding("q", "retreat", "Retreat", show=True),
         Binding("h", "show_help", "Help", show=True),
@@ -46,6 +47,7 @@ class CombatScreen(Screen[CombatResult]):
         ("Arrow keys", "Move cursor"),
         ("m", "Move to cursor"),
         ("a", "Attack at cursor"),
+        ("Tab", "Next unit"),
         ("e", "End turn"),
         ("q", "Retreat"),
         ("h", "This help"),
@@ -56,6 +58,7 @@ class CombatScreen(Screen[CombatResult]):
         map_key: str = "corridor",
         player_hp: int | None = None,
         player_max_hp: int | None = None,
+        party_ids: list[str] | None = None,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
@@ -63,6 +66,7 @@ class CombatScreen(Screen[CombatResult]):
             map_key=map_key,
             player_hp=player_hp,
             player_max_hp=player_max_hp,
+            party_ids=party_ids,
         )
 
     @property
@@ -131,8 +135,15 @@ class CombatScreen(Screen[CombatResult]):
 
     # -- Player actions ------------------------------------------------------
 
+    def action_next_unit(self) -> None:
+        """Cycle to the next living party unit."""
+        if self._engine.phase != CombatPhase.PLAYER_TURN:
+            return
+        self._engine.cycle_active_unit()
+        self._refresh_all()
+
     def action_move_unit(self) -> None:
-        """Move the player unit to the cursor position."""
+        """Move the active player unit to the cursor position."""
         if self._engine.phase != CombatPhase.PLAYER_TURN:
             return
         cx, cy = self._engine.cursor
@@ -140,7 +151,7 @@ class CombatScreen(Screen[CombatResult]):
         self._refresh_all()
 
     def action_attack_target(self) -> None:
-        """Attack the unit at the cursor position."""
+        """Attack the unit at the cursor position with the active unit."""
         if self._engine.phase != CombatPhase.PLAYER_TURN:
             return
         cx, cy = self._engine.cursor
