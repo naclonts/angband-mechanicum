@@ -99,10 +99,9 @@ stationed on the forge world **Metallica Secundus**, in the great manufactorum-c
 unidentified energy signatures detected in the deep strata beneath the forge. The \
 Fabricator-Locum has assigned the player to investigate.
 
-The player has three acolytes assigned to their expedition:
+The player has two acolytes assigned to their expedition:
 - **Skitarius Alpha-7** — a battle-scarred ranger with a galvanic rifle
 - **Enginseer Volta** — young, eager, still more flesh than machine, carries a power axe
-- **Datasmith Kael** — silent, face entirely replaced by a vox-grille and sensor array
 
 A servo-skull hovers nearby. The cargo lift to the underhive awaits.
 
@@ -181,7 +180,6 @@ class GameEngine:
     DEFAULT_PARTY_IDS: list[str] = [
         "skitarius-alpha-7",
         "enginseer-volta",
-        "datasmith-kael",
     ]
 
     def __init__(self) -> None:
@@ -247,8 +245,6 @@ class GameEngine:
             "A battle-scarred ranger with a galvanic rifle")
         reg("Enginseer Volta", EntityType.CHARACTER,
             "Young, eager, still more flesh than machine, carries a power axe")
-        reg("Datasmith Kael", EntityType.CHARACTER,
-            "Silent, face entirely replaced by a vox-grille and sensor array")
         # Places
         reg("Metallica Secundus", EntityType.PLACE,
             "Forge world where the game is set")
