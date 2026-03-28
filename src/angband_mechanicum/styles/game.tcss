@@ -252,3 +252,57 @@ ApiKeyScreen {
     color: $crt-dim;
     margin-top: 1;
 }
+
+/* ── Combat Screen ── */
+
+CombatScreen {
+    background: $crt-bg;
+}
+
+#combat-layout {
+    layout: horizontal;
+    height: 100%;
+    width: 100%;
+    background: $crt-bg;
+}
+
+#combat-left {
+    layout: vertical;
+    width: 3fr;
+    height: 100%;
+}
+
+CombatGrid {
+    border: heavy $crt-dim;
+    color: $crt-bright;
+    background: $crt-surface;
+    height: 2fr;
+    padding: 0 1;
+    overflow-y: auto;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+CombatLog {
+    border: heavy $crt-dim;
+    color: $crt-medium;
+    background: $crt-surface;
+    height: 1fr;
+    padding: 0 1;
+    scrollbar-color: $crt-dim;
+    scrollbar-color-hover: $crt-bright;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+CombatInfo {
+    border: heavy $crt-dim;
+    color: $crt-medium;
+    background: $crt-surface;
+    width: 1fr;
+    height: 100%;
+    padding: 1 1;
+    overflow-y: auto;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
