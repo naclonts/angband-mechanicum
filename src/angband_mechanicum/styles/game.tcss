@@ -50,6 +50,11 @@ NarrativePane:focus {
     border: heavy $crt-bright;
 }
 
+NarrativePane {
+    border-subtitle-color: $crt-dim;
+    border-subtitle-style: bold;
+}
+
 #right-panel {
     layout: vertical;
     border: heavy $crt-dim;
@@ -75,6 +80,12 @@ PromptInput {
 
 PromptInput:focus {
     border-top: solid $crt-bright;
+}
+
+PromptInput:disabled {
+    color: $crt-dim;
+    background: $crt-surface;
+    opacity: 70%;
 }
 
 /* ── Menu Screen ── */
