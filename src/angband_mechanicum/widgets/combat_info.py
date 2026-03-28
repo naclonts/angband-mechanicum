@@ -8,6 +8,7 @@ from angband_mechanicum.engine.combat_engine import (
     CombatEngine,
     CombatPhase,
     CombatUnit,
+    PowerType,
     UnitTeam,
     has_line_of_sight,
     manhattan_distance,
@@ -41,13 +42,33 @@ def _render_unit_block(
     lines.append(f"  MOVE: {unit.stats.movement}  RNG: {unit.stats.attack_range}")
     lines.append(f"  POS:  ({unit.x},{unit.y})")
 
+    # Active buffs
+    if unit.active_buffs:
+        buff_strs = [
+            f"+{b.amount}{b.stat[0:3]}({b.remaining_turns}t)"
+            for b in unit.active_buffs
+        ]
+        lines.append(f"  BUFF: {' '.join(buff_strs)}")
+
     status_parts: list[str] = []
     if unit.has_moved:
         status_parts.append("moved")
     if unit.has_attacked:
         status_parts.append("attacked")
+    if unit.has_used_power:
+        status_parts.append("power")
     if status_parts:
         lines.append(f"  DONE: {', '.join(status_parts)}")
+
+    # Powers
+    if unit.powers:
+        for p in unit.powers:
+            cd = unit.power_cooldowns.get(p.name)
+            if cd:
+                lines.append(f"  [dim]  {p.name} (CD:{cd}t)[/dim]")
+            else:
+                type_tag = {"offensive": "DMG", "healing": "HEAL", "buff": "BUFF"}[p.power_type.value]
+                lines.append(f"    {p.name} [{type_tag}:{p.amount} R:{p.range}]")
     return lines
 
 
@@ -129,6 +150,7 @@ def render_combat_info(engine: CombatEngine) -> str:
     lines.append("[dim]Arrow keys: move cursor[/dim]")
     lines.append("[dim]m: move to cursor[/dim]")
     lines.append("[dim]a/s: attack/shoot at cursor[/dim]")
+    lines.append("[dim]p: cast power at cursor[/dim]")
     lines.append("[dim]Tab: next unit[/dim]")
     lines.append("[dim]e: end turn[/dim]")
     lines.append("[dim]q: retreat (forfeit)[/dim]")

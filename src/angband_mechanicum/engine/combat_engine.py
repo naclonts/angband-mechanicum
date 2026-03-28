@@ -135,6 +135,83 @@ class CombatStats:
         )
 
 
+class PowerType(enum.Enum):
+    """Classification of combat powers / tech-prayers."""
+
+    OFFENSIVE = "offensive"
+    HEALING = "healing"
+    BUFF = "buff"
+
+
+@dataclass
+class Power:
+    """A psychic power or tech-prayer usable in combat."""
+
+    name: str
+    description: str
+    power_type: PowerType
+    range: int  # Manhattan distance; 0 = self only
+    amount: int  # damage, heal, or buff magnitude
+    cooldown_turns: int  # turns before reuse (0 = every turn)
+    area_of_effect: int = 0  # 0 = single target; >0 = AoE radius
+    buff_stat: str = ""  # which stat to buff (e.g. "attack")
+    buff_duration: int = 0  # turns the buff lasts
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "power_type": self.power_type.value,
+            "range": self.range,
+            "amount": self.amount,
+            "cooldown_turns": self.cooldown_turns,
+            "area_of_effect": self.area_of_effect,
+            "buff_stat": self.buff_stat,
+            "buff_duration": self.buff_duration,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Power:
+        return cls(
+            name=data["name"],
+            description=data["description"],
+            power_type=PowerType(data["power_type"]),
+            range=data["range"],
+            amount=data["amount"],
+            cooldown_turns=data["cooldown_turns"],
+            area_of_effect=data.get("area_of_effect", 0),
+            buff_stat=data.get("buff_stat", ""),
+            buff_duration=data.get("buff_duration", 0),
+        )
+
+
+@dataclass
+class ActiveBuff:
+    """A temporary stat buff applied to a unit."""
+
+    stat: str  # e.g. "attack"
+    amount: int
+    remaining_turns: int
+    source_power: str  # power name that created this buff
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stat": self.stat,
+            "amount": self.amount,
+            "remaining_turns": self.remaining_turns,
+            "source_power": self.source_power,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ActiveBuff:
+        return cls(
+            stat=data["stat"],
+            amount=data["amount"],
+            remaining_turns=data["remaining_turns"],
+            source_power=data["source_power"],
+        )
+
+
 @dataclass
 class CombatUnit:
     """Wraps a narrative-layer entity with tactical combat state.
@@ -154,8 +231,12 @@ class CombatUnit:
     symbol: str = "?"
     has_moved: bool = False
     has_attacked: bool = False
+    has_used_power: bool = False  # one power per turn
     template_key: str = ""  # enemy template key (e.g. "servitor"); empty for player/party
     total_damage_dealt: int = 0  # accumulated damage this unit has inflicted
+    powers: list[Power] = field(default_factory=list)
+    power_cooldowns: dict[str, int] = field(default_factory=dict)  # power_name -> turns remaining
+    active_buffs: list[ActiveBuff] = field(default_factory=list)
 
     @property
     def hp(self) -> int:
@@ -170,6 +251,34 @@ class CombatUnit:
             self.alive = False
         return actual
 
+    def get_effective_attack(self) -> int:
+        """Return attack stat including active buff bonuses."""
+        bonus = sum(b.amount for b in self.active_buffs if b.stat == "attack")
+        return self.stats.attack + bonus
+
+    def tick_buffs(self) -> list[str]:
+        """Decrement buff durations; remove expired ones. Returns log messages."""
+        msgs: list[str] = []
+        remaining: list[ActiveBuff] = []
+        for buff in self.active_buffs:
+            buff.remaining_turns -= 1
+            if buff.remaining_turns <= 0:
+                msgs.append(f"{self.name}'s {buff.source_power} buff fades.")
+            else:
+                remaining.append(buff)
+        self.active_buffs = remaining
+        return msgs
+
+    def tick_cooldowns(self) -> None:
+        """Decrement all power cooldowns by 1 at the start of this unit's turn."""
+        expired = []
+        for name, turns in self.power_cooldowns.items():
+            self.power_cooldowns[name] = turns - 1
+            if self.power_cooldowns[name] <= 0:
+                expired.append(name)
+        for name in expired:
+            del self.power_cooldowns[name]
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "unit_id": self.unit_id,
@@ -183,12 +292,19 @@ class CombatUnit:
             "symbol": self.symbol,
             "has_moved": self.has_moved,
             "has_attacked": self.has_attacked,
+            "has_used_power": self.has_used_power,
             "template_key": self.template_key,
             "total_damage_dealt": self.total_damage_dealt,
+            "powers": [p.to_dict() for p in self.powers],
+            "power_cooldowns": dict(self.power_cooldowns),
+            "active_buffs": [b.to_dict() for b in self.active_buffs],
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CombatUnit:
+        powers_data = data.get("powers", [])
+        cooldowns_data = data.get("power_cooldowns", {})
+        buffs_data = data.get("active_buffs", [])
         return cls(
             unit_id=data["unit_id"],
             name=data["name"],
@@ -201,8 +317,12 @@ class CombatUnit:
             symbol=data.get("symbol", "?"),
             has_moved=data.get("has_moved", False),
             has_attacked=data.get("has_attacked", False),
+            has_used_power=data.get("has_used_power", False),
             template_key=data.get("template_key", ""),
             total_damage_dealt=data.get("total_damage_dealt", 0),
+            powers=[Power.from_dict(p) for p in powers_data],
+            power_cooldowns=dict(cooldowns_data),
+            active_buffs=[ActiveBuff.from_dict(b) for b in buffs_data],
         )
 
 
@@ -300,10 +420,75 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Power definitions (keyed by unit/template)
+# ---------------------------------------------------------------------------
+
+# Player (Magos Explorator) powers
+PLAYER_POWERS: list[Power] = [
+    Power(
+        name="Rite of Repair",
+        description="Tech-prayer that restores biological and mechanical integrity",
+        power_type=PowerType.HEALING,
+        range=3,
+        amount=5,
+        cooldown_turns=2,
+    ),
+    Power(
+        name="Electro-Shock",
+        description="Channelled electromagnetic discharge via mechadendrite",
+        power_type=PowerType.OFFENSIVE,
+        range=6,
+        amount=4,
+        cooldown_turns=1,
+    ),
+]
+
+# Party member powers (keyed by entity_id)
+PARTY_POWERS: dict[str, list[Power]] = {
+    "skitarius-alpha-7": [],  # pure gunner, no powers
+    "enginseer-volta": [
+        Power(
+            name="Blessing of the Omnissiah",
+            description="Invocation that heightens combat subroutines",
+            power_type=PowerType.BUFF,
+            range=2,
+            amount=2,
+            cooldown_turns=3,
+            buff_stat="attack",
+            buff_duration=2,
+        ),
+    ],
+}
+
+# Enemy powers (keyed by template_key)
+ENEMY_POWERS: dict[str, list[Power]] = {
+    "sorcerer": [
+        Power(
+            name="Warp Bolt",
+            description="A crackling bolt of psychic energy",
+            power_type=PowerType.OFFENSIVE,
+            range=10,
+            amount=5,
+            cooldown_turns=2,
+        ),
+        Power(
+            name="Dark Blessing",
+            description="Unholy invocation that mends warp-touched flesh",
+            power_type=PowerType.HEALING,
+            range=5,
+            amount=4,
+            cooldown_turns=3,
+        ),
+    ],
+}
+
+
 def make_enemy(template_key: str, x: int, y: int, unit_id: str | None = None) -> CombatUnit:
     """Create an enemy CombatUnit from a template."""
     tpl = ENEMY_TEMPLATES[template_key]
     uid = unit_id or f"enemy-{template_key}-{x}-{y}"
+    powers = [Power.from_dict(p.to_dict()) for p in ENEMY_POWERS.get(template_key, [])]
     return CombatUnit(
         unit_id=uid,
         name=tpl["name"],
@@ -314,6 +499,7 @@ def make_enemy(template_key: str, x: int, y: int, unit_id: str | None = None) ->
         y=y,
         symbol=tpl["symbol"],
         template_key=template_key,
+        powers=powers,
     )
 
 
@@ -371,6 +557,7 @@ def make_player(
     """
     actual_max_hp = max_hp if max_hp is not None else 20
     actual_hp = hp if hp is not None else actual_max_hp
+    powers = [Power.from_dict(p.to_dict()) for p in PLAYER_POWERS]
     return CombatUnit(
         unit_id="player",
         name="Magos Explorator",
@@ -380,6 +567,7 @@ def make_player(
         x=x,
         y=y,
         symbol="@",
+        powers=powers,
     )
 
 
@@ -408,6 +596,7 @@ def make_party_member(entity_id: str, x: int, y: int) -> CombatUnit:
     the entity_id for straightforward lookup.
     """
     tpl = PARTY_TEMPLATES[entity_id]
+    powers = [Power.from_dict(p.to_dict()) for p in PARTY_POWERS.get(entity_id, [])]
     return CombatUnit(
         unit_id=entity_id,
         name=tpl["name"],
@@ -417,6 +606,7 @@ def make_party_member(entity_id: str, x: int, y: int) -> CombatUnit:
         x=x,
         y=y,
         symbol=tpl["symbol"],
+        powers=powers,
     )
 
 
@@ -821,7 +1011,7 @@ class CombatEngine:
 
         self._add_log(f"++ TACTICAL MODE: {self._map_name.upper()} ++")
         active = self._units[self._active_unit_id]
-        self._add_log(f"Your turn. Active: {active.name}. move / attack / end_turn / Tab:next")
+        self._add_log(f"Your turn. Active: {active.name}. move / attack / power / Tab:next")
 
     # -- Properties ----------------------------------------------------------
 
@@ -1048,7 +1238,7 @@ class CombatEngine:
             return False
         # Flavour: describe ranged vs melee
         is_ranged_shot = dist > 1
-        actual = target.take_damage(unit.stats.attack)
+        actual = target.take_damage(unit.get_effective_attack())
         unit.total_damage_dealt += actual
         if is_ranged_shot:
             self._add_log(
@@ -1066,11 +1256,132 @@ class CombatEngine:
         self._check_end_conditions()
         return True
 
+    def player_cast_power(self, power_name: str, target_unit_id: str | None = None) -> bool:
+        """Cast a power from the active player unit. Returns True on success.
+
+        *power_name* must match one of the unit's powers (case-insensitive).
+        *target_unit_id* identifies the target unit. For self-only powers it can
+        be None (defaults to caster). For healing/buff, target must be an ally.
+        For offensive, target must be an enemy.
+        """
+        if self._phase != CombatPhase.PLAYER_TURN:
+            return False
+        unit = self.get_active_unit()
+        if not unit.alive or unit.has_used_power:
+            self._add_log(f"{unit.name} already used a power this turn.")
+            return False
+
+        # Find the power
+        power: Power | None = None
+        for p in unit.powers:
+            if p.name.lower() == power_name.lower():
+                power = p
+                break
+        if power is None:
+            self._add_log(f"{unit.name} does not know '{power_name}'.")
+            return False
+
+        # Check cooldown
+        if power.name in unit.power_cooldowns:
+            remaining = unit.power_cooldowns[power.name]
+            self._add_log(f"{power.name} is on cooldown ({remaining} turns remaining).")
+            return False
+
+        # Resolve target
+        target: CombatUnit | None = None
+        if power.power_type == PowerType.OFFENSIVE:
+            if target_unit_id is None:
+                self._add_log(f"{power.name} requires a target.")
+                return False
+            target = self._units.get(target_unit_id)
+            if not target or not target.alive:
+                self._add_log("Invalid target.")
+                return False
+            if target.team != UnitTeam.ENEMY:
+                self._add_log(f"{power.name} can only target enemies.")
+                return False
+        elif power.power_type in (PowerType.HEALING, PowerType.BUFF):
+            if target_unit_id is None:
+                target = unit  # self-cast
+            else:
+                target = self._units.get(target_unit_id)
+                if not target or not target.alive:
+                    self._add_log("Invalid target.")
+                    return False
+                if target.team != UnitTeam.PLAYER:
+                    self._add_log(f"{power.name} can only target allies.")
+                    return False
+
+        if target is None:
+            self._add_log("No valid target.")
+            return False
+
+        # Range check
+        dist = manhattan_distance(unit.x, unit.y, target.x, target.y)
+        if dist > power.range:
+            self._add_log(
+                f"{target.name} is out of range for {power.name} "
+                f"(dist={dist}, range={power.range})."
+            )
+            return False
+
+        # Execute the power
+        unit.has_used_power = True
+        if power.cooldown_turns > 0:
+            unit.power_cooldowns[power.name] = power.cooldown_turns
+
+        if power.power_type == PowerType.OFFENSIVE:
+            actual = target.take_damage(power.amount)
+            unit.total_damage_dealt += actual
+            self._add_log(
+                f"{unit.name} invokes {power.name} on {target.name} "
+                f"for {actual} damage! (HP: {target.stats.hp}/{target.stats.max_hp})"
+            )
+            if not target.alive:
+                self._add_log(f"{target.name} destroyed!")
+            self._check_end_conditions()
+        elif power.power_type == PowerType.HEALING:
+            healed = min(power.amount, target.stats.max_hp - target.stats.hp)
+            target.stats.hp += healed
+            self._add_log(
+                f"{unit.name} invokes {power.name} on {target.name}, "
+                f"restoring {healed} HP! (HP: {target.stats.hp}/{target.stats.max_hp})"
+            )
+        elif power.power_type == PowerType.BUFF:
+            buff = ActiveBuff(
+                stat=power.buff_stat,
+                amount=power.amount,
+                remaining_turns=power.buff_duration,
+                source_power=power.name,
+            )
+            target.active_buffs.append(buff)
+            self._add_log(
+                f"{unit.name} invokes {power.name} on {target.name}! "
+                f"+{power.amount} {power.buff_stat} for {power.buff_duration} turns."
+            )
+
+        return True
+
+    def get_available_powers(self, unit: CombatUnit) -> list[Power]:
+        """Return powers that are off cooldown for the given unit."""
+        return [
+            p for p in unit.powers
+            if p.name not in unit.power_cooldowns
+        ]
+
     def _all_player_units_done(self) -> bool:
         """Check if all living player units have used their actions."""
         for uid in self._player_unit_ids:
             unit = self._units[uid]
-            if unit.alive and (not unit.has_moved or not unit.has_attacked):
+            if not unit.alive:
+                continue
+            # A unit is done when it has used all possible actions
+            has_powers = bool(unit.powers)
+            power_available = has_powers and not unit.has_used_power and any(
+                pname not in unit.power_cooldowns
+                for pname in (p.name for p in unit.powers)
+            )
+            if not unit.has_moved or not unit.has_attacked or power_available:
                 return False
         return True
 
@@ -1087,6 +1398,90 @@ class CombatEngine:
         self._run_enemy_turn()
 
     # -- Enemy AI ------------------------------------------------------------
+
+    def _enemy_try_power(self, enemy: CombatUnit) -> bool:
+        """Attempt to use a power for an enemy unit. Returns True if a power was used.
+
+        AI priority: offensive powers on reachable targets first, then healing
+        if hurt, then buffs on nearby allies.
+        """
+        available = self.get_available_powers(enemy)
+        if not available:
+            return False
+
+        # Try offensive powers first
+        for power in available:
+            if power.power_type == PowerType.OFFENSIVE:
+                # Find best target in range
+                for target in self.get_alive_units(UnitTeam.PLAYER):
+                    dist = manhattan_distance(enemy.x, enemy.y, target.x, target.y)
+                    if dist <= power.range:
+                        # Execute offensive power
+                        actual = target.take_damage(power.amount)
+                        enemy.total_damage_dealt += actual
+                        if power.cooldown_turns > 0:
+                            enemy.power_cooldowns[power.name] = power.cooldown_turns
+                        self._add_log(
+                            f"{enemy.name} invokes {power.name} on {target.name} "
+                            f"for {actual} damage! (HP: {target.stats.hp}/{target.stats.max_hp})"
+                        )
+                        if not target.alive:
+                            if target.unit_id == "player":
+                                self._add_log("++ CRITICAL FAILURE: SYSTEMS OFFLINE ++")
+                            else:
+                                self._add_log(f"{target.name} is down!")
+                            self._check_end_conditions()
+                        return True
+
+        # Try healing if hurt (below 60% HP)
+        if enemy.stats.hp < enemy.stats.max_hp * 0.6:
+            for power in available:
+                if power.power_type == PowerType.HEALING:
+                    # Heal self or nearby wounded ally
+                    best_target = enemy
+                    # Check nearby allies too
+                    for ally in self.get_alive_units(UnitTeam.ENEMY):
+                        dist = manhattan_distance(enemy.x, enemy.y, ally.x, ally.y)
+                        if dist <= power.range and ally.stats.hp < ally.stats.max_hp:
+                            if ally.stats.hp < best_target.stats.hp:
+                                best_target = ally
+                    healed = min(power.amount, best_target.stats.max_hp - best_target.stats.hp)
+                    best_target.stats.hp += healed
+                    if power.cooldown_turns > 0:
+                        enemy.power_cooldowns[power.name] = power.cooldown_turns
+                    self._add_log(
+                        f"{enemy.name} invokes {power.name} on {best_target.name}, "
+                        f"restoring {healed} HP! (HP: {best_target.stats.hp}/{best_target.stats.max_hp})"
+                    )
+                    return True
+
+        # Try buff powers on nearby allies
+        for power in available:
+            if power.power_type == PowerType.BUFF:
+                for ally in self.get_alive_units(UnitTeam.ENEMY):
+                    dist = manhattan_distance(enemy.x, enemy.y, ally.x, ally.y)
+                    if dist <= power.range:
+                        # Check if ally already has this buff
+                        already_buffed = any(
+                            b.source_power == power.name for b in ally.active_buffs
+                        )
+                        if not already_buffed:
+                            buff = ActiveBuff(
+                                stat=power.buff_stat,
+                                amount=power.amount,
+                                remaining_turns=power.buff_duration,
+                                source_power=power.name,
+                            )
+                            ally.active_buffs.append(buff)
+                            if power.cooldown_turns > 0:
+                                enemy.power_cooldowns[power.name] = power.cooldown_turns
+                            self._add_log(
+                                f"{enemy.name} invokes {power.name} on {ally.name}! "
+                                f"+{power.amount} {power.buff_stat} for {power.buff_duration} turns."
+                            )
+                            return True
+
+        return False
 
     def _find_nearest_player_unit(
         self, enemy: CombatUnit
@@ -1126,7 +1521,7 @@ class CombatEngine:
         self, enemy: CombatUnit, target: CombatUnit, prefix: str = ""
     ) -> bool:
         """Resolve an enemy attack on *target*.  Returns True if combat ended."""
-        actual = target.take_damage(enemy.stats.attack)
+        actual = target.take_damage(enemy.get_effective_attack())
         enemy.total_damage_dealt += actual
         msg_prefix = f"{prefix}" if prefix else ""
         self._add_log(
@@ -1161,6 +1556,12 @@ class CombatEngine:
 
         for enemy in self.get_alive_units(UnitTeam.ENEMY):
             is_ranged = enemy.stats.attack_range > 1
+
+            # --- Priority 0: Try using a power (if any available) ----------
+            if enemy.powers and self._enemy_try_power(enemy):
+                if self.is_over:
+                    return
+                continue  # Power used; this unit's turn is done
 
             # --- Priority 1: Ranged attack with line of sight ---------------
             if is_ranged:
@@ -1245,11 +1646,19 @@ class CombatEngine:
         """Reset all player unit flags and start a new player turn."""
         self._turn += 1
         self._phase = CombatPhase.PLAYER_TURN
+        # Tick cooldowns and buffs for ALL units at the start of each full round
+        for unit in self._units.values():
+            if unit.alive:
+                unit.tick_cooldowns()
+                buff_msgs = unit.tick_buffs()
+                for msg in buff_msgs:
+                    self._add_log(msg)
         for uid in self._player_unit_ids:
             unit = self._units[uid]
             if unit.alive:
                 unit.has_moved = False
                 unit.has_attacked = False
+                unit.has_used_power = False
         # Select the first living player unit
         for uid in self._player_unit_ids:
             if self._units[uid].alive:
@@ -1259,7 +1668,7 @@ class CombatEngine:
         active = self._units[self._active_unit_id]
         self._cursor_x = active.x
         self._cursor_y = active.y
-        self._add_log(f"[Turn {self._turn}] Your turn. Active: {active.name}. move / attack / end_turn / Tab:next")
+        self._add_log(f"[Turn {self._turn}] Your turn. Active: {active.name}. move / attack / power / Tab:next")
 
     # -- Win/loss checks -----------------------------------------------------
 
