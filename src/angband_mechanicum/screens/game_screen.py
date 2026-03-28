@@ -7,6 +7,7 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.containers import Vertical
+from textual.events import Resize
 from textual.screen import Screen
 from textual.widgets import Input
 from textual import work
@@ -63,6 +64,20 @@ class GameScreen(Screen[None]):
             self.app.game_engine._info_panel = dict(DEFAULT_INFO)  # type: ignore[attr-defined]
 
         self.query_one("#prompt", PromptInput).focus()
+        # Push initial pane dimensions to the engine after layout
+        self.call_after_refresh(self._sync_scene_pane_size)
+
+    def on_resize(self, event: Resize) -> None:
+        """Re-sync scene pane dimensions when the terminal is resized."""
+        self._sync_scene_pane_size()
+
+    def _sync_scene_pane_size(self) -> None:
+        """Tell the engine the current scene pane content dimensions."""
+        scene: ScenePane = self.query_one("#scene", ScenePane)
+        self.app.game_engine.set_scene_pane_size(  # type: ignore[attr-defined]
+            width=scene.content_width,
+            height=scene.content_height,
+        )
 
     def _restore_ui(self, state: dict[str, Any]) -> None:
         """Restore UI panes from saved state."""
@@ -104,6 +119,10 @@ class GameScreen(Screen[None]):
         # Show loading state while the engine processes
         narrative.show_loading()
         prompt.set_processing(True)
+
+        # Sync pane dimensions right before calling the LLM so the prompt
+        # always reflects the current terminal size.
+        self._sync_scene_pane_size()
 
         try:
             response = await self.app.game_engine.process_input(text)  # type: ignore[attr-defined]

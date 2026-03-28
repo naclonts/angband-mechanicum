@@ -53,7 +53,13 @@ def _extract_json(text: str) -> dict[str, Any]:
 MODEL: str = "claude-sonnet-4-20250514"
 MAX_TOKENS: int = 2048
 
-SCENE_ART_INSTRUCTIONS: str = """\
+DEFAULT_ART_WIDTH: int = 56
+DEFAULT_ART_HEIGHT: int = 16
+
+
+def _build_scene_art_instructions(width: int, height: int) -> str:
+    """Build the scene art section of the system prompt with dynamic pane dimensions."""
+    return f"""\
 
 ## Scene Art
 You MUST also provide ASCII/unicode art for the scene_art field that depicts the \
@@ -63,8 +69,8 @@ the game UI.
 Rules for scene art:
 - Use box-drawing characters (╔═╗║╚╝┌─┐│└┘├┤┬┴┼), blocks (█▓▒░), and symbols \
 (⚙⛨◉▬╬) to create atmospheric scenes.
-- Art MUST be no wider than 56 characters per line (to fit the scene pane).
-- Art should be 12-20 lines tall.
+- Art MUST be no wider than {width} characters per line (to fit the scene pane).
+- Art should be {max(height - 4, 4)}-{height} lines tall to fill the pane vertically.
 - Depict the physical environment: rooms, corridors, machinery, doorways, ruins, etc.
 - Match the scene to what is happening in the narrative — if the player enters a \
 corridor, show a corridor; if they are in a forge, show forge equipment.
@@ -74,7 +80,7 @@ corridor, show a corridor; if they are in a forge, show forge equipment.
 stays in the same place and nothing visually changes, set scene_art to null.
 """
 
-SYSTEM_PROMPT_BASE: str = """\
+_SYSTEM_PROMPT_BASE: str = """\
 You are the narrative engine for Angband Mechanicum, a text-based dungeon-crawling \
 RPG set in the Warhammer 40,000 universe. You narrate the world and respond to the \
 player's actions.
@@ -123,6 +129,7 @@ meaningful changes, for example:
 - {"Threat Level": "ELEVATED"} when danger increases
 - {"Objective": "Investigate seismic anomaly"} for quest updates
 
+
 ### Entity Tracking
 The entities array tracks places, characters, and items that appear in your narrative \
 response. This builds the game's structured memory of the world.
@@ -134,11 +141,14 @@ only, e.g. {"id": "skitarius-alpha-7"}
 - Include all entities meaningfully involved in the scene — not passing mentions, but \
 characters who act, places the player is in or moves to, and items that are used or discovered
 - Return an empty array [] if no entities are relevant to this response
-""" + SCENE_ART_INSTRUCTIONS + """
+"""
+
+_STORY_SUFFIX: str = """
 ## Story So Far
 The player has just received this introduction:
 
 """ + INTRO_NARRATIVE.replace("[bold]", "").replace("[/bold]", "").replace("[dim]", "").replace("[/dim]", "")
+
 
 NOOSPHERE_ERRORS: list[str] = [
     "The Noosphere connection falters... static floods your cognition buffers. "
@@ -172,6 +182,16 @@ class GameEngine:
         self._log_path: Path = (
             _log_dir() / f"convo_{int(time.time())}.jsonl"
         )
+        self._scene_pane_width: int = DEFAULT_ART_WIDTH
+        self._scene_pane_height: int = DEFAULT_ART_HEIGHT
+
+    def set_scene_pane_size(self, width: int, height: int) -> None:
+        """Update the scene pane dimensions used in LLM prompts.
+
+        Called by the UI whenever the environment pane is mounted or resized.
+        """
+        self._scene_pane_width = max(width, 20)
+        self._scene_pane_height = max(height, 6)
 
     @property
     def turn_count(self) -> int:
@@ -201,8 +221,10 @@ class GameEngine:
             "A hovering skull drone that accompanies the player's expedition")
 
     def _build_system_prompt(self) -> str:
-        """Build the full system prompt with dynamic entity registry."""
-        prompt = SYSTEM_PROMPT_BASE
+        """Build the full system prompt with dynamic entity registry and scene dimensions."""
+        prompt = _SYSTEM_PROMPT_BASE + _build_scene_art_instructions(
+            self._scene_pane_width, self._scene_pane_height
+        ) + _STORY_SUFFIX
         registry_context = self._history.get_registry_context()
         if registry_context:
             prompt += "\n\n" + registry_context
@@ -280,6 +302,8 @@ class GameEngine:
         engine._info_panel = data.get("info_panel", {})
         engine._error_count = data.get("error_count", 0)
         engine._log_path = _log_dir() / f"convo_{int(time.time())}.jsonl"
+        engine._scene_pane_width = DEFAULT_ART_WIDTH
+        engine._scene_pane_height = DEFAULT_ART_HEIGHT
         history_data = data.get("history")
         if history_data:
             engine._history = GameHistory.from_dict(history_data)
