@@ -82,7 +82,7 @@ PromptInput:focus {
     border-top: heavy $crt-bright;
 }
 
-PromptInput:disabled {
+PromptInput.-processing {
     color: $crt-dim;
     background: $crt-surface;
     opacity: 70%;

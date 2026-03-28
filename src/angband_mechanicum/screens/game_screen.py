@@ -84,6 +84,9 @@ class GameScreen(Screen[None]):
             )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        prompt: PromptInput = self.query_one("#prompt", PromptInput)
+        if prompt.is_processing:
+            return
         text: str = event.value.strip()
         if not text:
             return
