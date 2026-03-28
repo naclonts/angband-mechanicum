@@ -51,9 +51,19 @@ class CombatScreen(Screen[CombatResult]):
         ("h", "This help"),
     ]
 
-    def __init__(self, map_key: str = "corridor", **kwargs: object) -> None:
+    def __init__(
+        self,
+        map_key: str = "corridor",
+        player_hp: int | None = None,
+        player_max_hp: int | None = None,
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
-        self._engine: CombatEngine = CombatEngine(map_key=map_key)
+        self._engine: CombatEngine = CombatEngine(
+            map_key=map_key,
+            player_hp=player_hp,
+            player_max_hp=player_max_hp,
+        )
 
     @property
     def engine(self) -> CombatEngine:

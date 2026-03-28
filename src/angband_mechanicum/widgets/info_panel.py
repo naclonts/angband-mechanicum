@@ -9,7 +9,7 @@ DEFAULT_INFO: dict[str, str] = {
     "LOCATION": "Forge-Cathedral Alpha",
     "DATE": "0.123.999.M41",
     "FATIGUE": "[====------] 40%",
-    "INTEGRITY": "[=========-] 95%",
+    "INTEGRITY": "[==========] 100%",
     "NOOSPHERE": "CONNECTED",
 }
 

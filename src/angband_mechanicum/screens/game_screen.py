@@ -188,6 +188,11 @@ class GameScreen(Screen[None]):
             """Handle combat result when CombatScreen is dismissed."""
             if result is None:
                 return
+
+            # Carry combat HP back to story-mode integrity
+            engine = self.app.game_engine  # type: ignore[attr-defined]
+            engine.set_integrity(result.player_hp_remaining)
+
             narrative_pane: NarrativePane = self.query_one("#narrative", NarrativePane)
             if result.victory:
                 summary = (
@@ -207,9 +212,31 @@ class GameScreen(Screen[None]):
                 )
             narrative_pane.append_narrative(summary)
             self._narrative_log.append(summary)
+
+            # Update the info panel with the current integrity
+            self._update_integrity_display()
+
             self.query_one("#prompt", PromptInput).focus()
 
-        self.app.push_screen(CombatScreen(), callback=on_combat_result)
+        # Pass current integrity into the combat screen
+        engine = self.app.game_engine  # type: ignore[attr-defined]
+        self.app.push_screen(
+            CombatScreen(
+                player_hp=engine.integrity,
+                player_max_hp=engine.max_integrity,
+            ),
+            callback=on_combat_result,
+        )
+
+    def _update_integrity_display(self) -> None:
+        """Push the current integrity value into the info panel."""
+        engine = self.app.game_engine  # type: ignore[attr-defined]
+        filled = round(10 * engine.integrity / engine.max_integrity)
+        bar = "=" * filled + "-" * (10 - filled)
+        pct = round(100 * engine.integrity / engine.max_integrity)
+        self.query_one("#info", InfoPanel).update_info(
+            {"INTEGRITY": f"[{bar}] {pct}%"}
+        )
 
     def _autosave(self) -> None:
         """Save current game state to the session's save slot."""

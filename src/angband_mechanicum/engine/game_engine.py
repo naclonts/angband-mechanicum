@@ -184,6 +184,8 @@ class GameEngine:
         )
         self._scene_pane_width: int = DEFAULT_ART_WIDTH
         self._scene_pane_height: int = DEFAULT_ART_HEIGHT
+        self._integrity: int = 20
+        self._max_integrity: int = 20
 
     def set_scene_pane_size(self, width: int, height: int) -> None:
         """Update the scene pane dimensions used in LLM prompts.
@@ -192,6 +194,22 @@ class GameEngine:
         """
         self._scene_pane_width = max(width, 20)
         self._scene_pane_height = max(height, 6)
+
+    @property
+    def integrity(self) -> int:
+        return self._integrity
+
+    @property
+    def max_integrity(self) -> int:
+        return self._max_integrity
+
+    def set_integrity(self, hp: int) -> None:
+        """Set the current integrity (clamped to [0, max_integrity])."""
+        self._integrity = max(0, min(hp, self._max_integrity))
+
+    def take_damage(self, amount: int) -> None:
+        """Reduce integrity by *amount* (minimum 0)."""
+        self._integrity = max(0, self._integrity - amount)
 
     @property
     def turn_count(self) -> int:
@@ -289,6 +307,8 @@ class GameEngine:
             "info_panel": dict(self._info_panel),
             "error_count": self._error_count,
             "history": self._history.to_dict(),
+            "integrity": self._integrity,
+            "max_integrity": self._max_integrity,
         }
 
     @classmethod
@@ -304,6 +324,8 @@ class GameEngine:
         engine._log_path = _log_dir() / f"convo_{int(time.time())}.jsonl"
         engine._scene_pane_width = DEFAULT_ART_WIDTH
         engine._scene_pane_height = DEFAULT_ART_HEIGHT
+        engine._max_integrity = data.get("max_integrity", 20)
+        engine._integrity = data.get("integrity", engine._max_integrity)
         history_data = data.get("history")
         if history_data:
             engine._history = GameHistory.from_dict(history_data)

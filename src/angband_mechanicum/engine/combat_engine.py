@@ -238,14 +238,26 @@ def make_enemy(template_key: str, x: int, y: int, unit_id: str | None = None) ->
     )
 
 
-def make_player(x: int, y: int, entity_id: str | None = None) -> CombatUnit:
-    """Create the player Tech-Priest unit."""
+def make_player(
+    x: int,
+    y: int,
+    entity_id: str | None = None,
+    hp: int | None = None,
+    max_hp: int | None = None,
+) -> CombatUnit:
+    """Create the player Tech-Priest unit.
+
+    *hp* and *max_hp* default to 20 when not supplied, allowing the caller
+    to inject the current story-mode integrity.
+    """
+    actual_max_hp = max_hp if max_hp is not None else 20
+    actual_hp = hp if hp is not None else actual_max_hp
     return CombatUnit(
         unit_id="player",
         name="Magos Explorator",
         entity_id=entity_id,
         team=UnitTeam.PLAYER,
-        stats=CombatStats(max_hp=20, hp=20, attack=5, armor=2, movement=4, attack_range=1),
+        stats=CombatStats(max_hp=actual_max_hp, hp=actual_hp, attack=5, armor=2, movement=4, attack_range=1),
         x=x,
         y=y,
         symbol="@",
@@ -421,7 +433,12 @@ class CombatEngine:
     No LLM API calls -- all logic is local computation.
     """
 
-    def __init__(self, map_key: str = "corridor") -> None:
+    def __init__(
+        self,
+        map_key: str = "corridor",
+        player_hp: int | None = None,
+        player_max_hp: int | None = None,
+    ) -> None:
         map_def = HARDCODED_MAPS[map_key]
         self._map_name: str = map_def["name"]
         self._map_key: str = map_key
@@ -434,9 +451,9 @@ class CombatEngine:
         self._cursor_x: int = 0
         self._cursor_y: int = 0
 
-        # Place player
+        # Place player (use story-mode integrity when provided)
         px, py = map_def["player_start"]
-        player = make_player(px, py)
+        player = make_player(px, py, hp=player_hp, max_hp=player_max_hp)
         self._units[player.unit_id] = player
         self._cursor_x = px
         self._cursor_y = py
