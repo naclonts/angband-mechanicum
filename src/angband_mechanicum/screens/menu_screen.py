@@ -10,13 +10,12 @@ from textual.widgets import Button, Label, Static
 from angband_mechanicum.engine.save_manager import SaveManager, SaveMetadata
 
 TITLE_ART: str = """\
- ╔═══════════════════════════════════════════════════════════╗
- ║              ⛨  ANGBAND MECHANICUM  ⛨                    ║
- ║                                                          ║
- ║       ++ ADEPTUS MECHANICUS FIELD TERMINAL ++            ║
- ║       ++ FORGE WORLD: METALLICA SECUNDUS  ++             ║
- ║       ++ CLEARANCE: MAGOS EXPLORATOR      ++             ║
- ╚═══════════════════════════════════════════════════════════╝"""
+╔═══════════════════════════════════════════════════════╗
+║            ⛨  ANGBAND MECHANICUM  ⛨                  ║
+║     ++ ADEPTUS MECHANICUS FIELD TERMINAL ++          ║
+║     ++ FORGE WORLD: METALLICA SECUNDUS  ++           ║
+║     ++ CLEARANCE: MAGOS EXPLORATOR      ++           ║
+╚═══════════════════════════════════════════════════════╝"""
 
 FOOTER_TEXT: str = "[dim]++ THE OMNISSIAH PROTECTS ++ FLESH IS WEAK ++ THE MACHINE IS ETERNAL ++[/dim]"
 
@@ -34,7 +33,6 @@ class MenuScreen(Screen[None]):
                 yield Vertical(id="save-list")
 
     def on_mount(self) -> None:
-        self.query_one("#menu-title").border_title = "⛨ TERMINAL"
         load_btn: Button = self.query_one("#btn-load", Button)
         saves: list[SaveMetadata] = SaveManager().list_saves()
         if not saves:

@@ -98,25 +98,22 @@ MenuScreen {
 #menu-container {
     width: 65;
     height: auto;
-    max-height: 80%;
+    max-height: 95%;
     align: center middle;
-    padding: 1 2;
+    padding: 0 2;
+    overflow-y: auto;
 }
 
 #menu-title {
     text-align: center;
     color: $crt-bright;
-    border: heavy $crt-dim;
     background: $crt-surface;
-    padding: 0 1;
     margin-bottom: 1;
-    border-title-color: $crt-bright;
-    border-title-style: bold;
 }
 
 #btn-new {
     width: 100%;
-    margin: 1 0;
+    margin: 1 0 0 0;
     color: $crt-bg;
     background: $crt-bright;
     text-style: bold;
@@ -128,7 +125,6 @@ MenuScreen {
 
 #btn-load {
     width: 100%;
-    margin: 0 0 1 0;
     color: $crt-bright;
     background: $crt-surface;
     border: tall $crt-dim;
@@ -138,7 +134,7 @@ MenuScreen {
     border: tall $crt-bright;
 }
 
-#btn-load.-disabled {
+#btn-load:disabled {
     color: $crt-dim;
     border: tall $crt-surface;
 }
