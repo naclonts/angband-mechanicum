@@ -12,7 +12,9 @@ from angband_mechanicum.engine.combat_engine import (
     Terrain,
     Tile,
     UnitTeam,
+    _astar_path,
     auto_place_enemies,
+    has_line_of_sight,
     make_enemy,
     make_player,
     manhattan_distance,
@@ -529,3 +531,180 @@ class TestCombatEngineEnemyRoster:
         enemies = engine.get_alive_units(UnitTeam.ENEMY)
         assert len(enemies) == 1
         assert enemies[0].template_key == "servitor"
+
+
+# ---------------------------------------------------------------------------
+# Line of sight
+# ---------------------------------------------------------------------------
+
+
+class TestLineOfSight:
+    def test_clear_line_open_grid(self) -> None:
+        grid = Grid(width=10, height=10)
+        assert has_line_of_sight(grid, 0, 0, 5, 5) is True
+
+    def test_blocked_by_wall(self) -> None:
+        grid = Grid(width=10, height=10)
+        grid.set_terrain(3, 3, Terrain.WALL)
+        # Line from (0,0) to (6,6) passes through (3,3)
+        assert has_line_of_sight(grid, 0, 0, 6, 6) is False
+
+    def test_wall_not_on_line(self) -> None:
+        grid = Grid(width=10, height=10)
+        grid.set_terrain(3, 0, Terrain.WALL)
+        # Straight horizontal: (0,5) to (8,5) should be clear
+        assert has_line_of_sight(grid, 0, 5, 8, 5) is True
+
+    def test_adjacent_always_visible(self) -> None:
+        grid = Grid(width=10, height=10)
+        assert has_line_of_sight(grid, 5, 5, 6, 5) is True
+        assert has_line_of_sight(grid, 5, 5, 5, 6) is True
+
+    def test_wall_between_horizontal(self) -> None:
+        grid = Grid(width=10, height=10)
+        grid.set_terrain(3, 5, Terrain.WALL)
+        assert has_line_of_sight(grid, 1, 5, 6, 5) is False
+
+    def test_debris_does_not_block(self) -> None:
+        grid = Grid(width=10, height=10)
+        grid.set_terrain(3, 3, Terrain.DEBRIS)
+        assert has_line_of_sight(grid, 0, 0, 6, 6) is True
+
+
+# ---------------------------------------------------------------------------
+# A* pathfinding
+# ---------------------------------------------------------------------------
+
+
+class TestAstarPath:
+    def test_straight_path_open_grid(self) -> None:
+        grid = Grid(width=10, height=10)
+        path = _astar_path(grid, 0, 0, 4, 0, set())
+        assert len(path) == 4
+        assert path[-1] == (4, 0)
+
+    def test_path_around_wall(self) -> None:
+        """A* should find a path around a wall that greedy would get stuck on."""
+        grid = Grid(width=10, height=10)
+        # Vertical wall from y=0 to y=4 at x=3
+        for y in range(5):
+            grid.set_terrain(3, y, Terrain.WALL)
+        # Path from (1,2) to (5,2) must go around the wall
+        path = _astar_path(grid, 1, 2, 5, 2, set())
+        assert len(path) > 0
+        assert path[-1] == (5, 2)
+        # Verify no step goes through a wall
+        for px, py in path:
+            assert grid.get_tile(px, py).passable
+
+    def test_no_path_completely_blocked(self) -> None:
+        """Returns empty list when target is unreachable."""
+        grid = Grid(width=5, height=5)
+        # Box the target in with walls
+        for x in range(5):
+            grid.set_terrain(x, 2, Terrain.WALL)
+        path = _astar_path(grid, 0, 0, 0, 4, set())
+        assert path == []
+
+    def test_path_avoids_occupied(self) -> None:
+        grid = Grid(width=10, height=10)
+        occupied = {(2, 0), (3, 0)}
+        path = _astar_path(grid, 0, 0, 5, 0, occupied)
+        for px, py in path:
+            assert (px, py) not in occupied or (px, py) == (5, 0)
+
+    def test_same_start_and_end(self) -> None:
+        grid = Grid(width=5, height=5)
+        path = _astar_path(grid, 2, 2, 2, 2, set())
+        assert path == []
+
+    def test_max_cost_limits_search(self) -> None:
+        grid = Grid(width=20, height=1)
+        # With max_cost=3, should not reach a target 10 tiles away
+        path = _astar_path(grid, 0, 0, 10, 0, set(), max_cost=3)
+        assert path == []
+
+
+# ---------------------------------------------------------------------------
+# Enemy AI: pathfinding around obstacles
+# ---------------------------------------------------------------------------
+
+
+class TestEnemyAIPathfinding:
+    def test_enemy_navigates_around_wall(self) -> None:
+        """Enemies should navigate around walls instead of getting stuck."""
+        # Build a custom map with a wall between enemy and player
+        engine = CombatEngine(enemy_roster=[])
+        grid = engine.grid
+        player = engine.get_player()
+
+        # Place player on left side, enemy on right side with wall between
+        player.x = 2
+        player.y = 7
+
+        # Place a melee enemy behind the internal wall at (8, y)
+        # The corridor map has walls at x=8 from y=1..5 and y=7..9
+        enemy = make_enemy("servitor", 10, 3)
+        engine._units[enemy.unit_id] = enemy
+        engine._total_enemies = 1
+
+        initial_x, initial_y = enemy.x, enemy.y
+
+        # Run an enemy turn
+        engine._phase = CombatPhase.PLAYER_TURN
+        engine.end_player_turn()
+
+        # The enemy should have moved (not stayed stuck)
+        if not engine.is_over:
+            moved = (enemy.x != initial_x) or (enemy.y != initial_y)
+            assert moved, "Enemy should move toward player via pathfinding"
+
+    def test_ranged_enemy_shoots_with_los(self) -> None:
+        """A ranged enemy with LoS should shoot instead of moving."""
+        engine = CombatEngine(enemy_roster=[])
+        player = engine.get_player()
+
+        # Place player and ranged enemy with clear LoS
+        player.x = 3
+        player.y = 7
+        # gunner has attack_range=4
+        enemy = make_enemy("gunner", 6, 7)
+        engine._units[enemy.unit_id] = enemy
+        engine._total_enemies = 1
+
+        initial_hp = player.stats.hp
+        initial_x, initial_y = enemy.x, enemy.y
+
+        engine._phase = CombatPhase.PLAYER_TURN
+        engine.end_player_turn()
+
+        if not engine.is_over:
+            # Enemy should have attacked (player HP decreased)
+            assert player.stats.hp < initial_hp, "Ranged enemy should shoot with LoS"
+            # Enemy should NOT have moved (it had LoS from current position)
+            assert enemy.x == initial_x and enemy.y == initial_y, (
+                "Ranged enemy should stay put when it has LoS and range"
+            )
+
+    def test_ranged_enemy_moves_when_no_los(self) -> None:
+        """A ranged enemy without LoS should move to get it."""
+        engine = CombatEngine(enemy_roster=[])
+        player = engine.get_player()
+
+        # Place player at (2,7) and ranged enemy behind a wall
+        player.x = 2
+        player.y = 7
+        # gunner behind the x=8 wall with no clear LoS
+        enemy = make_enemy("gunner", 10, 3)
+        engine._units[enemy.unit_id] = enemy
+        engine._total_enemies = 1
+
+        initial_x, initial_y = enemy.x, enemy.y
+
+        engine._phase = CombatPhase.PLAYER_TURN
+        engine.end_player_turn()
+
+        if not engine.is_over:
+            # Enemy should have moved (no LoS from starting position)
+            moved = (enemy.x != initial_x) or (enemy.y != initial_y)
+            assert moved, "Ranged enemy should move when it has no LoS"

@@ -8,6 +8,7 @@ Fully serializable via to_dict()/from_dict() for save compatibility.
 from __future__ import annotations
 
 import enum
+import heapq
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -605,6 +606,112 @@ def manhattan_distance(x1: int, y1: int, x2: int, y2: int) -> int:
     return abs(x2 - x1) + abs(y2 - y1)
 
 
+def has_line_of_sight(
+    grid: Grid, x1: int, y1: int, x2: int, y2: int
+) -> bool:
+    """Check whether a clear line exists between two points on the grid.
+
+    Uses Bresenham's line algorithm.  Returns False if any WALL tile lies
+    on the line between (x1, y1) and (x2, y2) (exclusive of endpoints).
+    """
+    dx = abs(x2 - x1)
+    dy = abs(y2 - y1)
+    sx = 1 if x1 < x2 else -1
+    sy = 1 if y1 < y2 else -1
+    err = dx - dy
+    cx, cy = x1, y1
+
+    while True:
+        # Advance one step
+        e2 = 2 * err
+        if e2 > -dy:
+            err -= dy
+            cx += sx
+        if e2 < dx:
+            err += dx
+            cy += sy
+
+        # Reached the target -- line is clear
+        if cx == x2 and cy == y2:
+            return True
+
+        # Check intermediate tile
+        if not grid.in_bounds(cx, cy):
+            return False
+        if not grid.get_tile(cx, cy).passable:
+            return False
+
+
+def _astar_path(
+    grid: Grid,
+    sx: int,
+    sy: int,
+    tx: int,
+    ty: int,
+    occupied: set[tuple[int, int]],
+    max_cost: int | None = None,
+) -> list[tuple[int, int]]:
+    """A* pathfinding from (sx,sy) to (tx,ty), respecting terrain costs.
+
+    *occupied* contains positions blocked by other units.  The target
+    position is treated as passable so melee units can path toward an
+    occupied target square (the caller will stop one step short).
+
+    Returns a list of (x,y) steps **excluding** the start.  An empty list
+    means the target is unreachable (or the unit is already there).
+
+    When *max_cost* is given the search prunes branches whose g-cost
+    exceeds the budget, keeping the search cheap for AI movement.
+    """
+    if (sx, sy) == (tx, ty):
+        return []
+
+    # Priority queue entries: (f_cost, counter, x, y)
+    counter = 0
+    open_set: list[tuple[int, int, int, int]] = []
+    heapq.heappush(open_set, (manhattan_distance(sx, sy, tx, ty), counter, sx, sy))
+    came_from: dict[tuple[int, int], tuple[int, int]] = {}
+    g_cost: dict[tuple[int, int], int] = {(sx, sy): 0}
+
+    while open_set:
+        _f, _cnt, cx, cy = heapq.heappop(open_set)
+
+        if (cx, cy) == (tx, ty):
+            # Reconstruct path
+            path: list[tuple[int, int]] = []
+            cur = (tx, ty)
+            while cur != (sx, sy):
+                path.append(cur)
+                cur = came_from[cur]
+            path.reverse()
+            return path
+
+        current_g = g_cost[(cx, cy)]
+
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nx, ny = cx + dx, cy + dy
+            if not grid.in_bounds(nx, ny):
+                continue
+            tile = grid.get_tile(nx, ny)
+            if not tile.passable:
+                continue
+            # Other units block passage, except the target square itself
+            if (nx, ny) in occupied and (nx, ny) != (tx, ty):
+                continue
+            new_g = current_g + tile.movement_cost
+            if max_cost is not None and new_g > max_cost:
+                continue
+            prev_g = g_cost.get((nx, ny))
+            if prev_g is None or new_g < prev_g:
+                g_cost[(nx, ny)] = new_g
+                f = new_g + manhattan_distance(nx, ny, tx, ty)
+                counter += 1
+                heapq.heappush(open_set, (f, counter, nx, ny))
+                came_from[(nx, ny)] = (cx, cy)
+
+    return []  # no path found
+
+
 def _step_toward(
     grid: Grid,
     sx: int,
@@ -615,8 +722,13 @@ def _step_toward(
 ) -> tuple[int, int]:
     """Return the best adjacent cell that moves (sx,sy) toward (tx,ty).
 
-    Uses greedy Manhattan distance. Returns (sx,sy) if stuck.
+    Uses A* pathfinding so units navigate around obstacles instead of
+    getting stuck against walls.  Falls back to (sx, sy) when truly stuck.
     """
+    path = _astar_path(grid, sx, sy, tx, ty, occupied, max_cost=30)
+    if path:
+        return path[0]
+    # Fallback: greedy single step (handles edge cases where A* finds no path)
     best: tuple[int, int] = (sx, sy)
     best_dist = manhattan_distance(sx, sy, tx, ty)
     for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
@@ -955,10 +1067,55 @@ class CombatEngine:
                 best = u
         return best
 
+    def _find_best_ranged_target(
+        self, enemy: CombatUnit
+    ) -> CombatUnit | None:
+        """Find the best target for a ranged enemy: in range AND has LoS.
+
+        Prefers the nearest target with clear line of sight within attack
+        range.  Returns None if no valid ranged target exists.
+        """
+        best: CombatUnit | None = None
+        best_dist = 9999
+        for u in self.get_alive_units(UnitTeam.PLAYER):
+            dist = manhattan_distance(enemy.x, enemy.y, u.x, u.y)
+            if dist > enemy.stats.attack_range:
+                continue
+            if not has_line_of_sight(self._grid, enemy.x, enemy.y, u.x, u.y):
+                continue
+            if dist < best_dist:
+                best_dist = dist
+                best = u
+        return best
+
+    def _enemy_attack(
+        self, enemy: CombatUnit, target: CombatUnit, prefix: str = ""
+    ) -> bool:
+        """Resolve an enemy attack on *target*.  Returns True if combat ended."""
+        actual = target.take_damage(enemy.stats.attack)
+        enemy.total_damage_dealt += actual
+        msg_prefix = f"{prefix}" if prefix else ""
+        self._add_log(
+            f"{msg_prefix}{enemy.name} attacks {target.name} for {actual} damage! "
+            f"(HP: {target.stats.hp}/{target.stats.max_hp})"
+        )
+        if not target.alive:
+            if target.unit_id == "player":
+                self._add_log("++ CRITICAL FAILURE: SYSTEMS OFFLINE ++")
+            else:
+                self._add_log(f"{target.name} is down!")
+            self._check_end_conditions()
+        return self.is_over
+
     def _run_enemy_turn(self) -> None:
         """Execute AI for all living enemy units.
 
-        Enemies target the nearest player-team unit (not just the Tech-Priest).
+        Decision priority for each enemy:
+        1. **Ranged with LoS** -- If the enemy has attack_range > 1, a target
+           is within range, AND has clear line of sight, fire without moving.
+        2. **Melee in range** -- If already adjacent to a target, attack.
+        3. **Move then attack** -- Use A*-based pathfinding to navigate toward
+           the nearest player unit, then attack if now in range with LoS.
         """
         self._add_log(f"[Turn {self._turn}] Enemy phase")
         player_units = self.get_alive_units(UnitTeam.PLAYER)
@@ -969,65 +1126,82 @@ class CombatEngine:
         occupied = self._occupied_positions()
 
         for enemy in self.get_alive_units(UnitTeam.ENEMY):
-            target = self._find_nearest_player_unit(enemy)
-            if target is None:
-                continue
-            dist = manhattan_distance(enemy.x, enemy.y, target.x, target.y)
+            is_ranged = enemy.stats.attack_range > 1
 
-            # Attack if in range
-            if dist <= enemy.stats.attack_range:
-                actual = target.take_damage(enemy.stats.attack)
-                enemy.total_damage_dealt += actual
-                self._add_log(
-                    f"{enemy.name} attacks {target.name} for {actual} damage! "
-                    f"(HP: {target.stats.hp}/{target.stats.max_hp})"
-                )
-                if not target.alive:
-                    if target.unit_id == "player":
-                        self._add_log("++ CRITICAL FAILURE: SYSTEMS OFFLINE ++")
-                    else:
-                        self._add_log(f"{target.name} is down!")
-                    self._check_end_conditions()
-                    if self.is_over:
+            # --- Priority 1: Ranged attack with line of sight ---------------
+            if is_ranged:
+                ranged_target = self._find_best_ranged_target(enemy)
+                if ranged_target is not None:
+                    if self._enemy_attack(enemy, ranged_target):
                         return
+                    continue  # Ranged enemy fired; turn done for this unit
+
+            # --- Priority 2: Melee attack if already adjacent ---------------
+            nearest = self._find_nearest_player_unit(enemy)
+            if nearest is None:
+                continue
+            dist = manhattan_distance(enemy.x, enemy.y, nearest.x, nearest.y)
+
+            if dist <= enemy.stats.attack_range:
+                # Melee (or short-range) unit already in range -- attack
+                if self._enemy_attack(enemy, nearest):
+                    return
+                continue
+
+            # --- Priority 3: Move toward target, then try to attack ---------
+            occupied.discard((enemy.x, enemy.y))
+
+            # Use A* to compute a full path, then walk along it
+            path = _astar_path(
+                self._grid, enemy.x, enemy.y,
+                nearest.x, nearest.y, occupied,
+                max_cost=30,
+            )
+            steps_remaining = enemy.stats.movement
+            if path:
+                for px, py in path:
+                    # Don't walk onto the target's square
+                    if (px, py) in occupied:
+                        break
+                    cost = self._grid.get_tile(px, py).movement_cost
+                    if cost > steps_remaining:
+                        break
+                    enemy.x = px
+                    enemy.y = py
+                    steps_remaining -= cost
             else:
-                # Move toward target
-                occupied.discard((enemy.x, enemy.y))
-                steps_remaining = enemy.stats.movement
+                # A* found no path -- try greedy single steps as fallback
                 while steps_remaining > 0:
                     nx, ny = _step_toward(
                         self._grid, enemy.x, enemy.y,
-                        target.x, target.y, occupied,
+                        nearest.x, nearest.y, occupied,
                     )
                     if (nx, ny) == (enemy.x, enemy.y):
-                        break  # stuck
+                        break
                     cost = self._grid.get_tile(nx, ny).movement_cost
                     if cost > steps_remaining:
                         break
                     enemy.x = nx
                     enemy.y = ny
                     steps_remaining -= cost
-                occupied.add((enemy.x, enemy.y))
 
-                # Check if now in attack range after moving
-                dist = manhattan_distance(enemy.x, enemy.y, target.x, target.y)
+            occupied.add((enemy.x, enemy.y))
+
+            # After moving, check whether we can now attack
+            # For ranged enemies: need LoS; for melee: need adjacency
+            attack_target: CombatUnit | None = None
+            if is_ranged:
+                attack_target = self._find_best_ranged_target(enemy)
+            else:
+                dist = manhattan_distance(enemy.x, enemy.y, nearest.x, nearest.y)
                 if dist <= enemy.stats.attack_range:
-                    actual = target.take_damage(enemy.stats.attack)
-                    enemy.total_damage_dealt += actual
-                    self._add_log(
-                        f"{enemy.name} advances and attacks {target.name} for {actual} damage! "
-                        f"(HP: {target.stats.hp}/{target.stats.max_hp})"
-                    )
-                    if not target.alive:
-                        if target.unit_id == "player":
-                            self._add_log("++ CRITICAL FAILURE: SYSTEMS OFFLINE ++")
-                        else:
-                            self._add_log(f"{target.name} is down!")
-                        self._check_end_conditions()
-                        if self.is_over:
-                            return
-                else:
-                    self._add_log(f"{enemy.name} moves toward {target.name}.")
+                    attack_target = nearest
+
+            if attack_target is not None:
+                if self._enemy_attack(enemy, attack_target, prefix=""):
+                    return
+            else:
+                self._add_log(f"{enemy.name} moves toward {nearest.name}.")
 
         self._check_end_conditions()
         if not self.is_over:
