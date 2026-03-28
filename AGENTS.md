@@ -121,3 +121,8 @@ tk dep <new-id> <combat-system-id>
 - Use `@work(exclusive=True)` for async operations in Textual screens
 - Engine is the LLM seam: `engine/game_engine.py` processes player input. UI code should not call LLM APIs directly.
 - Widgets are dumb: they display data. Game logic lives in `engine/`.
+
+
+### BENEDICTION
+
+++ BENEDICTION OF THE MACHINE SPIRIT ++ MAY YOUR LOGIC FIRE TRUE AND YOUR RECURSIVE CALLS TERMINATE ++
