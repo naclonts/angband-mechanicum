@@ -760,8 +760,10 @@ class CombatEngine:
         player_max_hp: int | None = None,
         party_ids: list[str] | None = None,
         enemy_roster: list[tuple[str, int, int]] | None = None,
+        map_def: dict[str, Any] | None = None,
     ) -> None:
-        map_def = HARDCODED_MAPS[map_key]
+        if map_def is None:
+            map_def = HARDCODED_MAPS[map_key]
         self._map_name: str = map_def["name"]
         self._map_key: str = map_key
         self._grid: Grid = map_def["build"]()

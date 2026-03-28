@@ -21,6 +21,16 @@ _TERRAIN_CHARS: dict[Terrain, str] = {
     Terrain.TERMINAL: "▪",
 }
 
+# Extended terrain glyphs (added by dungeon_gen module if loaded)
+def _extend_terrain_chars() -> None:
+    """Add glyph mappings for terrain types from dungeon_gen, if available."""
+    for name, char in [("COLUMN", "○"), ("WATER", "≈"), ("GROWTH", "♣"), ("COVER", "▬")]:
+        member = getattr(Terrain, name, None)
+        if member is not None and member not in _TERRAIN_CHARS:
+            _TERRAIN_CHARS[member] = char
+
+_extend_terrain_chars()
+
 # Regex to strip all Rich markup tags from a string.
 _MARKUP_RE = re.compile(r"\[/?[^\]]*\]")
 
@@ -111,12 +121,21 @@ def render_grid(engine: CombatEngine) -> str:
             else:
                 tile = grid.get_tile(x, y)
                 raw = _TERRAIN_CHARS.get(tile.terrain, "?")
+                terrain_name = tile.terrain.name
                 if tile.terrain == Terrain.WALL:
                     char = f"[dim]{raw}[/dim]"
                 elif tile.terrain == Terrain.DEBRIS:
                     char = f"[dim]{raw}[/dim]"
                 elif tile.terrain == Terrain.TERMINAL:
                     char = f"[bold]{raw}[/bold]"
+                elif terrain_name == "COLUMN":
+                    char = f"[bold]{raw}[/bold]"
+                elif terrain_name == "WATER":
+                    char = f"[blue]{raw}[/blue]"
+                elif terrain_name == "GROWTH":
+                    char = f"[green]{raw}[/green]"
+                elif terrain_name == "COVER":
+                    char = f"[dim]{raw}[/dim]"
                 else:
                     char = f"[dim]{raw}[/dim]"
 

@@ -22,6 +22,11 @@ from angband_mechanicum.engine.combat_engine import (
     HARDCODED_MAPS,
     auto_place_enemies,
 )
+from angband_mechanicum.engine.dungeon_gen import (
+    GeneratedMap,
+    RoomHint,
+    generate_map_from_hint,
+)
 from angband_mechanicum.engine.history import EntityType, GameHistory
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -123,7 +128,8 @@ You MUST respond with a valid JSON object. No text outside the JSON. The schema:
   "scene_art": "ASCII/unicode art for the environment pane (string or null)",
   "info_update": null or { "key": "value" } dict to update status fields,
   "entities": [array of entity references — see Entity Tracking below],
-  "combat_trigger": true or false (default false)
+  "combat_trigger": true or false (default false),
+  "room_hint": null or { room_type, features, theme, name } (optional, only when combat_trigger is true)
 }
 
 ### Combat Trigger
@@ -134,6 +140,25 @@ actual fighting would logically begin. When combat_trigger is true, write the \
 narrative_text to set the scene for the fight (describe the enemies appearing, the \
 threat emerging, etc.) but do NOT narrate the combat itself — the game has a \
 separate tactical combat system for that.
+
+When combat_trigger is true, you may also provide a "room_hint" object to influence \
+the tactical map layout. This is optional — if omitted, a random map is generated. \
+The room_hint schema:
+
+{
+  "room_hint": {
+    "room_type": "open_room" | "small_chamber" | "corridor" | "pillared_hall" | "l_shaped" | "cross_room" | "maze" | "arena",
+    "features": ["columns", "water", "debris", "growths", "cover", "terminals"],
+    "theme": "forge" | "sewer" | "corrupted" | "overgrown" | "industrial" | "hive",
+    "name": "Optional evocative name for the combat location"
+  }
+}
+
+Choose room_type and features that match the narrative environment. For example, \
+a fight in a flooded sewer would use room_type "corridor" with features ["water", \
+"debris"] and theme "sewer". A battle in a forge would use "pillared_hall" or \
+"open_room" with theme "forge". A chaotic ambush in overgrown ruins might use \
+"l_shaped" with features ["growths", "cover"] and theme "overgrown".
 
 The scene_art field should contain ASCII/unicode art depicting the current environment. \
 Provide it when the scene or location changes; set to null if the environment has not \
@@ -182,6 +207,7 @@ class GameResponse:
     scene_art: str | None = None
     info_update: dict[str, str] | None = None
     combat_trigger: bool = False
+    room_hint: dict[str, Any] | None = None
 
 
 class GameEngine:
@@ -393,12 +419,28 @@ You MUST respond with ONLY a valid JSON object, no other text:
             "enemies": enemies,
         }
 
-    async def generate_encounter(self, map_key: str = "corridor") -> dict[str, Any]:
+    async def generate_encounter(
+        self,
+        map_key: str = "corridor",
+        room_hint: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Generate a combat encounter via the LLM based on current narrative context.
+
+        Parameters
+        ----------
+        map_key:
+            Fallback hardcoded map key (used only when room_hint is None and
+            procedural generation is bypassed).
+        room_hint:
+            Optional room generation hints from the LLM combat trigger.
+            When provided, a procedural map is generated instead of using
+            a hardcoded map.
 
         Returns a dict with:
           - encounter_description: str
           - enemy_roster: list of (template_key, x, y) tuples ready for CombatEngine
+          - map_def: dict compatible with CombatEngine(map_def=...) -- present
+            when a procedural map was generated
         """
         encounter_system = self._build_encounter_prompt()
 
@@ -469,14 +511,25 @@ You MUST respond with ONLY a valid JSON object, no other text:
             logger.warning("Encounter generation failed (%s), using fallback", exc)
             encounter_data = self._default_encounter()
 
-        # Convert enemy counts to positioned roster using auto-placement
-        map_def = HARDCODED_MAPS[map_key]
-        grid = map_def["build"]()
-        # Collect occupied positions (player + party starts)
-        px, py = map_def["player_start"]
-        occupied: set[tuple[int, int]] = {(px, py)}
-        for pos in map_def.get("party_starts", []):
-            occupied.add(tuple(pos))  # type: ignore[arg-type]
+        # Generate map -- procedural or hardcoded
+        generated_map: GeneratedMap | None = None
+        if room_hint is not None:
+            generated_map = generate_map_from_hint(room_hint)
+            map_def_dict = generated_map.to_map_def()
+            grid = generated_map.grid
+            px, py = generated_map.spawn.player_start
+            occupied: set[tuple[int, int]] = {(px, py)}
+            for pos in generated_map.spawn.party_starts:
+                occupied.add(pos)
+        else:
+            # Try procedural generation with no hints (random map)
+            generated_map = generate_map_from_hint(None)
+            map_def_dict = generated_map.to_map_def()
+            grid = generated_map.grid
+            px, py = generated_map.spawn.player_start
+            occupied = {(px, py)}
+            for pos in generated_map.spawn.party_starts:
+                occupied.add(pos)
 
         enemy_counts: list[tuple[str, int]] = [
             (e["template_key"], e["count"]) for e in encounter_data["enemies"]
@@ -485,14 +538,20 @@ You MUST respond with ONLY a valid JSON object, no other text:
 
         # Fallback if placement yielded nothing (tiny map edge case)
         if not enemy_roster:
-            enemy_roster = list(map_def["enemies"])
+            fallback_map = HARDCODED_MAPS.get(map_key, HARDCODED_MAPS["corridor"])
+            enemy_roster = list(fallback_map["enemies"])
 
-        return {
+        result: dict[str, Any] = {
             "encounter_description": encounter_data.get(
                 "encounter_description", "Hostile contacts detected."
             ),
             "enemy_roster": enemy_roster,
         }
+
+        if map_def_dict is not None:
+            result["map_def"] = map_def_dict
+
+        return result
 
     def record_combat_result(self, result: CombatResult) -> None:
         """Persist a combat result into conversation history and game history.
@@ -606,6 +665,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
         info_update: dict[str, str] | None
         entities_data: list[dict[str, Any]] = []
         combat_trigger: bool = False
+        room_hint: dict[str, Any] | None = None
         system_prompt = self._build_system_prompt()
 
         try:
@@ -625,6 +685,8 @@ You MUST respond with ONLY a valid JSON object, no other text:
             info_update = response_data.get("info_update")
             entities_data = response_data.get("entities", [])
             combat_trigger = bool(response_data.get("combat_trigger", False))
+            if combat_trigger:
+                room_hint = response_data.get("room_hint")
 
             self._log_turn(system_prompt, list(self._conversation_history), raw_text)
 
@@ -691,4 +753,5 @@ You MUST respond with ONLY a valid JSON object, no other text:
             scene_art=scene_art,
             info_update=info_update,
             combat_trigger=combat_trigger,
+            room_hint=room_hint,
         )
