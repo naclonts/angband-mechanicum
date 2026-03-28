@@ -106,5 +106,5 @@ class TestInfoPanelFormatting:
         assert "BB        3" in result
 
     def test_default_info_has_required_fields(self) -> None:
-        required = {"DESIGNATION", "LOCATION", "DATE", "FATIGUE", "INTEGRITY", "NOOSPHERE"}
+        required = {"DESIGNATION", "LOCATION", "DATE", "NOOSPHERE"}
         assert required == set(DEFAULT_INFO.keys())

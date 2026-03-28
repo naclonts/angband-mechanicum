@@ -54,6 +54,7 @@ class GameScreen(Screen[None]):
         self._save_manager: SaveManager = SaveManager()
         self._narrative_log: list[str] = []
         self._combat_pending: bool = False
+        self._pending_room_hint: dict | None = None
 
     def compose(self) -> ComposeResult:
         yield ScenePane(FORGE_SCENE, id="scene")
@@ -186,6 +187,7 @@ class GameScreen(Screen[None]):
             narrative.append_narrative(combat_prompt)
             self._narrative_log.append(combat_prompt)
             self._combat_pending = True
+            self._pending_room_hint = response.room_hint
 
         # Autosave after each successful command
         self._autosave()
@@ -220,8 +222,11 @@ class GameScreen(Screen[None]):
         # Generate encounter via the LLM (with loading indicator)
         narrative.show_loading()
         prompt.set_processing(True)
+        room_hint = self._pending_room_hint
+        self._pending_room_hint = None
+
         try:
-            encounter = await engine.generate_encounter()
+            encounter = await engine.generate_encounter(room_hint=room_hint)
         finally:
             narrative.hide_loading()
             prompt.set_processing(False)
@@ -232,6 +237,7 @@ class GameScreen(Screen[None]):
         self._narrative_log.append(f"\n[dim]{desc}[/dim]\n")
 
         enemy_roster: list[tuple[str, int, int]] = encounter.get("enemy_roster", [])
+        map_def = encounter.get("map_def")
 
         def on_combat_result(result: CombatResult | None) -> None:
             """Handle combat result when CombatScreen is dismissed."""
@@ -271,6 +277,7 @@ class GameScreen(Screen[None]):
                 player_max_hp=engine.max_integrity,
                 party_ids=engine.party_member_ids,
                 enemy_roster=enemy_roster if enemy_roster else None,
+                map_def=map_def,
             ),
             callback=on_combat_result,
         )
@@ -305,6 +312,7 @@ class GameScreen(Screen[None]):
         self._narrative_log.append(f"\n[dim]{desc}[/dim]\n")
 
         enemy_roster: list[tuple[str, int, int]] = encounter.get("enemy_roster", [])
+        map_def = encounter.get("map_def")
 
         def on_combat_result(result: CombatResult | None) -> None:
             """Handle combat result when CombatScreen is dismissed."""
@@ -350,6 +358,7 @@ class GameScreen(Screen[None]):
                 player_max_hp=engine.max_integrity,
                 party_ids=engine.party_member_ids,
                 enemy_roster=enemy_roster if enemy_roster else None,
+                map_def=map_def,
             ),
             callback=on_combat_result,
         )

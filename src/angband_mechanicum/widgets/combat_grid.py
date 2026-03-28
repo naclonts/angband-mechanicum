@@ -22,6 +22,16 @@ _TERRAIN_CHARS: dict[Terrain, str] = {
     Terrain.TERMINAL: "▪",
 }
 
+# Extended terrain glyphs (added by dungeon_gen module if loaded)
+def _extend_terrain_chars() -> None:
+    """Add glyph mappings for terrain types from dungeon_gen, if available."""
+    for name, char in [("COLUMN", "○"), ("WATER", "≈"), ("GROWTH", "♣"), ("COVER", "▬")]:
+        member = getattr(Terrain, name, None)
+        if member is not None and member not in _TERRAIN_CHARS:
+            _TERRAIN_CHARS[member] = char
+
+_extend_terrain_chars()
+
 # Regex to strip all Rich markup tags from a string.
 _MARKUP_RE = re.compile(r"\[/?[^\]]*\]")
 
@@ -126,10 +136,19 @@ def render_grid(engine: CombatEngine) -> str:
                 tile = grid.get_tile(x, y)
                 raw = _TERRAIN_CHARS.get(tile.terrain, "?")
                 in_range = (x, y) in reachable
+                terrain_name = tile.terrain.name
                 if tile.terrain == Terrain.WALL:
                     char = f"[dim]{raw}[/dim]"
                 elif tile.terrain == Terrain.TERMINAL:
                     char = f"[bold]{raw}[/bold]"
+                elif terrain_name == "COLUMN":
+                    char = f"[bold]{raw}[/bold]"
+                elif terrain_name == "WATER":
+                    char = f"[blue]{raw}[/blue]" if not in_range else f"[#55cc55]{raw}[/#55cc55]"
+                elif terrain_name == "GROWTH":
+                    char = f"[green]{raw}[/green]" if not in_range else f"[#55cc55]{raw}[/#55cc55]"
+                elif terrain_name == "COVER":
+                    char = f"[dim]{raw}[/dim]" if not in_range else f"[#55cc55]{raw}[/#55cc55]"
                 elif in_range:
                     # Subtle movement range highlight: brighter green
                     char = f"[#55cc55]{raw}[/#55cc55]"
