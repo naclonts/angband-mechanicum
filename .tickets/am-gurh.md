@@ -1,6 +1,6 @@
 ---
 id: am-gurh
-status: open
+status: closed
 deps: [am-pp6h]
 links: []
 created: 2026-03-28T01:25:58Z
