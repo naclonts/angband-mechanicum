@@ -38,8 +38,10 @@ def render_grid(engine: CombatEngine) -> str:
     - Terrain tiles with unit symbols overlaid
     - Cursor marked with brackets: [X]
     - Column/row numbers for reference
-    - The currently selected party member is shown with an underline
-      indicator so the player always knows who they are controlling.
+    - The currently selected party member is shown with a prominent
+      background highlight (``on #1a3a1a``) so the player always knows
+      which character they are controlling.  When the cursor overlaps
+      the active unit the cell uses ``reverse`` instead.
     """
     grid = engine.grid
     cx, cy = engine.cursor
@@ -102,8 +104,10 @@ def render_grid(engine: CombatEngine) -> str:
             if unit is not None:
                 if unit.team == UnitTeam.PLAYER:
                     if unit.unit_id == active_id:
-                        # Selected unit: bold + underline to distinguish
-                        char = f"[bold underline]{unit.symbol}[/bold underline]"
+                        # Selected unit: bright text on a dark-green
+                        # background so the player always sees which
+                        # character is active, even across the map.
+                        char = f"[bold #00ff41 on #1a3a1a]{unit.symbol}[/bold #00ff41 on #1a3a1a]"
                     else:
                         char = f"[bold]{unit.symbol}[/bold]"
                 else:
@@ -121,9 +125,9 @@ def render_grid(engine: CombatEngine) -> str:
                     char = f"[dim]{raw}[/dim]"
 
             if is_cursor:
-                # Highlight cursor position.  Preserve underline for the
-                # selected unit so the indicator remains visible even when
-                # the cursor sits on the active party member.
+                # Highlight cursor position.  When the cursor sits on the
+                # active party member use ``reverse bold`` so the cell
+                # stands out even more than a regular cursor cell.
                 raw_char = _strip_markup(char)
                 is_selected = (
                     unit is not None
@@ -131,7 +135,7 @@ def render_grid(engine: CombatEngine) -> str:
                     and unit.unit_id == active_id
                 )
                 if is_selected:
-                    char = f"[reverse underline]{raw_char}[/reverse underline]"
+                    char = f"[reverse bold]{raw_char}[/reverse bold]"
                 else:
                     char = f"[reverse]{raw_char}[/reverse]"
 

@@ -15,12 +15,12 @@ from angband_mechanicum.widgets.info_panel import DEFAULT_INFO, InfoPanel
 class TestCombatGridSelectedIndicator:
     """The active/selected party member should be visually distinct on the grid."""
 
-    def test_active_unit_has_underline_markup(self) -> None:
-        """The selected player unit's symbol should use underline markup.
+    def test_active_unit_has_background_highlight(self) -> None:
+        """The selected player unit's symbol should have a background highlight.
 
         When the cursor is on the active unit (the default at start),
-        the cell gets reverse+underline.  When the cursor is elsewhere,
-        the cell gets bold+underline.
+        the cell gets reverse+bold.  When the cursor is elsewhere,
+        the cell gets a dark-green background highlight.
         """
         engine = CombatEngine()
         # Move cursor away from the active unit so we test the non-cursor branch
@@ -28,7 +28,7 @@ class TestCombatGridSelectedIndicator:
             engine.move_cursor(1, 0)
         output = render_grid(engine)
         active = engine.get_active_unit()
-        assert f"[bold underline]{active.symbol}[/bold underline]" in output
+        assert f"[bold #00ff41 on #1a3a1a]{active.symbol}[/bold #00ff41 on #1a3a1a]" in output
 
     def test_non_active_party_member_has_bold_only(self) -> None:
         """Non-selected party members should use plain bold (no underline)."""
@@ -45,27 +45,27 @@ class TestCombatGridSelectedIndicator:
         assert f"[bold]{party_unit.symbol}[/bold]" in output
 
     def test_cycling_unit_changes_indicator(self) -> None:
-        """After cycling, the newly active unit gets the underline indicator."""
+        """After cycling, the newly active unit gets the background highlight."""
         engine = CombatEngine(party_ids=["skitarius-alpha-7"])
         first_active = engine.active_unit_id
         engine.cycle_active_unit()
         second_active = engine.active_unit_id
         assert first_active != second_active
 
-        # Move cursor away from the new active unit so we test bold+underline
+        # Move cursor away from the new active unit so we test background highlight
         for _ in range(15):
             engine.move_cursor(1, 0)
         output = render_grid(engine)
         new_active = engine.get_active_unit()
-        assert f"[bold underline]{new_active.symbol}[/bold underline]" in output
+        assert f"[bold #00ff41 on #1a3a1a]{new_active.symbol}[/bold #00ff41 on #1a3a1a]" in output
 
-    def test_cursor_on_active_unit_shows_reverse_underline(self) -> None:
-        """When the cursor overlaps the selected unit, use reverse+underline."""
+    def test_cursor_on_active_unit_shows_reverse_bold(self) -> None:
+        """When the cursor overlaps the selected unit, use reverse+bold."""
         engine = CombatEngine()
         # By default the cursor starts on the player (active unit)
         output = render_grid(engine)
         active = engine.get_active_unit()
-        assert f"[reverse underline]{active.symbol}[/reverse underline]" in output
+        assert f"[reverse bold]{active.symbol}[/reverse bold]" in output
 
     def test_enemy_markup_unchanged(self) -> None:
         """Enemy units should still use bold red markup (not underlined)."""
