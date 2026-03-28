@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from textual.widgets import Static
 
 from angband_mechanicum.engine.combat_engine import (
@@ -19,6 +21,14 @@ _TERRAIN_CHARS: dict[Terrain, str] = {
     Terrain.TERMINAL: "▪",
 }
 
+# Regex to strip all Rich markup tags from a string.
+_MARKUP_RE = re.compile(r"\[/?[^\]]*\]")
+
+
+def _strip_markup(text: str) -> str:
+    """Remove all Rich markup tags from *text*."""
+    return _MARKUP_RE.sub("", text)
+
 
 def render_grid(engine: CombatEngine) -> str:
     """Render the tactical grid as a Unicode string.
@@ -28,9 +38,12 @@ def render_grid(engine: CombatEngine) -> str:
     - Terrain tiles with unit symbols overlaid
     - Cursor marked with brackets: [X]
     - Column/row numbers for reference
+    - The currently selected party member is shown with an underline
+      indicator so the player always knows who they are controlling.
     """
     grid = engine.grid
     cx, cy = engine.cursor
+    active_id = engine.active_unit_id
     units_by_pos: dict[tuple[int, int], CombatUnit] = {}
     for u in engine.get_units():
         if u.alive:
@@ -88,7 +101,11 @@ def render_grid(engine: CombatEngine) -> str:
 
             if unit is not None:
                 if unit.team == UnitTeam.PLAYER:
-                    char = f"[bold]{unit.symbol}[/bold]"
+                    if unit.unit_id == active_id:
+                        # Selected unit: bold + underline to distinguish
+                        char = f"[bold underline]{unit.symbol}[/bold underline]"
+                    else:
+                        char = f"[bold]{unit.symbol}[/bold]"
                 else:
                     char = f"[bold red]{unit.symbol}[/bold red]"
             else:
@@ -104,8 +121,19 @@ def render_grid(engine: CombatEngine) -> str:
                     char = f"[dim]{raw}[/dim]"
 
             if is_cursor:
-                # Highlight cursor position
-                char = f"[reverse]{char.replace('[dim]', '').replace('[/dim]', '').replace('[bold]', '').replace('[/bold]', '').replace('[bold red]', '').replace('[/bold red]', '')}[/reverse]"
+                # Highlight cursor position.  Preserve underline for the
+                # selected unit so the indicator remains visible even when
+                # the cursor sits on the active party member.
+                raw_char = _strip_markup(char)
+                is_selected = (
+                    unit is not None
+                    and unit.team == UnitTeam.PLAYER
+                    and unit.unit_id == active_id
+                )
+                if is_selected:
+                    char = f"[reverse underline]{raw_char}[/reverse underline]"
+                else:
+                    char = f"[reverse]{raw_char}[/reverse]"
 
             row_parts.append(char)
         row_parts.append("║")
