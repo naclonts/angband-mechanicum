@@ -7,10 +7,12 @@ from angband_mechanicum.engine.combat_engine import (
     CombatPhase,
     CombatStats,
     CombatUnit,
+    ENEMY_TEMPLATES,
     Grid,
     Terrain,
     Tile,
     UnitTeam,
+    auto_place_enemies,
     make_enemy,
     make_player,
     manhattan_distance,
@@ -141,7 +143,7 @@ class TestFactories:
         assert e.symbol == "S"
 
     def test_make_enemy_all_templates(self) -> None:
-        for key in ("servitor", "gunner", "brute"):
+        for key in ENEMY_TEMPLATES:
             e = make_enemy(key, 0, 0)
             assert e.alive is True
             assert e.stats.hp > 0
@@ -459,3 +461,71 @@ class TestCombatEngineSerialization:
         for orig, rest in zip(engine.log, restored.log):
             assert orig.text == rest.text
             assert orig.turn == rest.turn
+
+
+# ---------------------------------------------------------------------------
+# auto_place_enemies
+# ---------------------------------------------------------------------------
+
+
+class TestAutoPlaceEnemies:
+    def test_places_correct_count(self) -> None:
+        grid = Grid(width=20, height=15)
+        roster = auto_place_enemies(grid, [("servitor", 2), ("gunner", 1)])
+        assert len(roster) == 3
+        keys = [r[0] for r in roster]
+        assert keys.count("servitor") == 2
+        assert keys.count("gunner") == 1
+
+    def test_positions_in_right_half(self) -> None:
+        grid = Grid(width=20, height=15)
+        roster = auto_place_enemies(grid, [("servitor", 3)])
+        for _, x, _y in roster:
+            assert x >= 10  # right half of a 20-wide grid
+
+    def test_no_overlap(self) -> None:
+        grid = Grid(width=20, height=15)
+        roster = auto_place_enemies(grid, [("thug", 5)])
+        positions = [(x, y) for _, x, y in roster]
+        assert len(positions) == len(set(positions))
+
+    def test_respects_occupied(self) -> None:
+        grid = Grid(width=20, height=15)
+        occupied = {(10, 0), (11, 0), (12, 0)}
+        roster = auto_place_enemies(grid, [("servitor", 3)], occupied)
+        placed_positions = {(x, y) for _, x, y in roster}
+        assert not placed_positions & occupied
+
+    def test_skips_unknown_template(self) -> None:
+        grid = Grid(width=20, height=15)
+        roster = auto_place_enemies(grid, [("nonexistent", 2), ("servitor", 1)])
+        assert len(roster) == 1
+        assert roster[0][0] == "servitor"
+
+
+# ---------------------------------------------------------------------------
+# CombatEngine: enemy_roster override
+# ---------------------------------------------------------------------------
+
+
+class TestCombatEngineEnemyRoster:
+    def test_roster_overrides_map_enemies(self) -> None:
+        roster = [("cultist", 15, 5), ("berserker", 16, 8)]
+        engine = CombatEngine(enemy_roster=roster)
+        enemies = engine.get_alive_units(UnitTeam.ENEMY)
+        assert len(enemies) == 2
+        names = {e.name for e in enemies}
+        assert "Chaos Cultist" in names
+        assert "Khorne Berserker" in names
+
+    def test_empty_roster_means_no_enemies(self) -> None:
+        engine = CombatEngine(enemy_roster=[])
+        enemies = engine.get_alive_units(UnitTeam.ENEMY)
+        assert len(enemies) == 0
+
+    def test_invalid_template_in_roster_skipped(self) -> None:
+        roster = [("servitor", 15, 5), ("nonexistent", 16, 8)]
+        engine = CombatEngine(enemy_roster=roster)
+        enemies = engine.get_alive_units(UnitTeam.ENEMY)
+        assert len(enemies) == 1
+        assert enemies[0].template_key == "servitor"

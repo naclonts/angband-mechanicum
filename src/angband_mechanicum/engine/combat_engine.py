@@ -210,6 +210,7 @@ class CombatUnit:
 # ---------------------------------------------------------------------------
 
 ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
+    # -- Mechanicum threats --
     "servitor": {
         "name": "Rogue Servitor",
         "symbol": "S",
@@ -224,6 +225,76 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
         "name": "Corrupted Ogryn",
         "symbol": "O",
         "stats": {"max_hp": 15, "hp": 15, "attack": 5, "armor": 2, "movement": 2, "attack_range": 1},
+    },
+    # -- Hive scum --
+    "thug": {
+        "name": "Underhive Thug",
+        "symbol": "T",
+        "stats": {"max_hp": 6, "hp": 6, "attack": 2, "armor": 0, "movement": 4, "attack_range": 1},
+    },
+    "ganger": {
+        "name": "Hive Ganger",
+        "symbol": "g",
+        "stats": {"max_hp": 7, "hp": 7, "attack": 3, "armor": 0, "movement": 3, "attack_range": 3},
+    },
+    # -- Chaos --
+    "cultist": {
+        "name": "Chaos Cultist",
+        "symbol": "c",
+        "stats": {"max_hp": 6, "hp": 6, "attack": 3, "armor": 0, "movement": 3, "attack_range": 1},
+    },
+    "berserker": {
+        "name": "Khorne Berserker",
+        "symbol": "B",
+        "stats": {"max_hp": 14, "hp": 14, "attack": 7, "armor": 2, "movement": 3, "attack_range": 1},
+    },
+    "sorcerer": {
+        "name": "Chaos Sorcerer",
+        "symbol": "Z",
+        "stats": {"max_hp": 8, "hp": 8, "attack": 5, "armor": 1, "movement": 2, "attack_range": 5},
+    },
+    "marine": {
+        "name": "Chaos Marine",
+        "symbol": "M",
+        "stats": {"max_hp": 18, "hp": 18, "attack": 6, "armor": 3, "movement": 3, "attack_range": 3},
+    },
+    # -- Tyranid --
+    "hormagaunt": {
+        "name": "Hormagaunt",
+        "symbol": "h",
+        "stats": {"max_hp": 5, "hp": 5, "attack": 3, "armor": 0, "movement": 5, "attack_range": 1},
+    },
+    "termagant": {
+        "name": "Termagant",
+        "symbol": "t",
+        "stats": {"max_hp": 5, "hp": 5, "attack": 2, "armor": 0, "movement": 4, "attack_range": 3},
+    },
+    "warrior": {
+        "name": "Tyranid Warrior",
+        "symbol": "W",
+        "stats": {"max_hp": 16, "hp": 16, "attack": 6, "armor": 2, "movement": 4, "attack_range": 2},
+    },
+    # -- Ork --
+    "ork_boy": {
+        "name": "Ork Boy",
+        "symbol": "o",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 4, "armor": 1, "movement": 3, "attack_range": 1},
+    },
+    "ork_shoota": {
+        "name": "Ork Shoota Boy",
+        "symbol": "s",
+        "stats": {"max_hp": 9, "hp": 9, "attack": 3, "armor": 1, "movement": 3, "attack_range": 4},
+    },
+    # -- Generic / misc --
+    "heretic": {
+        "name": "Heretek",
+        "symbol": "H",
+        "stats": {"max_hp": 10, "hp": 10, "attack": 4, "armor": 1, "movement": 3, "attack_range": 2},
+    },
+    "mutant": {
+        "name": "Warp Mutant",
+        "symbol": "m",
+        "stats": {"max_hp": 12, "hp": 12, "attack": 5, "armor": 1, "movement": 2, "attack_range": 1},
     },
 }
 
@@ -243,6 +314,46 @@ def make_enemy(template_key: str, x: int, y: int, unit_id: str | None = None) ->
         symbol=tpl["symbol"],
         template_key=template_key,
     )
+
+
+def auto_place_enemies(
+    grid: Grid,
+    enemy_counts: list[tuple[str, int]],
+    occupied: set[tuple[int, int]] | None = None,
+) -> list[tuple[str, int, int]]:
+    """Auto-place enemies on valid floor tiles in the right half of the map.
+
+    *enemy_counts* is a list of (template_key, count) pairs.
+    Returns a list of (template_key, x, y) tuples suitable for ``CombatEngine(enemy_roster=...)``.
+    """
+    placed: list[tuple[str, int, int]] = []
+    used: set[tuple[int, int]] = set(occupied) if occupied else set()
+    mid_x = grid.width // 2
+
+    # Collect candidate positions — right half of the map, floor only
+    candidates: list[tuple[int, int]] = []
+    for y in range(grid.height):
+        for x in range(mid_x, grid.width):
+            tile = grid.get_tile(x, y)
+            if tile.passable and (x, y) not in used:
+                candidates.append((x, y))
+
+    idx = 0
+    for template_key, count in enemy_counts:
+        if template_key not in ENEMY_TEMPLATES:
+            continue
+        for _ in range(count):
+            # Find the next unoccupied candidate
+            while idx < len(candidates) and candidates[idx] in used:
+                idx += 1
+            if idx >= len(candidates):
+                break  # no more room
+            ex, ey = candidates[idx]
+            used.add((ex, ey))
+            placed.append((template_key, ex, ey))
+            idx += 1
+
+    return placed
 
 
 def make_player(
@@ -541,6 +652,7 @@ class CombatEngine:
         player_hp: int | None = None,
         player_max_hp: int | None = None,
         party_ids: list[str] | None = None,
+        enemy_roster: list[tuple[str, int, int]] | None = None,
     ) -> None:
         map_def = HARDCODED_MAPS[map_key]
         self._map_name: str = map_def["name"]
@@ -583,8 +695,11 @@ class CombatEngine:
         self._active_unit_index: int = 0
         self._active_unit_id: str = self._player_unit_ids[0]
 
-        # Place enemies
-        for template_key, ex, ey in map_def["enemies"]:
+        # Place enemies — use roster if provided, else fall back to map defaults
+        enemies_to_place = enemy_roster if enemy_roster is not None else map_def["enemies"]
+        for template_key, ex, ey in enemies_to_place:
+            if template_key not in ENEMY_TEMPLATES:
+                continue
             enemy = make_enemy(template_key, ex, ey)
             self._units[enemy.unit_id] = enemy
             self._total_enemies += 1

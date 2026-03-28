@@ -199,3 +199,102 @@ class TestProcessInput:
         assert r3.narrative_text == NOOSPHERE_ERRORS[2]
         # Wraps around
         assert r4.narrative_text == NOOSPHERE_ERRORS[0]
+
+
+# ---------------------------------------------------------------------------
+# generate_encounter
+# ---------------------------------------------------------------------------
+
+class TestGenerateEncounter:
+    @pytest.mark.asyncio
+    async def test_success_returns_roster(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        response_json = json.dumps({
+            "encounter_description": "Rogue servitors lurch from the shadows.",
+            "enemies": [
+                {"template_key": "servitor", "count": 2},
+                {"template_key": "gunner", "count": 1},
+            ],
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        result = await engine.generate_encounter()
+
+        assert "encounter_description" in result
+        assert "enemy_roster" in result
+        assert result["encounter_description"] == "Rogue servitors lurch from the shadows."
+        # 2 servitors + 1 gunner = 3 enemies
+        assert len(result["enemy_roster"]) == 3
+        keys = [r[0] for r in result["enemy_roster"]]
+        assert keys.count("servitor") == 2
+        assert keys.count("gunner") == 1
+
+    @pytest.mark.asyncio
+    async def test_invalid_template_filtered(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        response_json = json.dumps({
+            "encounter_description": "Unknown foes.",
+            "enemies": [
+                {"template_key": "nonexistent_enemy", "count": 3},
+                {"template_key": "servitor", "count": 1},
+            ],
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        result = await engine.generate_encounter()
+
+        # Only the valid servitor should be placed
+        assert len(result["enemy_roster"]) == 1
+        assert result["enemy_roster"][0][0] == "servitor"
+
+    @pytest.mark.asyncio
+    async def test_api_failure_uses_fallback(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        engine._client.messages.create.side_effect = RuntimeError("connection lost")
+
+        result = await engine.generate_encounter()
+
+        # Should still return a valid encounter from the fallback
+        assert "encounter_description" in result
+        assert "enemy_roster" in result
+        assert len(result["enemy_roster"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_empty_enemies_uses_fallback(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        response_json = json.dumps({
+            "encounter_description": "Nothing here.",
+            "enemies": [],
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        result = await engine.generate_encounter()
+
+        # Fallback should kick in for empty enemy list
+        assert len(result["enemy_roster"]) > 0
+
+    @pytest.mark.asyncio
+    async def test_count_capped_at_five(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        response_json = json.dumps({
+            "encounter_description": "A horde!",
+            "enemies": [
+                {"template_key": "hormagaunt", "count": 99},
+            ],
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        result = await engine.generate_encounter()
+
+        # Count should be capped at 5
+        assert len(result["enemy_roster"]) <= 5

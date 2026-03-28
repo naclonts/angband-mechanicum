@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re
 import time
 from dataclasses import dataclass
@@ -15,7 +16,12 @@ import anthropic
 from anthropic.types import MessageParam
 
 from angband_mechanicum.assets.placeholder_art import INTRO_NARRATIVE
-from angband_mechanicum.engine.combat_engine import CombatResult
+from angband_mechanicum.engine.combat_engine import (
+    CombatResult,
+    ENEMY_TEMPLATES,
+    HARDCODED_MAPS,
+    auto_place_enemies,
+)
 from angband_mechanicum.engine.history import EntityType, GameHistory
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -311,6 +317,175 @@ class GameEngine:
             else:
                 logger.warning("Malformed entity entry from LLM: %s", entry)
         return entity_ids
+
+    # -- Encounter generation --------------------------------------------------
+
+    _ENCOUNTER_SYSTEM_PROMPT: str = """\
+You are the encounter designer for Angband Mechanicum, a WH40K dungeon-crawling RPG.
+Given the current story context, select enemies for a tactical combat encounter.
+
+Available enemy templates (template_key -> name, max_hp, attack, armor):
+{template_list}
+
+Rules:
+- Choose 2-5 enemies appropriate to the narrative context.
+- Use template_key values EXACTLY as listed above.
+- Mix weaker fodder with occasional elites for interesting encounters.
+- Match enemy faction to the narrative where possible (e.g., Chaos cultists in a
+  corrupted area, Tyranids in an infested zone, servitors in a manufactorum).
+- If nothing in the story strongly suggests a faction, pick from Mechanicum threats
+  or generic enemies.
+
+You MUST respond with ONLY a valid JSON object, no other text:
+{{
+    "encounter_description": "A short evocative sentence describing the enemies appearing",
+    "enemies": [
+        {{"template_key": "key_here", "count": N}},
+        ...
+    ]
+}}
+"""
+
+    def _build_encounter_prompt(self) -> str:
+        """Build the system prompt for encounter generation with template list."""
+        lines: list[str] = []
+        for key, tpl in ENEMY_TEMPLATES.items():
+            s = tpl["stats"]
+            lines.append(
+                f"  {key}: {tpl['name']} (HP:{s['max_hp']} ATK:{s['attack']} "
+                f"ARM:{s['armor']} RNG:{s['attack_range']})"
+            )
+        template_list = "\n".join(lines)
+        return self._ENCOUNTER_SYSTEM_PROMPT.format(template_list=template_list)
+
+    def _default_encounter(self) -> dict[str, Any]:
+        """Return a fallback encounter when LLM generation fails."""
+        fodder_keys = [
+            k for k, t in ENEMY_TEMPLATES.items()
+            if t["stats"]["max_hp"] <= 10
+        ]
+        elite_keys = [
+            k for k, t in ENEMY_TEMPLATES.items()
+            if t["stats"]["max_hp"] > 10
+        ]
+        enemies: list[dict[str, Any]] = []
+        if fodder_keys:
+            pick = random.choice(fodder_keys)
+            enemies.append({"template_key": pick, "count": random.randint(2, 3)})
+        if elite_keys:
+            pick = random.choice(elite_keys)
+            enemies.append({"template_key": pick, "count": 1})
+        if not enemies:
+            # Absolute fallback
+            enemies = [
+                {"template_key": "servitor", "count": 2},
+                {"template_key": "gunner", "count": 1},
+            ]
+        return {
+            "encounter_description": "Hostile contacts detected on auspex.",
+            "enemies": enemies,
+        }
+
+    async def generate_encounter(self, map_key: str = "corridor") -> dict[str, Any]:
+        """Generate a combat encounter via the LLM based on current narrative context.
+
+        Returns a dict with:
+          - encounter_description: str
+          - enemy_roster: list of (template_key, x, y) tuples ready for CombatEngine
+        """
+        encounter_system = self._build_encounter_prompt()
+
+        # Build a condensed context message from recent conversation
+        context_messages: list[MessageParam] = []
+        # Include last few exchanges for narrative context (up to 6 messages)
+        recent = self._conversation_history[-6:]
+        if recent:
+            summary_parts: list[str] = []
+            for msg in recent:
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    # Truncate long assistant responses to just narrative
+                    if msg["role"] == "assistant":
+                        try:
+                            parsed = _extract_json(content)
+                            summary_parts.append(
+                                f"[narrator]: {parsed.get('narrative_text', content[:200])}"
+                            )
+                        except (json.JSONDecodeError, ValueError):
+                            summary_parts.append(f"[narrator]: {content[:200]}")
+                    else:
+                        summary_parts.append(f"[player]: {content}")
+            context_messages.append({
+                "role": "user",
+                "content": (
+                    "Here is the recent story context:\n\n"
+                    + "\n".join(summary_parts)
+                    + "\n\nNow generate a combat encounter appropriate to this context."
+                ),
+            })
+        else:
+            context_messages.append({
+                "role": "user",
+                "content": "The Tech-Priest is exploring the deep strata beneath the forge. Generate a combat encounter.",
+            })
+
+        encounter_data: dict[str, Any]
+        try:
+            message = await self._client.messages.create(
+                model=MODEL,
+                max_tokens=512,
+                system=encounter_system,
+                messages=context_messages,
+            )
+            raw_text: str = message.content[0].text  # type: ignore[union-attr]
+            encounter_data = _extract_json(raw_text)
+
+            # Validate the response structure
+            if "enemies" not in encounter_data or not encounter_data["enemies"]:
+                logger.warning("LLM encounter response missing enemies, using fallback")
+                encounter_data = self._default_encounter()
+            else:
+                # Filter out invalid template keys
+                valid_enemies: list[dict[str, Any]] = []
+                for entry in encounter_data["enemies"]:
+                    key = entry.get("template_key", "")
+                    count = entry.get("count", 1)
+                    if key in ENEMY_TEMPLATES and isinstance(count, int) and count > 0:
+                        valid_enemies.append({"template_key": key, "count": min(count, 5)})
+                if not valid_enemies:
+                    logger.warning("No valid enemies in LLM response, using fallback")
+                    encounter_data = self._default_encounter()
+                else:
+                    encounter_data["enemies"] = valid_enemies
+
+        except Exception as exc:
+            logger.warning("Encounter generation failed (%s), using fallback", exc)
+            encounter_data = self._default_encounter()
+
+        # Convert enemy counts to positioned roster using auto-placement
+        map_def = HARDCODED_MAPS[map_key]
+        grid = map_def["build"]()
+        # Collect occupied positions (player + party starts)
+        px, py = map_def["player_start"]
+        occupied: set[tuple[int, int]] = {(px, py)}
+        for pos in map_def.get("party_starts", []):
+            occupied.add(tuple(pos))  # type: ignore[arg-type]
+
+        enemy_counts: list[tuple[str, int]] = [
+            (e["template_key"], e["count"]) for e in encounter_data["enemies"]
+        ]
+        enemy_roster = auto_place_enemies(grid, enemy_counts, occupied)
+
+        # Fallback if placement yielded nothing (tiny map edge case)
+        if not enemy_roster:
+            enemy_roster = list(map_def["enemies"])
+
+        return {
+            "encounter_description": encounter_data.get(
+                "encounter_description", "Hostile contacts detected."
+            ),
+            "enemy_roster": enemy_roster,
+        }
 
     def record_combat_result(self, result: CombatResult) -> None:
         """Persist a combat result into conversation history and game history.

@@ -60,6 +60,7 @@ class CombatScreen(Screen[CombatResult]):
         player_hp: int | None = None,
         player_max_hp: int | None = None,
         party_ids: list[str] | None = None,
+        enemy_roster: list[tuple[str, int, int]] | None = None,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
@@ -68,6 +69,7 @@ class CombatScreen(Screen[CombatResult]):
             player_hp=player_hp,
             player_max_hp=player_max_hp,
             party_ids=party_ids,
+            enemy_roster=enemy_roster,
         )
 
     @property

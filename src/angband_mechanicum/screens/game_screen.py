@@ -136,7 +136,7 @@ class GameScreen(Screen[None]):
     async def handle_command(self, text: str) -> None:
         # Intercept /combat command before sending to LLM
         if text.strip().lower() == "/combat":
-            self._enter_combat()
+            await self._enter_combat()
             return
 
         narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
@@ -172,9 +172,12 @@ class GameScreen(Screen[None]):
         # Autosave after each successful command
         self._autosave()
 
-    def _enter_combat(self) -> None:
-        """Push the CombatScreen and handle the result when it's dismissed."""
+    async def _enter_combat(self) -> None:
+        """Generate an encounter via the LLM, then push the CombatScreen."""
         narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
+        prompt: PromptInput = self.query_one("#prompt", PromptInput)
+        engine = self.app.game_engine  # type: ignore[attr-defined]
+
         narrative.append_narrative(
             "\n[bold]> /combat[/bold]\n"
             "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
@@ -183,6 +186,22 @@ class GameScreen(Screen[None]):
             "\n[bold]> /combat[/bold]\n"
             "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
         )
+
+        # Generate encounter via the LLM (with loading indicator)
+        narrative.show_loading()
+        prompt.set_processing(True)
+        try:
+            encounter = await engine.generate_encounter()
+        finally:
+            narrative.hide_loading()
+            prompt.set_processing(False)
+
+        # Show the encounter description
+        desc = encounter.get("encounter_description", "Hostile contacts detected.")
+        narrative.append_narrative(f"\n[dim]{desc}[/dim]\n")
+        self._narrative_log.append(f"\n[dim]{desc}[/dim]\n")
+
+        enemy_roster: list[tuple[str, int, int]] = encounter.get("enemy_roster", [])
 
         def on_combat_result(result: CombatResult | None) -> None:
             """Handle combat result when CombatScreen is dismissed."""
@@ -221,13 +240,13 @@ class GameScreen(Screen[None]):
 
             self.query_one("#prompt", PromptInput).focus()
 
-        # Pass current integrity and party into the combat screen
-        engine = self.app.game_engine  # type: ignore[attr-defined]
+        # Pass current integrity, party, and generated roster into the combat screen
         self.app.push_screen(
             CombatScreen(
                 player_hp=engine.integrity,
                 player_max_hp=engine.max_integrity,
                 party_ids=engine.party_member_ids,
+                enemy_roster=enemy_roster if enemy_roster else None,
             ),
             callback=on_combat_result,
         )
