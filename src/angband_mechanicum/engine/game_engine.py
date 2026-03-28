@@ -4,15 +4,51 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
+import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import anthropic
 from anthropic.types import MessageParam
 
 from angband_mechanicum.assets.placeholder_art import INTRO_NARRATIVE
+from angband_mechanicum.engine.history import EntityType, GameHistory
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def _log_dir() -> Path:
+    """Return the log directory next to saves, respecting XDG_DATA_HOME."""
+    xdg_data: str = os.environ.get(
+        "XDG_DATA_HOME", os.path.expanduser("~/.local/share")
+    )
+    log_path: Path = Path(xdg_data) / "angband-mechanicum" / "logs"
+    log_path.mkdir(parents=True, exist_ok=True)
+    return log_path
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
+
+
+def _extract_json(text: str) -> dict[str, Any]:
+    """Parse JSON from LLM output, stripping markdown code fences if present."""
+    text = text.strip()
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Try stripping markdown code fences
+    match = _JSON_FENCE_RE.search(text)
+    if match:
+        return json.loads(match.group(1))
+    # Try extracting from first { to last }
+    start = text.find("{")
+    end = text.rfind("}")
+    if start != -1 and end > start:
+        return json.loads(text[start : end + 1])
+    raise json.JSONDecodeError("No JSON found in response", text, 0)
 
 MODEL: str = "claude-sonnet-4-20250514"
 MAX_TOKENS: int = 2048
@@ -38,7 +74,7 @@ corridor, show a corridor; if they are in a forge, show forge equipment.
 stays in the same place and nothing visually changes, set scene_art to null.
 """
 
-SYSTEM_PROMPT: str = """\
+SYSTEM_PROMPT_BASE: str = """\
 You are the narrative engine for Angband Mechanicum, a text-based dungeon-crawling \
 RPG set in the Warhammer 40,000 universe. You narrate the world and respond to the \
 player's actions.
@@ -73,7 +109,8 @@ You MUST respond with a valid JSON object. No text outside the JSON. The schema:
 {
   "narrative_text": "The main narrative response to the player (string, required)",
   "scene_art": "ASCII/unicode art for the environment pane (string or null)",
-  "info_update": null or { "key": "value" } dict to update status fields
+  "info_update": null or { "key": "value" } dict to update status fields,
+  "entities": [array of entity references — see Entity Tracking below]
 }
 
 The scene_art field should contain ASCII/unicode art depicting the current environment. \
@@ -85,6 +122,18 @@ meaningful changes, for example:
 - {"Location": "Cargo Lift Shaft"} when the player moves
 - {"Threat Level": "ELEVATED"} when danger increases
 - {"Objective": "Investigate seismic anomaly"} for quest updates
+
+### Entity Tracking
+The entities array tracks places, characters, and items that appear in your narrative \
+response. This builds the game's structured memory of the world.
+- For known entities (listed in the Known Entities section below): reference by id \
+only, e.g. {"id": "skitarius-alpha-7"}
+- For NEW entities not yet tracked: provide full details, e.g. \
+{"name": "Ancient Cogitator", "type": "item", "description": "A pre-Imperial data terminal, still humming with power"}
+- Valid types: "place", "character", "item"
+- Include all entities meaningfully involved in the scene — not passing mentions, but \
+characters who act, places the player is in or moves to, and items that are used or discovered
+- Return an empty array [] if no entities are relevant to this response
 """ + SCENE_ART_INSTRUCTIONS + """
 ## Story So Far
 The player has just received this introduction:
@@ -118,10 +167,96 @@ class GameEngine:
         self._turn_count: int = 0
         self._current_scene_art: str | None = None
         self._info_panel: dict[str, str] = {}
+        self._history: GameHistory = GameHistory()
+        self._seed_starting_entities()
+        self._log_path: Path = (
+            _log_dir() / f"convo_{int(time.time())}.jsonl"
+        )
 
     @property
     def turn_count(self) -> int:
         return self._turn_count
+
+    @property
+    def history(self) -> GameHistory:
+        return self._history
+
+    def _seed_starting_entities(self) -> None:
+        """Pre-register entities from the game's opening scenario."""
+        reg = self._history.register_entity
+        # Characters
+        reg("Skitarius Alpha-7", EntityType.CHARACTER,
+            "A battle-scarred ranger with a galvanic rifle")
+        reg("Enginseer Volta", EntityType.CHARACTER,
+            "Young, eager, still more flesh than machine, carries a power axe")
+        reg("Datasmith Kael", EntityType.CHARACTER,
+            "Silent, face entirely replaced by a vox-grille and sensor array")
+        # Places
+        reg("Metallica Secundus", EntityType.PLACE,
+            "Forge world where the game is set")
+        reg("Angband Mechanicum", EntityType.PLACE,
+            "The great manufactorum-city on Metallica Secundus")
+        # Items
+        reg("Servo-skull", EntityType.ITEM,
+            "A hovering skull drone that accompanies the player's expedition")
+
+    def _build_system_prompt(self) -> str:
+        """Build the full system prompt with dynamic entity registry."""
+        prompt = SYSTEM_PROMPT_BASE
+        registry_context = self._history.get_registry_context()
+        if registry_context:
+            prompt += "\n\n" + registry_context
+        return prompt
+
+    def _log_turn(
+        self,
+        system_prompt: str,
+        messages: list[MessageParam],
+        raw_response: str,
+        error: str | None = None,
+    ) -> None:
+        """Append a turn's raw request/response to the JSONL log file."""
+        entry: dict[str, Any] = {
+            "timestamp": time.time(),
+            "turn": self._turn_count,
+            "system_prompt": system_prompt,
+            "messages": messages,
+            "raw_response": raw_response,
+        }
+        if error:
+            entry["error"] = error
+        try:
+            with open(self._log_path, "a") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        except OSError as exc:
+            logger.warning("Failed to write convo log: %s", exc)
+
+    def _process_entities(self, entities_data: list[dict[str, Any]]) -> list[str]:
+        """Process entity references from the LLM response, returning resolved IDs."""
+        entity_ids: list[str] = []
+        for entry in entities_data:
+            if "id" in entry:
+                # Known entity reference
+                if self._history.get_entity(entry["id"]):
+                    entity_ids.append(entry["id"])
+                else:
+                    logger.warning("LLM referenced unknown entity id: %s", entry["id"])
+            elif "name" in entry and "type" in entry:
+                # New entity introduction
+                try:
+                    etype = EntityType(entry["type"])
+                except ValueError:
+                    logger.warning("LLM returned invalid entity type: %s", entry["type"])
+                    continue
+                entity = self._history.register_entity(
+                    name=entry["name"],
+                    entity_type=etype,
+                    description=entry.get("description", ""),
+                )
+                entity_ids.append(entity.id)
+            else:
+                logger.warning("Malformed entity entry from LLM: %s", entry)
+        return entity_ids
 
     def to_dict(self) -> dict[str, Any]:
         """Export full engine state for saving."""
@@ -131,17 +266,27 @@ class GameEngine:
             "current_scene_art": self._current_scene_art,
             "info_panel": dict(self._info_panel),
             "error_count": self._error_count,
+            "history": self._history.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> GameEngine:
         """Restore engine state from a saved dict."""
-        engine = cls()
+        engine = cls.__new__(cls)
+        engine._client = anthropic.AsyncAnthropic()
         engine._conversation_history = data.get("conversation_history", [])
         engine._turn_count = data.get("turn_count", 0)
         engine._current_scene_art = data.get("current_scene_art")
         engine._info_panel = data.get("info_panel", {})
         engine._error_count = data.get("error_count", 0)
+        engine._log_path = _log_dir() / f"convo_{int(time.time())}.jsonl"
+        history_data = data.get("history")
+        if history_data:
+            engine._history = GameHistory.from_dict(history_data)
+        else:
+            # Legacy save without history — initialize fresh with seeds
+            engine._history = GameHistory()
+            engine._seed_starting_entities()
         return engine
 
     async def process_input(self, text: str) -> GameResponse:
@@ -155,31 +300,44 @@ class GameEngine:
         narrative_text: str
         scene_art: str | None = None
         info_update: dict[str, str] | None
+        entities_data: list[dict[str, Any]] = []
+        system_prompt = self._build_system_prompt()
 
         try:
             message = await self._client.messages.create(
                 model=MODEL,
                 max_tokens=MAX_TOKENS,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 messages=self._conversation_history,
             )
 
             raw_text = message.content[0].text  # type: ignore[union-attr]
 
-            # Parse the structured JSON response
-            response_data: dict[str, Any] = json.loads(raw_text)
+            # Parse the structured JSON response (handles markdown fences)
+            response_data: dict[str, Any] = _extract_json(raw_text)
             narrative_text = response_data.get("narrative_text", raw_text)
             scene_art = response_data.get("scene_art")
             info_update = response_data.get("info_update")
+            entities_data = response_data.get("entities", [])
+
+            self._log_turn(system_prompt, list(self._conversation_history), raw_text)
 
         except json.JSONDecodeError:
             # LLM returned non-JSON -- use the raw text as narrative
             logger.warning("Claude returned non-JSON response, using raw text")
+            self._log_turn(
+                system_prompt, list(self._conversation_history), raw_text,
+                error="JSONDecodeError",
+            )
             narrative_text = raw_text
             info_update = None
 
         except anthropic.APIError as exc:
             logger.error("Anthropic API error: %s", exc)
+            self._log_turn(
+                system_prompt, list(self._conversation_history), "",
+                error=str(exc),
+            )
             # Remove the failed user message so history stays consistent
             self._conversation_history.pop()
             error_msg: str = NOOSPHERE_ERRORS[self._error_count % len(NOOSPHERE_ERRORS)]
@@ -188,6 +346,10 @@ class GameEngine:
 
         except Exception as exc:
             logger.error("Unexpected error in game engine: %s", exc)
+            self._log_turn(
+                system_prompt, list(self._conversation_history), "",
+                error=str(exc),
+            )
             self._conversation_history.pop()
             error_msg = NOOSPHERE_ERRORS[self._error_count % len(NOOSPHERE_ERRORS)]
             self._error_count += 1
@@ -200,6 +362,17 @@ class GameEngine:
         })
 
         self._turn_count += 1
+
+        # Process entity tracking from LLM response
+        entity_ids = self._process_entities(entities_data)
+
+        # Record step in history
+        self._history.add_step(
+            player_input=text,
+            narrative_text=narrative_text,
+            entity_ids=entity_ids,
+            info_update=info_update,
+        )
 
         # Track latest info/scene for save state
         if scene_art:
