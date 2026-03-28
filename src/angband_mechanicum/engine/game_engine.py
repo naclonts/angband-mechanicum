@@ -15,7 +15,28 @@ from angband_mechanicum.assets.placeholder_art import INTRO_NARRATIVE
 logger: logging.Logger = logging.getLogger(__name__)
 
 MODEL: str = "claude-sonnet-4-20250514"
-MAX_TOKENS: int = 1024
+MAX_TOKENS: int = 2048
+
+SCENE_ART_INSTRUCTIONS: str = """\
+
+## Scene Art
+You MUST also provide ASCII/unicode art for the scene_art field that depicts the \
+current environment or location. This art is displayed in the "ENVIRONMENT" pane of \
+the game UI.
+
+Rules for scene art:
+- Use box-drawing characters (╔═╗║╚╝┌─┐│└┘├┤┬┴┼), blocks (█▓▒░), and symbols \
+(⚙⛨◉▬╬) to create atmospheric scenes.
+- Art MUST be no wider than 56 characters per line (to fit the scene pane).
+- Art should be 12-20 lines tall.
+- Depict the physical environment: rooms, corridors, machinery, doorways, ruins, etc.
+- Match the scene to what is happening in the narrative — if the player enters a \
+corridor, show a corridor; if they are in a forge, show forge equipment.
+- Keep a dark, industrial, gothic sci-fi aesthetic.
+- Do NOT use Rich markup in scene_art — plain text/unicode only.
+- Always provide scene_art when the location or environment changes. If the player \
+stays in the same place and nothing visually changes, set scene_art to null.
+"""
 
 SYSTEM_PROMPT: str = """\
 You are the narrative engine for Angband Mechanicum, a text-based dungeon-crawling \
@@ -51,15 +72,20 @@ You MUST respond with a valid JSON object. No text outside the JSON. The schema:
 
 {
   "narrative_text": "The main narrative response to the player (string, required)",
+  "scene_art": "ASCII/unicode art for the environment pane (string or null)",
   "info_update": null or { "key": "value" } dict to update status fields
 }
+
+The scene_art field should contain ASCII/unicode art depicting the current environment. \
+Provide it when the scene or location changes; set to null if the environment has not \
+visually changed since the last response.
 
 The info_update field is optional (null if nothing changed). Use it when something \
 meaningful changes, for example:
 - {"Location": "Cargo Lift Shaft"} when the player moves
 - {"Threat Level": "ELEVATED"} when danger increases
 - {"Objective": "Investigate seismic anomaly"} for quest updates
-
+""" + SCENE_ART_INSTRUCTIONS + """
 ## Story So Far
 The player has just received this introduction:
 
@@ -127,6 +153,7 @@ class GameEngine:
 
         raw_text: str = ""
         narrative_text: str
+        scene_art: str | None = None
         info_update: dict[str, str] | None
 
         try:
@@ -142,6 +169,7 @@ class GameEngine:
             # Parse the structured JSON response
             response_data: dict[str, Any] = json.loads(raw_text)
             narrative_text = response_data.get("narrative_text", raw_text)
+            scene_art = response_data.get("scene_art")
             info_update = response_data.get("info_update")
 
         except json.JSONDecodeError:
@@ -174,11 +202,13 @@ class GameEngine:
         self._turn_count += 1
 
         # Track latest info/scene for save state
+        if scene_art:
+            self._current_scene_art = scene_art
         if info_update:
             self._info_panel.update(info_update)
 
         return GameResponse(
             narrative_text=narrative_text,
-            scene_art=None,
+            scene_art=scene_art,
             info_update=info_update,
         )

@@ -83,6 +83,48 @@ class TestProcessInput:
         assert engine._conversation_history[1]["role"] == "assistant"
 
     @pytest.mark.asyncio
+    async def test_success_with_scene_art(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        scene = "╔══════╗\n║ HALL ║\n╚══════╝"
+        response_json = json.dumps({
+            "narrative_text": "You enter the great hall.",
+            "scene_art": scene,
+            "info_update": {"LOCATION": "Great Hall"},
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        result = await engine.process_input("enter hall")
+
+        assert result.narrative_text == "You enter the great hall."
+        assert result.scene_art == scene
+        assert result.info_update == {"LOCATION": "Great Hall"}
+        assert engine._current_scene_art == scene
+        assert engine.turn_count == 1
+
+    @pytest.mark.asyncio
+    async def test_scene_art_null_preserves_previous(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        # First response sets scene art
+        scene = "╔══════╗\n║ ROOM ║\n╚══════╝"
+        engine._client.messages.create.return_value = _make_api_response(
+            json.dumps({"narrative_text": "A room.", "scene_art": scene, "info_update": None})
+        )
+        await engine.process_input("look")
+        assert engine._current_scene_art == scene
+
+        # Second response has null scene_art -- previous art preserved in engine state
+        engine._client.messages.create.return_value = _make_api_response(
+            json.dumps({"narrative_text": "Nothing changes.", "scene_art": None, "info_update": None})
+        )
+        result = await engine.process_input("wait")
+        assert result.scene_art is None
+        assert engine._current_scene_art == scene  # preserved
+
+    @pytest.mark.asyncio
     async def test_success_no_info_update(
         self, engine_with_mock_client: GameEngine
     ) -> None:
