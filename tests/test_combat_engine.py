@@ -233,14 +233,50 @@ class TestCombatEngineMovement:
             assert player.y == target[1]
             assert player.has_moved is True
 
-    def test_player_cannot_move_twice(self) -> None:
+    def test_player_can_reposition_within_range(self) -> None:
+        """After moving, the player can move again if the target is still
+        within movement range of the original turn-start position."""
         engine = CombatEngine()
         player = engine.get_player()
+        start_x, start_y = player.x, player.y
         reachable = list(engine.get_reachable_tiles(player))
         if len(reachable) >= 2:
+            # First move
             engine.player_move(reachable[0][0], reachable[0][1])
+            assert player.has_moved is True
+            # Second move to another tile reachable from start
             result = engine.player_move(reachable[1][0], reachable[1][1])
-            assert result is False
+            assert result is True
+            assert player.x == reachable[1][0]
+            assert player.y == reachable[1][1]
+            # turn_start should still record the original position
+            assert player.turn_start_x == start_x
+            assert player.turn_start_y == start_y
+
+    def test_player_cannot_move_beyond_total_range(self) -> None:
+        """Moving beyond the unit's movement range from its turn-start
+        position should be rejected, even if the target is close to the
+        unit's current position."""
+        # Use a simple open grid to make distances predictable
+        grid = Grid(width=20, height=5)
+        map_def = {
+            "name": "Test Arena",
+            "build": lambda: grid,
+            "player_start": (1, 2),
+            "party_starts": [],
+            "enemies": [],
+        }
+        engine = CombatEngine(map_def=map_def, enemy_roster=[])
+        player = engine.get_player()
+        movement = player.stats.movement  # 4
+
+        # Move to exactly the movement limit (east)
+        engine.player_move(1 + movement, 2)
+        assert player.x == 1 + movement
+
+        # Now try to move 1 tile further east -- exceeds range from start
+        result = engine.player_move(1 + movement + 1, 2)
+        assert result is False
 
     def test_player_cannot_move_to_wall(self) -> None:
         engine = CombatEngine()

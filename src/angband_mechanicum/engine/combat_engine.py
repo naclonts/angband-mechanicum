@@ -156,6 +156,8 @@ class CombatUnit:
     has_attacked: bool = False
     template_key: str = ""  # enemy template key (e.g. "servitor"); empty for player/party
     total_damage_dealt: int = 0  # accumulated damage this unit has inflicted
+    turn_start_x: int | None = None  # original x at start of turn (for repositioning)
+    turn_start_y: int | None = None  # original y at start of turn (for repositioning)
 
     @property
     def hp(self) -> int:
@@ -185,6 +187,8 @@ class CombatUnit:
             "has_attacked": self.has_attacked,
             "template_key": self.template_key,
             "total_damage_dealt": self.total_damage_dealt,
+            "turn_start_x": self.turn_start_x,
+            "turn_start_y": self.turn_start_y,
         }
 
     @classmethod
@@ -203,6 +207,8 @@ class CombatUnit:
             has_attacked=data.get("has_attacked", False),
             template_key=data.get("template_key", ""),
             total_damage_dealt=data.get("total_damage_dealt", 0),
+            turn_start_x=data.get("turn_start_x"),
+            turn_start_y=data.get("turn_start_y"),
         )
 
 
@@ -937,14 +943,26 @@ class CombatEngine:
 
     # -- Movement validation -------------------------------------------------
 
-    def get_reachable_tiles(self, unit: CombatUnit) -> set[tuple[int, int]]:
-        """BFS to find all tiles reachable by ``unit`` within its movement range."""
+    def get_reachable_tiles(
+        self,
+        unit: CombatUnit,
+        origin: tuple[int, int] | None = None,
+    ) -> set[tuple[int, int]]:
+        """BFS to find all tiles reachable by ``unit`` within its movement range.
+
+        When *origin* is given, the search starts from that position instead
+        of the unit's current (x, y).  This is used for repositioning within
+        a turn so reachability is computed from the turn-start position.
+        """
+        ox, oy = origin if origin is not None else (unit.x, unit.y)
         occupied = self._occupied_positions()
-        occupied.discard((unit.x, unit.y))
+        occupied.discard((unit.x, unit.y))  # unit's current pos is always free
+        if origin is not None:
+            occupied.discard(origin)  # origin is also free for the BFS start
         reachable: set[tuple[int, int]] = set()
         # (x, y, remaining_movement)
-        frontier: list[tuple[int, int, int]] = [(unit.x, unit.y, unit.stats.movement)]
-        visited: dict[tuple[int, int], int] = {(unit.x, unit.y): unit.stats.movement}
+        frontier: list[tuple[int, int, int]] = [(ox, oy, unit.stats.movement)]
+        visited: dict[tuple[int, int], int] = {(ox, oy): unit.stats.movement}
 
         while frontier:
             cx, cy, remaining = frontier.pop(0)
@@ -1001,17 +1019,31 @@ class CombatEngine:
             self._cursor_y = ny
 
     def player_move(self, target_x: int, target_y: int) -> bool:
-        """Move the active player unit to (target_x, target_y). Returns True on success."""
+        """Move the active player unit to (target_x, target_y). Returns True on success.
+
+        Players may reposition freely within their movement range until they
+        end their turn.  Reachable tiles are always computed from the
+        **turn-start position** (recorded on first move) so the total
+        distance budget is never exceeded.
+        """
         if self._phase != CombatPhase.PLAYER_TURN:
             return False
         unit = self.get_active_unit()
-        if not unit.alive or unit.has_moved:
-            self._add_log(f"{unit.name} already moved this turn.")
+        if not unit.alive:
             return False
-        reachable = self.get_reachable_tiles(unit)
+
+        # Record start-of-turn position on the first move
+        if unit.turn_start_x is None:
+            unit.turn_start_x = unit.x
+            unit.turn_start_y = unit.y
+
+        # Compute reachable tiles from the turn-start position
+        origin = (unit.turn_start_x, unit.turn_start_y)  # type: ignore[arg-type]
+        reachable = self.get_reachable_tiles(unit, origin=origin)
         if (target_x, target_y) not in reachable:
             self._add_log("Cannot reach that tile.")
             return False
+
         unit.x = target_x
         unit.y = target_y
         unit.has_moved = True
@@ -1250,6 +1282,8 @@ class CombatEngine:
             if unit.alive:
                 unit.has_moved = False
                 unit.has_attacked = False
+                unit.turn_start_x = None
+                unit.turn_start_y = None
         # Select the first living player unit
         for uid in self._player_unit_ids:
             if self._units[uid].alive:
