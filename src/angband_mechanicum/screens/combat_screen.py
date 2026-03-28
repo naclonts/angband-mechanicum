@@ -37,7 +37,8 @@ class CombatScreen(Screen[CombatResult]):
         Binding("left", "cursor_left", "Cursor left", show=False),
         Binding("right", "cursor_right", "Cursor right", show=False),
         Binding("m", "move_unit", "Move to cursor", show=True),
-        Binding("a", "attack_target", "Attack at cursor", show=True),
+        Binding("a", "attack_target", "Attack/Shoot", show=True),
+        Binding("s", "attack_target", "Shoot (alias)", show=False),
         Binding("tab", "next_unit", "Next unit", show=True),
         Binding("e", "end_turn", "End turn", show=True),
         Binding("q", "retreat", "Retreat", show=True),
@@ -47,7 +48,7 @@ class CombatScreen(Screen[CombatResult]):
     COMBAT_HOTKEYS: list[tuple[str, str]] = [
         ("Arrow keys", "Move cursor"),
         ("m", "Move to cursor"),
-        ("a", "Attack at cursor"),
+        ("a / s", "Attack/Shoot at cursor"),
         ("Tab", "Next unit"),
         ("e", "End turn"),
         ("q", "Retreat"),
@@ -154,7 +155,12 @@ class CombatScreen(Screen[CombatResult]):
         self._refresh_all()
 
     def action_attack_target(self) -> None:
-        """Attack the unit at the cursor position with the active unit."""
+        """Attack the unit at the cursor position with the active unit.
+
+        Works for both melee and ranged attacks -- the engine handles
+        range and line-of-sight validation, providing appropriate log
+        feedback if the shot is blocked or the target is out of range.
+        """
         if self._engine.phase != CombatPhase.PLAYER_TURN:
             return
         cx, cy = self._engine.cursor

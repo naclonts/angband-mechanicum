@@ -9,6 +9,8 @@ from angband_mechanicum.engine.combat_engine import (
     CombatPhase,
     CombatUnit,
     UnitTeam,
+    has_line_of_sight,
+    manhattan_distance,
 )
 
 
@@ -96,13 +98,37 @@ def render_combat_info(engine: CombatEngine) -> str:
     unit_at = engine.get_unit_at(cx, cy)
     if unit_at:
         lines.append(f"  -> {unit_at.name} ({unit_at.team.value})")
+        # Show targeting info for enemy at cursor relative to active unit
+        if unit_at.team == UnitTeam.ENEMY:
+            active = engine.get_active_unit()
+            if active.alive:
+                dist = manhattan_distance(active.x, active.y, unit_at.x, unit_at.y)
+                rng = active.stats.attack_range
+                in_range = dist <= rng
+                los = has_line_of_sight(
+                    engine.grid, active.x, active.y, unit_at.x, unit_at.y
+                )
+                range_str = (
+                    f"[bold]IN RANGE[/bold]" if in_range
+                    else f"[dim]OUT OF RANGE[/dim]"
+                )
+                los_str = (
+                    "[bold]CLEAR[/bold]" if los
+                    else "[dim]BLOCKED[/dim]"
+                )
+                lines.append(f"  DIST: {dist}  RNG: {rng}  {range_str}")
+                lines.append(f"  LoS: {los_str}")
+                if in_range and (dist <= 1 or los):
+                    lines.append("  [bold]>> PRESS 'a' TO ATTACK <<[/bold]")
+                elif in_range and not los:
+                    lines.append("  [dim]No line of sight[/dim]")
 
     # Commands help
     lines.append("")
     lines.append("[dim]-- COMMANDS --[/dim]")
     lines.append("[dim]Arrow keys: move cursor[/dim]")
     lines.append("[dim]m: move to cursor[/dim]")
-    lines.append("[dim]a: attack at cursor[/dim]")
+    lines.append("[dim]a/s: attack/shoot at cursor[/dim]")
     lines.append("[dim]Tab: next unit[/dim]")
     lines.append("[dim]e: end turn[/dim]")
     lines.append("[dim]q: retreat (forfeit)[/dim]")
