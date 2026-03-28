@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Vertical
 from textual.events import Resize
 from textual.screen import Screen
@@ -20,6 +21,7 @@ from angband_mechanicum.assets.placeholder_art import (
 from angband_mechanicum.engine.combat_engine import CombatResult
 from angband_mechanicum.engine.save_manager import SaveManager
 from angband_mechanicum.screens.combat_screen import CombatScreen
+from angband_mechanicum.widgets.help_overlay import HelpOverlay
 from angband_mechanicum.widgets.info_panel import DEFAULT_INFO, InfoPanel
 from angband_mechanicum.widgets.narrative_pane import NarrativePane
 from angband_mechanicum.widgets.portrait_pane import PortraitPane
@@ -30,6 +32,17 @@ logger: logging.Logger = logging.getLogger(__name__)
 
 
 class GameScreen(Screen[None]):
+    BINDINGS = [
+        Binding("h", "show_help", "Help", show=True, priority=True),
+    ]
+
+    STORY_HOTKEYS: list[tuple[str, str]] = [
+        ("Enter", "Submit command"),
+        ("Tab", "Cycle panes"),
+        ("/combat", "Enter combat mode"),
+        ("h", "This help"),
+    ]
+
     def __init__(
         self,
         restored_state: dict[str, Any] | None = None,
@@ -99,6 +112,15 @@ class GameScreen(Screen[None]):
             narrative_pane.append_narrative(
                 "[dim]++ SESSION RESTORED ++ MACHINE SPIRIT APPEASED ++[/dim]"
             )
+
+    def action_show_help(self) -> None:
+        """Push the help overlay with story-mode hotkeys."""
+        self.app.push_screen(
+            HelpOverlay(
+                title="++ COMMAND HOTKEYS ++",
+                hotkeys=self.STORY_HOTKEYS,
+            )
+        )
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         prompt: PromptInput = self.query_one("#prompt", PromptInput)

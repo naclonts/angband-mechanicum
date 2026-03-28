@@ -20,6 +20,7 @@ from angband_mechanicum.engine.combat_engine import (
 from angband_mechanicum.widgets.combat_grid import CombatGrid
 from angband_mechanicum.widgets.combat_info import CombatInfo
 from angband_mechanicum.widgets.combat_log import CombatLog
+from angband_mechanicum.widgets.help_overlay import HelpOverlay
 
 
 class CombatScreen(Screen[CombatResult]):
@@ -38,6 +39,16 @@ class CombatScreen(Screen[CombatResult]):
         Binding("a", "attack_target", "Attack at cursor", show=True),
         Binding("e", "end_turn", "End turn", show=True),
         Binding("q", "retreat", "Retreat", show=True),
+        Binding("h", "show_help", "Help", show=True),
+    ]
+
+    COMBAT_HOTKEYS: list[tuple[str, str]] = [
+        ("Arrow keys", "Move cursor"),
+        ("m", "Move to cursor"),
+        ("a", "Attack at cursor"),
+        ("e", "End turn"),
+        ("q", "Retreat"),
+        ("h", "This help"),
     ]
 
     def __init__(self, map_key: str = "corridor", **kwargs: object) -> None:
@@ -78,6 +89,17 @@ class CombatScreen(Screen[CombatResult]):
         """Dismiss the screen with the combat result."""
         result = self._engine.get_result()
         self.dismiss(result)
+
+    # -- Help overlay --------------------------------------------------------
+
+    def action_show_help(self) -> None:
+        """Push the help overlay with combat-specific hotkeys."""
+        self.app.push_screen(
+            HelpOverlay(
+                title="++ COMBAT HOTKEYS ++",
+                hotkeys=self.COMBAT_HOTKEYS,
+            )
+        )
 
     # -- Cursor movement -----------------------------------------------------
 

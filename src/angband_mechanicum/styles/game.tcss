@@ -253,6 +253,28 @@ ApiKeyScreen {
     margin-top: 1;
 }
 
+/* ── Help Overlay ── */
+
+HelpOverlay {
+    align: center middle;
+}
+
+#help-panel {
+    width: 50;
+    height: auto;
+    max-height: 80%;
+    border: heavy $crt-bright;
+    background: $crt-bg;
+    padding: 1 2;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+#help-content {
+    color: $crt-bright;
+    text-align: center;
+}
+
 /* ── Combat Screen ── */
 
 CombatScreen {
