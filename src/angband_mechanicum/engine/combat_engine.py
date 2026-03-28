@@ -153,6 +153,8 @@ class CombatUnit:
     symbol: str = "?"
     has_moved: bool = False
     has_attacked: bool = False
+    template_key: str = ""  # enemy template key (e.g. "servitor"); empty for player/party
+    total_damage_dealt: int = 0  # accumulated damage this unit has inflicted
 
     @property
     def hp(self) -> int:
@@ -180,6 +182,8 @@ class CombatUnit:
             "symbol": self.symbol,
             "has_moved": self.has_moved,
             "has_attacked": self.has_attacked,
+            "template_key": self.template_key,
+            "total_damage_dealt": self.total_damage_dealt,
         }
 
     @classmethod
@@ -196,6 +200,8 @@ class CombatUnit:
             symbol=data.get("symbol", "?"),
             has_moved=data.get("has_moved", False),
             has_attacked=data.get("has_attacked", False),
+            template_key=data.get("template_key", ""),
+            total_damage_dealt=data.get("total_damage_dealt", 0),
         )
 
 
@@ -235,6 +241,7 @@ def make_enemy(template_key: str, x: int, y: int, unit_id: str | None = None) ->
         x=x,
         y=y,
         symbol=tpl["symbol"],
+        template_key=template_key,
     )
 
 
@@ -344,6 +351,39 @@ class CombatLogEntry:
 
 
 @dataclass
+class EnemyRecord:
+    """Record of an enemy encountered during combat.
+
+    Captures enough detail for LLM context and future encounter generation.
+    """
+
+    name: str
+    template_key: str  # e.g. "servitor", "gunner", "brute"
+    defeated: bool
+    max_hp: int
+    damage_dealt: int  # total damage this enemy inflicted on player-team units
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "template_key": self.template_key,
+            "defeated": self.defeated,
+            "max_hp": self.max_hp,
+            "damage_dealt": self.damage_dealt,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> EnemyRecord:
+        return cls(
+            name=data["name"],
+            template_key=data["template_key"],
+            defeated=data["defeated"],
+            max_hp=data.get("max_hp", 0),
+            damage_dealt=data.get("damage_dealt", 0),
+        )
+
+
+@dataclass
 class CombatResult:
     """Summary returned to the caller (GameScreen) when combat ends."""
 
@@ -354,6 +394,8 @@ class CombatResult:
     enemies_total: int
     turn_count: int
     log_summary: str
+    enemies: list[EnemyRecord] = field(default_factory=list)
+    total_player_damage_taken: int = 0  # aggregate damage the player-team absorbed
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -364,7 +406,24 @@ class CombatResult:
             "enemies_total": self.enemies_total,
             "turn_count": self.turn_count,
             "log_summary": self.log_summary,
+            "enemies": [e.to_dict() for e in self.enemies],
+            "total_player_damage_taken": self.total_player_damage_taken,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> CombatResult:
+        enemies_data = data.get("enemies", [])
+        return cls(
+            victory=data["victory"],
+            player_hp_remaining=data["player_hp_remaining"],
+            player_hp_max=data["player_hp_max"],
+            enemies_defeated=data["enemies_defeated"],
+            enemies_total=data["enemies_total"],
+            turn_count=data["turn_count"],
+            log_summary=data["log_summary"],
+            enemies=[EnemyRecord.from_dict(e) for e in enemies_data],
+            total_player_damage_taken=data.get("total_player_damage_taken", 0),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -738,6 +797,7 @@ class CombatEngine:
             self._add_log(f"{target.name} is out of range (dist={dist}, range={unit.stats.attack_range}).")
             return False
         actual = target.take_damage(unit.stats.attack)
+        unit.total_damage_dealt += actual
         self._add_log(f"{unit.name} attacks {target.name} for {actual} damage! (HP: {target.stats.hp}/{target.stats.max_hp})")
         unit.has_attacked = True
         if not target.alive:
@@ -802,6 +862,7 @@ class CombatEngine:
             # Attack if in range
             if dist <= enemy.stats.attack_range:
                 actual = target.take_damage(enemy.stats.attack)
+                enemy.total_damage_dealt += actual
                 self._add_log(
                     f"{enemy.name} attacks {target.name} for {actual} damage! "
                     f"(HP: {target.stats.hp}/{target.stats.max_hp})"
@@ -837,6 +898,7 @@ class CombatEngine:
                 dist = manhattan_distance(enemy.x, enemy.y, target.x, target.y)
                 if dist <= enemy.stats.attack_range:
                     actual = target.take_damage(enemy.stats.attack)
+                    enemy.total_damage_dealt += actual
                     self._add_log(
                         f"{enemy.name} advances and attacks {target.name} for {actual} damage! "
                         f"(HP: {target.stats.hp}/{target.stats.max_hp})"
@@ -904,6 +966,28 @@ class CombatEngine:
             if u.team == UnitTeam.ENEMY and not u.alive
         )
         log_lines = [e.text for e in self._log[-10:]]
+
+        # Build detailed enemy roster
+        enemy_records: list[EnemyRecord] = []
+        for u in self._units.values():
+            if u.team == UnitTeam.ENEMY:
+                enemy_records.append(
+                    EnemyRecord(
+                        name=u.name,
+                        template_key=u.template_key,
+                        defeated=not u.alive,
+                        max_hp=u.stats.max_hp,
+                        damage_dealt=u.total_damage_dealt,
+                    )
+                )
+
+        # Total damage absorbed by player-team units
+        total_player_damage = sum(
+            u.total_damage_dealt
+            for u in self._units.values()
+            if u.team == UnitTeam.ENEMY
+        )
+
         return CombatResult(
             victory=self._phase == CombatPhase.VICTORY,
             player_hp_remaining=player.stats.hp,
@@ -912,6 +996,8 @@ class CombatEngine:
             enemies_total=self._total_enemies,
             turn_count=self._turn,
             log_summary="\n".join(log_lines),
+            enemies=enemy_records,
+            total_player_damage_taken=total_player_damage,
         )
 
     # -- Serialization -------------------------------------------------------

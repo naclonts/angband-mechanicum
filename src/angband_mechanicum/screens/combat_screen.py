@@ -15,6 +15,7 @@ from angband_mechanicum.engine.combat_engine import (
     CombatEngine,
     CombatPhase,
     CombatResult,
+    EnemyRecord,
     UnitTeam,
 )
 from angband_mechanicum.widgets.combat_grid import CombatGrid
@@ -169,16 +170,33 @@ class CombatScreen(Screen[CombatResult]):
 
     def action_retreat(self) -> None:
         """Forfeit the combat and dismiss."""
+        units = self._engine.get_units()
+        enemy_records = [
+            EnemyRecord(
+                name=u.name,
+                template_key=u.template_key,
+                defeated=not u.alive,
+                max_hp=u.stats.max_hp,
+                damage_dealt=u.total_damage_dealt,
+            )
+            for u in units
+            if u.team == UnitTeam.ENEMY
+        ]
+        total_enemy_damage = sum(
+            u.total_damage_dealt for u in units if u.team == UnitTeam.ENEMY
+        )
         result = CombatResult(
             victory=False,
             player_hp_remaining=self._engine.get_player().stats.hp,
             player_hp_max=self._engine.get_player().stats.max_hp,
             enemies_defeated=sum(
-                1 for u in self._engine.get_units()
+                1 for u in units
                 if u.team == UnitTeam.ENEMY and not u.alive
             ),
             enemies_total=self._engine._total_enemies,
             turn_count=self._engine.turn,
             log_summary="Tech-Priest retreated from combat.",
+            enemies=enemy_records,
+            total_player_damage_taken=total_enemy_damage,
         )
         self.dismiss(result)

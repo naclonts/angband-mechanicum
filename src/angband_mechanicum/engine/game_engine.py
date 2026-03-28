@@ -15,6 +15,7 @@ import anthropic
 from anthropic.types import MessageParam
 
 from angband_mechanicum.assets.placeholder_art import INTRO_NARRATIVE
+from angband_mechanicum.engine.combat_engine import CombatResult
 from angband_mechanicum.engine.history import EntityType, GameHistory
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -310,6 +311,64 @@ class GameEngine:
             else:
                 logger.warning("Malformed entity entry from LLM: %s", entry)
         return entity_ids
+
+    def record_combat_result(self, result: CombatResult) -> None:
+        """Persist a combat result into conversation history and game history.
+
+        Injects a system-style message into the LLM conversation so the narrator
+        knows what happened, and records a step in the structured history.
+        """
+        # Build a concise structured summary for the LLM
+        if result.victory:
+            outcome = "VICTORY"
+        elif result.player_hp_remaining > 0:
+            outcome = "RETREAT"
+        else:
+            outcome = "DEFEAT"
+
+        enemy_details: list[str] = []
+        for e in result.enemies:
+            status = "destroyed" if e.defeated else "survived"
+            enemy_details.append(f"{e.name} ({e.template_key}, {status})")
+        enemies_str = ", ".join(enemy_details) if enemy_details else "unknown hostiles"
+
+        system_msg = (
+            f"[SYSTEM: Combat resolved — {outcome}. "
+            f"Enemies encountered: {enemies_str}. "
+            f"Hostiles neutralised: {result.enemies_defeated}/{result.enemies_total}. "
+            f"Turns elapsed: {result.turn_count}. "
+            f"Integrity: {result.player_hp_remaining}/{result.player_hp_max}. "
+            f"Total damage absorbed: {result.total_player_damage_taken}.]"
+        )
+
+        # Inject into LLM conversation as a user message + assistant ack
+        self._conversation_history.append({
+            "role": "user",
+            "content": system_msg,
+        })
+        ack = (
+            f"Acknowledged. Combat outcome: {outcome}. "
+            f"The Tech-Priest {'triumphed over' if result.victory else 'faced'} "
+            f"{enemies_str}. Integrity at {result.player_hp_remaining}/{result.player_hp_max}."
+        )
+        self._conversation_history.append({
+            "role": "assistant",
+            "content": ack,
+        })
+
+        # Record in structured history (no entity IDs needed — enemies are ad-hoc)
+        narrative_summary = (
+            f"Combat {outcome}: fought {enemies_str}. "
+            f"{result.enemies_defeated}/{result.enemies_total} hostiles neutralised "
+            f"over {result.turn_count} turns. "
+            f"Integrity: {result.player_hp_remaining}/{result.player_hp_max}."
+        )
+        self._history.add_step(
+            player_input="[combat]",
+            narrative_text=narrative_summary,
+            entity_ids=[],
+            info_update=None,
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Export full engine state for saving."""
