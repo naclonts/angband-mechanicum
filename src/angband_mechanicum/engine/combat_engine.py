@@ -220,7 +220,7 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
     "gunner": {
         "name": "Gun Servitor",
         "symbol": "G",
-        "stats": {"max_hp": 5, "hp": 5, "attack": 4, "armor": 0, "movement": 2, "attack_range": 4},
+        "stats": {"max_hp": 5, "hp": 5, "attack": 4, "armor": 0, "movement": 2, "attack_range": 8},
     },
     "brute": {
         "name": "Corrupted Ogryn",
@@ -236,7 +236,7 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
     "ganger": {
         "name": "Hive Ganger",
         "symbol": "g",
-        "stats": {"max_hp": 7, "hp": 7, "attack": 3, "armor": 0, "movement": 3, "attack_range": 3},
+        "stats": {"max_hp": 7, "hp": 7, "attack": 3, "armor": 0, "movement": 3, "attack_range": 6},
     },
     # -- Chaos --
     "cultist": {
@@ -252,12 +252,12 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
     "sorcerer": {
         "name": "Chaos Sorcerer",
         "symbol": "Z",
-        "stats": {"max_hp": 8, "hp": 8, "attack": 5, "armor": 1, "movement": 2, "attack_range": 5},
+        "stats": {"max_hp": 8, "hp": 8, "attack": 5, "armor": 1, "movement": 2, "attack_range": 10},
     },
     "marine": {
         "name": "Chaos Marine",
         "symbol": "M",
-        "stats": {"max_hp": 18, "hp": 18, "attack": 6, "armor": 3, "movement": 3, "attack_range": 3},
+        "stats": {"max_hp": 18, "hp": 18, "attack": 6, "armor": 3, "movement": 3, "attack_range": 7},
     },
     # -- Tyranid --
     "hormagaunt": {
@@ -268,12 +268,12 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
     "termagant": {
         "name": "Termagant",
         "symbol": "t",
-        "stats": {"max_hp": 5, "hp": 5, "attack": 2, "armor": 0, "movement": 4, "attack_range": 3},
+        "stats": {"max_hp": 5, "hp": 5, "attack": 2, "armor": 0, "movement": 4, "attack_range": 6},
     },
     "warrior": {
         "name": "Tyranid Warrior",
         "symbol": "W",
-        "stats": {"max_hp": 16, "hp": 16, "attack": 6, "armor": 2, "movement": 4, "attack_range": 2},
+        "stats": {"max_hp": 16, "hp": 16, "attack": 6, "armor": 2, "movement": 4, "attack_range": 5},
     },
     # -- Ork --
     "ork_boy": {
@@ -284,13 +284,13 @@ ENEMY_TEMPLATES: dict[str, dict[str, Any]] = {
     "ork_shoota": {
         "name": "Ork Shoota Boy",
         "symbol": "s",
-        "stats": {"max_hp": 9, "hp": 9, "attack": 3, "armor": 1, "movement": 3, "attack_range": 4},
+        "stats": {"max_hp": 9, "hp": 9, "attack": 3, "armor": 1, "movement": 3, "attack_range": 7},
     },
     # -- Generic / misc --
     "heretic": {
         "name": "Heretek",
         "symbol": "H",
-        "stats": {"max_hp": 10, "hp": 10, "attack": 4, "armor": 1, "movement": 3, "attack_range": 2},
+        "stats": {"max_hp": 10, "hp": 10, "attack": 4, "armor": 1, "movement": 3, "attack_range": 5},
     },
     "mutant": {
         "name": "Warp Mutant",
@@ -376,7 +376,7 @@ def make_player(
         name="Magos Explorator",
         entity_id=entity_id,
         team=UnitTeam.PLAYER,
-        stats=CombatStats(max_hp=actual_max_hp, hp=actual_hp, attack=5, armor=2, movement=4, attack_range=3),
+        stats=CombatStats(max_hp=actual_max_hp, hp=actual_hp, attack=5, armor=2, movement=4, attack_range=8),
         x=x,
         y=y,
         symbol="@",
@@ -391,7 +391,7 @@ PARTY_TEMPLATES: dict[str, dict[str, Any]] = {
     "skitarius-alpha-7": {
         "name": "Skitarius Alpha-7",
         "symbol": "A",
-        "stats": {"max_hp": 12, "hp": 12, "attack": 4, "armor": 1, "movement": 4, "attack_range": 5},
+        "stats": {"max_hp": 12, "hp": 12, "attack": 4, "armor": 1, "movement": 4, "attack_range": 15},
     },
     "enginseer-volta": {
         "name": "Enginseer Volta",
