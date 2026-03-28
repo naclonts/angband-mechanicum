@@ -16,6 +16,7 @@ from angband_mechanicum.engine.combat_engine import (
     CombatPhase,
     CombatResult,
     EnemyRecord,
+    PowerType,
     UnitTeam,
 )
 from angband_mechanicum.widgets.combat_grid import CombatGrid
@@ -39,6 +40,7 @@ class CombatScreen(Screen[CombatResult]):
         Binding("m", "move_unit", "Move to cursor", show=True),
         Binding("a", "attack_target", "Attack/Shoot", show=True),
         Binding("s", "attack_target", "Shoot (alias)", show=False),
+        Binding("p", "cast_power", "Cast power", show=True),
         Binding("tab", "next_unit", "Next unit", show=True),
         Binding("e", "end_turn", "End turn", show=True),
         Binding("q", "retreat", "Retreat", show=True),
@@ -49,6 +51,7 @@ class CombatScreen(Screen[CombatResult]):
         ("Arrow keys", "Move cursor"),
         ("m", "Move to cursor"),
         ("a / s", "Attack/Shoot at cursor"),
+        ("p", "Cast power at cursor"),
         ("Tab", "Next unit"),
         ("e", "End turn"),
         ("q", "Retreat"),
@@ -171,6 +174,66 @@ class CombatScreen(Screen[CombatResult]):
         target = self._engine.get_unit_at(cx, cy)
         if target and target.team == UnitTeam.ENEMY:
             self._engine.player_attack(target.unit_id)
+        self._refresh_all()
+
+    def action_cast_power(self) -> None:
+        """Cast the first available power on the unit/cursor target.
+
+        The active unit's first off-cooldown power is selected automatically.
+        If the cursor is over an enemy, offensive powers are used.
+        If the cursor is over an ally (or self), healing/buff powers are used.
+        """
+        if self._engine.phase != CombatPhase.PLAYER_TURN:
+            return
+        unit = self._engine.get_active_unit()
+        available = self._engine.get_available_powers(unit)
+        if not available:
+            self._engine._add_log(f"{unit.name} has no powers available.")
+            self._refresh_all()
+            return
+        if unit.has_used_power:
+            self._engine._add_log(f"{unit.name} already used a power this turn.")
+            self._refresh_all()
+            return
+
+        cx, cy = self._engine.cursor
+        target = self._engine.get_unit_at(cx, cy)
+
+        # Determine which power to use based on target
+        power_to_use = None
+        target_id = None
+
+        if target and target.team == UnitTeam.ENEMY:
+            # Look for an offensive power
+            for p in available:
+                if p.power_type == PowerType.OFFENSIVE:
+                    power_to_use = p
+                    target_id = target.unit_id
+                    break
+        elif target and target.team == UnitTeam.PLAYER:
+            # Look for a healing or buff power
+            for p in available:
+                if p.power_type in (PowerType.HEALING, PowerType.BUFF):
+                    power_to_use = p
+                    target_id = target.unit_id
+                    break
+        else:
+            # No unit at cursor -- try self-targeting healing/buff
+            for p in available:
+                if p.power_type in (PowerType.HEALING, PowerType.BUFF):
+                    power_to_use = p
+                    target_id = unit.unit_id
+                    break
+
+        if power_to_use is None:
+            self._engine._add_log(
+                f"No suitable power for this target. "
+                f"Available: {', '.join(p.name for p in available)}"
+            )
+            self._refresh_all()
+            return
+
+        self._engine.player_cast_power(power_to_use.name, target_id)
         self._refresh_all()
 
     def action_end_turn(self) -> None:
