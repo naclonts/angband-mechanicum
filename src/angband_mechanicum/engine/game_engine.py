@@ -131,7 +131,8 @@ MUST include ALL five fields shown below — do not omit any.
   "info_update": null or {"key": "value"} dict,
   "entities": [],
   "combat_trigger": false,
-  "room_hint": null or { room_type, features, theme, name } (optional, only when combat_trigger is true)
+  "room_hint": null or { room_type, features, theme, name } (optional, only when combat_trigger is true),
+  "speaking_npc": null or "entity_id_of_speaking_character"
 }
 
 ### combat_trigger (REQUIRED — must appear in every response)
@@ -168,6 +169,19 @@ a fight in a flooded sewer would use room_type "corridor" with features ["water"
 "debris"] and theme "sewer". A battle in a forge would use "pillared_hall" or \
 "open_room" with theme "forge". A chaotic ambush in overgrown ruins might use \
 "l_shaped" with features ["growths", "cover"] and theme "overgrown".
+
+### speaking_npc (REQUIRED — must appear in every response)
+Set to the entity id of the character who is primarily speaking or being directly \
+interacted with in this response. This is used to show that character's portrait \
+in the UI. Set to null when no specific NPC is speaking or the scene is general \
+exploration/narration. Only use entity ids from the Known Entities list or from \
+new entities introduced in the same response's entities array.
+
+Example — NPC dialogue:
+{"narrative_text": "Alpha-7 turns to you...", "speaking_npc": "skitarius-alpha-7", ...}
+
+Example — exploration (no speaker):
+{"narrative_text": "The corridor stretches ahead...", "speaking_npc": null, ...}
 
 The scene_art field should contain ASCII/unicode art depicting the current environment. \
 Provide it when the scene or location changes; set to null if the environment has not \
@@ -217,6 +231,7 @@ class GameResponse:
     info_update: dict[str, str] | None = None
     combat_trigger: bool = False
     room_hint: dict[str, Any] | None = None
+    speaking_npc: str | None = None
 
 
 class GameEngine:
@@ -728,6 +743,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
         entities_data: list[dict[str, Any]] = []
         combat_trigger: bool = False
         room_hint: dict[str, Any] | None = None
+        speaking_npc: str | None = None
         system_prompt = self._build_system_prompt()
 
         try:
@@ -749,6 +765,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
             combat_trigger = bool(response_data.get("combat_trigger", False))
             if combat_trigger:
                 room_hint = response_data.get("room_hint")
+            speaking_npc = response_data.get("speaking_npc") or None
 
             self._log_turn(system_prompt, list(self._conversation_history), raw_text)
 
@@ -816,4 +833,5 @@ You MUST respond with ONLY a valid JSON object, no other text:
             info_update=info_update,
             combat_trigger=combat_trigger,
             room_hint=room_hint,
+            speaking_npc=speaking_npc,
         )
