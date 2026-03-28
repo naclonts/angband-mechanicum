@@ -1,0 +1,140 @@
+"""Combat screen -- full-screen tactical combat mode.
+
+Pushed on top of GameScreen when combat starts, popped when it ends.
+Returns a CombatResult to the caller.
+"""
+
+from __future__ import annotations
+
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Horizontal, Vertical
+from textual.screen import Screen
+
+from angband_mechanicum.engine.combat_engine import (
+    CombatEngine,
+    CombatPhase,
+    CombatResult,
+    UnitTeam,
+)
+from angband_mechanicum.widgets.combat_grid import CombatGrid
+from angband_mechanicum.widgets.combat_info import CombatInfo
+from angband_mechanicum.widgets.combat_log import CombatLog
+
+
+class CombatScreen(Screen[CombatResult]):
+    """Tactical combat screen.
+
+    The screen is parameterised on CombatResult -- when combat ends,
+    the screen is dismissed with a result that the caller can handle.
+    """
+
+    BINDINGS = [
+        Binding("up", "cursor_up", "Cursor up", show=False),
+        Binding("down", "cursor_down", "Cursor down", show=False),
+        Binding("left", "cursor_left", "Cursor left", show=False),
+        Binding("right", "cursor_right", "Cursor right", show=False),
+        Binding("m", "move_unit", "Move to cursor", show=True),
+        Binding("a", "attack_target", "Attack at cursor", show=True),
+        Binding("e", "end_turn", "End turn", show=True),
+        Binding("q", "retreat", "Retreat", show=True),
+    ]
+
+    def __init__(self, map_key: str = "corridor", **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._engine: CombatEngine = CombatEngine(map_key=map_key)
+
+    @property
+    def engine(self) -> CombatEngine:
+        return self._engine
+
+    def compose(self) -> ComposeResult:
+        with Horizontal(id="combat-layout"):
+            with Vertical(id="combat-left"):
+                yield CombatGrid(self._engine, id="combat-grid")
+                yield CombatLog(self._engine, id="combat-log")
+            yield CombatInfo(self._engine, id="combat-info")
+
+    def on_mount(self) -> None:
+        self.title = f"TACTICAL: {self._engine.map_name.upper()}"
+
+    # -- Refresh helpers -----------------------------------------------------
+
+    def _refresh_all(self) -> None:
+        """Update all combat widgets from current engine state."""
+        self.query_one("#combat-grid", CombatGrid).refresh_grid()
+        self.query_one("#combat-info", CombatInfo).refresh_info()
+        self.query_one("#combat-log", CombatLog).sync_log()
+        self._check_combat_end()
+
+    def _check_combat_end(self) -> None:
+        """If combat is over, dismiss the screen with a result after a beat."""
+        if self._engine.is_over:
+            # Let the player see the result before dismissing
+            self.set_timer(1.5, self._dismiss_with_result)
+
+    def _dismiss_with_result(self) -> None:
+        """Dismiss the screen with the combat result."""
+        result = self._engine.get_result()
+        self.dismiss(result)
+
+    # -- Cursor movement -----------------------------------------------------
+
+    def action_cursor_up(self) -> None:
+        self._engine.move_cursor(0, -1)
+        self._refresh_all()
+
+    def action_cursor_down(self) -> None:
+        self._engine.move_cursor(0, 1)
+        self._refresh_all()
+
+    def action_cursor_left(self) -> None:
+        self._engine.move_cursor(-1, 0)
+        self._refresh_all()
+
+    def action_cursor_right(self) -> None:
+        self._engine.move_cursor(1, 0)
+        self._refresh_all()
+
+    # -- Player actions ------------------------------------------------------
+
+    def action_move_unit(self) -> None:
+        """Move the player unit to the cursor position."""
+        if self._engine.phase != CombatPhase.PLAYER_TURN:
+            return
+        cx, cy = self._engine.cursor
+        self._engine.player_move(cx, cy)
+        self._refresh_all()
+
+    def action_attack_target(self) -> None:
+        """Attack the unit at the cursor position."""
+        if self._engine.phase != CombatPhase.PLAYER_TURN:
+            return
+        cx, cy = self._engine.cursor
+        target = self._engine.get_unit_at(cx, cy)
+        if target and target.team == UnitTeam.ENEMY:
+            self._engine.player_attack(target.unit_id)
+        self._refresh_all()
+
+    def action_end_turn(self) -> None:
+        """End the player's turn."""
+        if self._engine.phase != CombatPhase.PLAYER_TURN:
+            return
+        self._engine.end_player_turn()
+        self._refresh_all()
+
+    def action_retreat(self) -> None:
+        """Forfeit the combat and dismiss."""
+        result = CombatResult(
+            victory=False,
+            player_hp_remaining=self._engine.get_player().stats.hp,
+            player_hp_max=self._engine.get_player().stats.max_hp,
+            enemies_defeated=sum(
+                1 for u in self._engine.get_units()
+                if u.team == UnitTeam.ENEMY and not u.alive
+            ),
+            enemies_total=self._engine._total_enemies,
+            turn_count=self._engine.turn,
+            log_summary="Tech-Priest retreated from combat.",
+        )
+        self.dismiss(result)

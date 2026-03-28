@@ -16,7 +16,9 @@ from angband_mechanicum.assets.placeholder_art import (
     INTRO_NARRATIVE,
     TECHPRIEST_PORTRAIT,
 )
+from angband_mechanicum.engine.combat_engine import CombatResult
 from angband_mechanicum.engine.save_manager import SaveManager
+from angband_mechanicum.screens.combat_screen import CombatScreen
 from angband_mechanicum.widgets.info_panel import DEFAULT_INFO, InfoPanel
 from angband_mechanicum.widgets.narrative_pane import NarrativePane
 from angband_mechanicum.widgets.portrait_pane import PortraitPane
@@ -92,6 +94,11 @@ class GameScreen(Screen[None]):
 
     @work(exclusive=True)
     async def handle_command(self, text: str) -> None:
+        # Intercept /combat command before sending to LLM
+        if text.strip().lower() == "/combat":
+            self._enter_combat()
+            return
+
         narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
         prompt: PromptInput = self.query_one("#prompt", PromptInput)
         narrative.append_narrative(f"\n[bold]> {text}[/bold]\n")
@@ -120,6 +127,45 @@ class GameScreen(Screen[None]):
 
         # Autosave after each successful command
         self._autosave()
+
+    def _enter_combat(self) -> None:
+        """Push the CombatScreen and handle the result when it's dismissed."""
+        narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
+        narrative.append_narrative(
+            "\n[bold]> /combat[/bold]\n"
+            "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+        )
+        self._narrative_log.append(
+            "\n[bold]> /combat[/bold]\n"
+            "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+        )
+
+        def on_combat_result(result: CombatResult | None) -> None:
+            """Handle combat result when CombatScreen is dismissed."""
+            if result is None:
+                return
+            narrative_pane: NarrativePane = self.query_one("#narrative", NarrativePane)
+            if result.victory:
+                summary = (
+                    f"\n[bold]++ COMBAT RESOLVED: VICTORY ++[/bold]\n"
+                    f"Hostiles neutralised: {result.enemies_defeated}/{result.enemies_total}\n"
+                    f"Integrity remaining: {result.player_hp_remaining}/{result.player_hp_max}\n"
+                    f"Turns elapsed: {result.turn_count}\n"
+                    f"[dim]++ THE OMNISSIAH IS PLEASED ++[/dim]\n"
+                )
+            else:
+                summary = (
+                    f"\n[bold]++ COMBAT RESOLVED: {'RETREAT' if result.player_hp_remaining > 0 else 'DEFEAT'} ++[/bold]\n"
+                    f"Hostiles neutralised: {result.enemies_defeated}/{result.enemies_total}\n"
+                    f"Integrity remaining: {result.player_hp_remaining}/{result.player_hp_max}\n"
+                    f"Turns elapsed: {result.turn_count}\n"
+                    f"[dim]++ THE MACHINE SPIRIT ENDURES ++[/dim]\n"
+                )
+            narrative_pane.append_narrative(summary)
+            self._narrative_log.append(summary)
+            self.query_one("#prompt", PromptInput).focus()
+
+        self.app.push_screen(CombatScreen(), callback=on_combat_result)
 
     def _autosave(self) -> None:
         """Save current game state to the session's save slot."""
