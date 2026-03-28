@@ -59,7 +59,7 @@ arrived through the Noosphere — something has been detected in the \
 deep strata beneath the forge. Seismic anomalies. Unidentified energy \
 signatures. The Fabricator-Locum has assigned [bold]you[/bold] to investigate.
 
-[dim]Three acolytes have been assigned to your expedition. Your servo-skull \
+[dim]Two acolytes have been assigned to your expedition. Your servo-skull \
 hovers nearby, its red eye sweeping the chamber. The cargo lift to the \
 underhive awaits.[/dim]
 
@@ -84,14 +84,12 @@ CANNED_RESPONSES: list[str] = [
         "[bold]++ WARNING: ANOMALOUS READINGS DETECTED ++[/bold]"
     ),
     (
-        "You turn to survey your assigned acolytes. Three figures stand at "
+        "You turn to survey your assigned acolytes. Two figures stand at "
         "attention:\n\n"
         "  [bold]Skitarius Alpha-7[/bold] — A battle-scarred ranger, galvanic "
         "rifle mag-locked to their back.\n"
         "  [bold]Enginseer Volta[/bold] — Young, eager, still more flesh than "
-        "machine. Carries a power axe.\n"
-        "  [bold]Datasmith Kael[/bold] — Silent, their face entirely replaced "
-        "by a vox-grille and sensor array.\n\n"
+        "machine. Carries a power axe.\n\n"
         "[dim]They await your command.[/dim]"
     ),
     (

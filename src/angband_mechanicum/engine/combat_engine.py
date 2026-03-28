@@ -397,11 +397,6 @@ PARTY_TEMPLATES: dict[str, dict[str, Any]] = {
         "symbol": "V",
         "stats": {"max_hp": 14, "hp": 14, "attack": 6, "armor": 1, "movement": 3, "attack_range": 1},
     },
-    "datasmith-kael": {
-        "name": "Datasmith Kael",
-        "symbol": "K",
-        "stats": {"max_hp": 10, "hp": 10, "attack": 3, "armor": 0, "movement": 3, "attack_range": 3},
-    },
 }
 
 
@@ -586,7 +581,7 @@ HARDCODED_MAPS: dict[str, dict[str, Any]] = {
         "name": "Sub-Level Corridor",
         "build": _build_corridor_map,
         "player_start": (2, 7),
-        "party_starts": [(3, 6), (3, 8), (2, 9)],  # near the player
+        "party_starts": [(3, 6), (3, 8)],  # near the player
         "enemies": [
             ("servitor", 10, 3),
             ("gunner", 16, 6),
