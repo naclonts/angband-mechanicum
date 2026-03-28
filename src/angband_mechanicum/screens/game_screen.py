@@ -74,11 +74,13 @@ class GameScreen(Screen[None]):
         if self._restored_state:
             self._restore_ui(self._restored_state)
         else:
-            self.query_one("#info", InfoPanel).update_info(DEFAULT_INFO)
             self.query_one("#narrative", NarrativePane).append_narrative(INTRO_NARRATIVE)
             self._narrative_log.append(INTRO_NARRATIVE)
             # Initialize engine info panel with defaults for save tracking
             self.app.game_engine._info_panel = dict(DEFAULT_INFO)  # type: ignore[attr-defined]
+
+        # Push deterministic status (integrity + party HP) to the panel
+        self._push_status_to_panel()
 
         self.query_one("#prompt", PromptInput).focus()
         # Push initial pane dimensions to the engine after layout
@@ -98,8 +100,8 @@ class GameScreen(Screen[None]):
 
     def _restore_ui(self, state: dict[str, Any]) -> None:
         """Restore UI panes from saved state."""
-        info_data: dict[str, str] = state.get("info_panel", DEFAULT_INFO)
-        self.query_one("#info", InfoPanel).update_info(info_data)
+        # Info panel data is restored into the engine; _push_status_to_panel
+        # will render it after this method returns (called in on_mount).
 
         scene_art: str | None = state.get("current_scene_art")
         if scene_art:
@@ -171,8 +173,9 @@ class GameScreen(Screen[None]):
 
         if response.scene_art:
             self.query_one("#scene", ScenePane).update_scene(response.scene_art)
-        if response.info_update:
-            self.query_one("#info", InfoPanel).update_info(response.info_update)
+
+        # Push deterministic status (integrity + party HP + info fields)
+        self._push_status_to_panel()
 
         # If the LLM signalled combat, show a prompt and set the pending flag
         if response.combat_trigger:
@@ -353,13 +356,13 @@ class GameScreen(Screen[None]):
 
     def _update_integrity_display(self) -> None:
         """Push the current integrity value into the info panel."""
+        self._push_status_to_panel()
+
+    def _push_status_to_panel(self) -> None:
+        """Push deterministic status data (info fields + integrity + party HP) to the InfoPanel."""
         engine = self.app.game_engine  # type: ignore[attr-defined]
-        filled = round(10 * engine.integrity / engine.max_integrity)
-        bar = "=" * filled + "-" * (10 - filled)
-        pct = round(100 * engine.integrity / engine.max_integrity)
-        self.query_one("#info", InfoPanel).update_info(
-            {"INTEGRITY": f"[{bar}] {pct}%"}
-        )
+        status = engine.get_status_data()
+        self.query_one("#info", InfoPanel).update_status(status)
 
     def _autosave(self) -> None:
         """Save current game state to the session's save slot."""

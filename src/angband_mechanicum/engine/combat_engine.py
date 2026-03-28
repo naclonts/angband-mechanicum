@@ -503,6 +503,8 @@ class CombatResult:
     log_summary: str
     enemies: list[EnemyRecord] = field(default_factory=list)
     total_player_damage_taken: int = 0  # aggregate damage the player-team absorbed
+    # Per-party-member HP after combat: {entity_id: (hp, max_hp)}
+    party_hp: dict[str, tuple[int, int]] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -515,11 +517,14 @@ class CombatResult:
             "log_summary": self.log_summary,
             "enemies": [e.to_dict() for e in self.enemies],
             "total_player_damage_taken": self.total_player_damage_taken,
+            "party_hp": {k: list(v) for k, v in self.party_hp.items()},
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> CombatResult:
         enemies_data = data.get("enemies", [])
+        raw_party_hp = data.get("party_hp", {})
+        party_hp = {k: (v[0], v[1]) for k, v in raw_party_hp.items()}
         return cls(
             victory=data["victory"],
             player_hp_remaining=data["player_hp_remaining"],
@@ -530,6 +535,7 @@ class CombatResult:
             log_summary=data["log_summary"],
             enemies=[EnemyRecord.from_dict(e) for e in enemies_data],
             total_player_damage_taken=data.get("total_player_damage_taken", 0),
+            party_hp=party_hp,
         )
 
 
@@ -1272,6 +1278,12 @@ class CombatEngine:
             if u.team == UnitTeam.ENEMY
         )
 
+        # Collect per-party-member HP (non-player allies)
+        party_hp: dict[str, tuple[int, int]] = {}
+        for u in self._units.values():
+            if u.team == UnitTeam.PLAYER and u.entity_id and u.unit_id != "player":
+                party_hp[u.entity_id] = (u.stats.hp, u.stats.max_hp)
+
         return CombatResult(
             victory=self._phase == CombatPhase.VICTORY,
             player_hp_remaining=player.stats.hp,
@@ -1282,6 +1294,7 @@ class CombatEngine:
             log_summary="\n".join(log_lines),
             enemies=enemy_records,
             total_player_damage_taken=total_player_damage,
+            party_hp=party_hp,
         )
 
     # -- Serialization -------------------------------------------------------

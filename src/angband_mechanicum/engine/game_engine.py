@@ -20,6 +20,7 @@ from angband_mechanicum.engine.combat_engine import (
     CombatResult,
     ENEMY_TEMPLATES,
     HARDCODED_MAPS,
+    PARTY_TEMPLATES,
     auto_place_enemies,
 )
 from angband_mechanicum.engine.history import EntityType, GameHistory
@@ -210,6 +211,7 @@ class GameEngine:
         self._scene_pane_height: int = DEFAULT_ART_HEIGHT
         self._integrity: int = 20
         self._max_integrity: int = 20
+        self._party_hp: dict[str, tuple[int, int]] = self._init_party_hp()
 
     def set_scene_pane_size(self, width: int, height: int) -> None:
         """Update the scene pane dimensions used in LLM prompts.
@@ -234,6 +236,47 @@ class GameEngine:
     def take_damage(self, amount: int) -> None:
         """Reduce integrity by *amount* (minimum 0)."""
         self._integrity = max(0, self._integrity - amount)
+
+    def _init_party_hp(self) -> dict[str, tuple[int, int]]:
+        """Initialize party member HP from PARTY_TEMPLATES."""
+        result: dict[str, tuple[int, int]] = {}
+        for pid in self._party_member_ids:
+            if pid in PARTY_TEMPLATES:
+                s = PARTY_TEMPLATES[pid]["stats"]
+                result[pid] = (s["hp"], s["max_hp"])
+        return result
+
+    @property
+    def party_hp(self) -> dict[str, tuple[int, int]]:
+        """Per-party-member HP: {entity_id: (current_hp, max_hp)}."""
+        return dict(self._party_hp)
+
+    def get_status_data(self) -> dict[str, Any]:
+        """Return structured data for the STATUS panel.
+
+        Returns a dict with:
+          - info: dict of key-value info fields (DESIGNATION, LOCATION, etc.)
+          - integrity: (current, max) player HP
+          - party: list of {id, name, hp, max_hp} dicts
+        """
+        party: list[dict[str, Any]] = []
+        for pid in self._party_member_ids:
+            if pid in PARTY_TEMPLATES:
+                tpl = PARTY_TEMPLATES[pid]
+                hp, max_hp = self._party_hp.get(
+                    pid, (tpl["stats"]["hp"], tpl["stats"]["max_hp"])
+                )
+                party.append({
+                    "id": pid,
+                    "name": tpl["name"],
+                    "hp": hp,
+                    "max_hp": max_hp,
+                })
+        return {
+            "info": dict(self._info_panel),
+            "integrity": (self._integrity, self._max_integrity),
+            "party": party,
+        }
 
     @property
     def turn_count(self) -> int:
@@ -552,6 +595,10 @@ You MUST respond with ONLY a valid JSON object, no other text:
             info_update=None,
         )
 
+        # Sync party member HP from combat results
+        for pid, (hp, max_hp) in result.party_hp.items():
+            self._party_hp[pid] = (hp, max_hp)
+
     def to_dict(self) -> dict[str, Any]:
         """Export full engine state for saving."""
         return {
@@ -564,6 +611,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
             "integrity": self._integrity,
             "max_integrity": self._max_integrity,
             "party_member_ids": list(self._party_member_ids),
+            "party_hp": {k: list(v) for k, v in self._party_hp.items()},
         }
 
     @classmethod
@@ -591,6 +639,12 @@ You MUST respond with ONLY a valid JSON object, no other text:
             # Legacy save without history — initialize fresh with seeds
             engine._history = GameHistory()
             engine._seed_starting_entities()
+        # Restore party HP (fall back to template defaults for legacy saves)
+        raw_party_hp = data.get("party_hp", {})
+        if raw_party_hp:
+            engine._party_hp = {k: (v[0], v[1]) for k, v in raw_party_hp.items()}
+        else:
+            engine._party_hp = engine._init_party_hp()
         return engine
 
     async def process_input(self, text: str) -> GameResponse:
