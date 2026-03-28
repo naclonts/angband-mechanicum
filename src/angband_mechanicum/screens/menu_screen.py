@@ -50,12 +50,17 @@ class MenuScreen(Screen[None]):
             self._load_game(slot_id)
 
     def _start_new_game(self) -> None:
-        from angband_mechanicum.engine.game_engine import GameEngine
-        from angband_mechanicum.screens.game_screen import GameScreen
+        from angband_mechanicum.screens.character_setup_screen import CharacterSetupScreen
 
-        self.app.game_engine = GameEngine()  # type: ignore[attr-defined]
-        self.app.save_slot = _generate_slot_id()  # type: ignore[attr-defined]
-        self.app.switch_screen(GameScreen())
+        def on_name_chosen(name: str) -> None:
+            from angband_mechanicum.engine.game_engine import GameEngine
+            from angband_mechanicum.screens.game_screen import GameScreen
+
+            self.app.game_engine = GameEngine(player_name=name)  # type: ignore[attr-defined]
+            self.app.save_slot = _generate_slot_id()  # type: ignore[attr-defined]
+            self.app.switch_screen(GameScreen())
+
+        self.app.push_screen(CharacterSetupScreen(), callback=on_name_chosen)
 
     def _show_save_list(self) -> None:
         save_list: Vertical = self.query_one("#save-list", Vertical)

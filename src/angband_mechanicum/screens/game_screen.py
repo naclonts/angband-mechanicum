@@ -22,7 +22,7 @@ from angband_mechanicum.engine.combat_engine import CombatResult
 from angband_mechanicum.engine.save_manager import SaveManager
 from angband_mechanicum.screens.combat_screen import CombatScreen
 from angband_mechanicum.widgets.help_overlay import HelpOverlay
-from angband_mechanicum.widgets.info_panel import DEFAULT_INFO, InfoPanel
+from angband_mechanicum.widgets.info_panel import default_info, InfoPanel
 from angband_mechanicum.widgets.narrative_pane import NarrativePane
 from angband_mechanicum.widgets.portrait_pane import PortraitPane
 from angband_mechanicum.widgets.prompt_input import PromptInput
@@ -77,7 +77,8 @@ class GameScreen(Screen[None]):
             self.query_one("#narrative", NarrativePane).append_narrative(INTRO_NARRATIVE)
             self._narrative_log.append(INTRO_NARRATIVE)
             # Initialize engine info panel with defaults for save tracking
-            self.app.game_engine._info_panel = dict(DEFAULT_INFO)  # type: ignore[attr-defined]
+            engine = self.app.game_engine  # type: ignore[attr-defined]
+            engine._info_panel = default_info(engine.player_name)
 
         # Push deterministic status (integrity + party HP) to the panel
         self._push_status_to_panel()
@@ -256,6 +257,7 @@ class GameScreen(Screen[None]):
                 party_ids=engine.party_member_ids,
                 enemy_roster=enemy_roster if enemy_roster else None,
                 map_def=map_def,
+                player_name=engine.player_name,
             ),
             callback=on_combat_result,
         )
@@ -337,6 +339,7 @@ class GameScreen(Screen[None]):
                 party_ids=engine.party_member_ids,
                 enemy_roster=enemy_roster if enemy_roster else None,
                 map_def=map_def,
+                player_name=engine.player_name,
             ),
             callback=on_combat_result,
         )
