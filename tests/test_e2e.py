@@ -51,8 +51,14 @@ def _mock_engine_client(app: AngbandMechanicumApp, response_json: str) -> MagicM
 
 
 async def _start_new_game(pilot: Any, app: AngbandMechanicumApp) -> None:
-    """Click NEW GAME and wait for GameScreen to be active."""
+    """Navigate NEW GAME → character setup → story select → GameScreen."""
     await pilot.click("#btn-new")
+    await pilot.pause()
+    # CharacterSetupScreen: confirm with default name
+    await pilot.click("#btn-confirm")
+    await pilot.pause()
+    # StorySelectScreen: pick random story
+    await pilot.click("#btn-random")
     await pilot.pause()
     # Disable autosave so tests don't write to disk
     app.save_slot = None
@@ -118,11 +124,16 @@ class TestNewGame:
     async def test_game_screen_loads_after_new_game(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Clicking NEW GAME switches to the GameScreen."""
+        """Clicking NEW GAME and completing setup reaches the GameScreen."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
             await pilot.click("#btn-new")
+            await pilot.pause()
+            # Navigate through character setup and story selection
+            await pilot.click("#btn-confirm")
+            await pilot.pause()
+            await pilot.click("#btn-random")
             await pilot.pause()
             assert isinstance(app.screen, GameScreen)
 
@@ -150,7 +161,8 @@ class TestNewGame:
             info = app.screen.query_one("#info", InfoPanel)
             rendered = str(info.render())
             assert "Magos Explorator" in rendered
-            assert "Forge-Cathedral Alpha" in rendered
+            # Location comes from the randomly selected story start
+            assert "LOCATION" in rendered
 
     @pytest.mark.asyncio
     async def test_game_engine_is_fresh(
@@ -174,7 +186,10 @@ class TestNewGame:
         async with app.run_test(size=APP_SIZE) as pilot:
             await pilot.click("#btn-new")
             await pilot.pause()
-            # Check before _start_new_game clears save_slot
+            await pilot.click("#btn-confirm")
+            await pilot.pause()
+            await pilot.click("#btn-random")
+            await pilot.pause()
             assert app.save_slot is not None
             assert app.save_slot.startswith("save-")
 

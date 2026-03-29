@@ -472,7 +472,7 @@ class TestPlayerRangedAttack:
             party_ids=["skitarius-alpha-7"],
             enemy_roster=[],
         )
-        # Place an enemy within Alpha-7's range (attack_range=5)
+        # Place an enemy within Alpha-7's range (attack_range=15)
         enemy = make_enemy("servitor", 6, 6)
         engine._units[enemy.unit_id] = enemy
         engine._total_enemies = 1
@@ -480,7 +480,7 @@ class TestPlayerRangedAttack:
         # Select Alpha-7
         alpha7 = engine._units.get("skitarius-alpha-7")
         assert alpha7 is not None
-        assert alpha7.stats.attack_range == 5
+        assert alpha7.stats.attack_range == 15
 
         engine.select_unit("skitarius-alpha-7")
         assert engine.active_unit_id == "skitarius-alpha-7"
