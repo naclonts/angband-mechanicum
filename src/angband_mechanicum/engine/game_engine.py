@@ -24,6 +24,7 @@ from angband_mechanicum.engine.combat_engine import (
     auto_place_enemies,
 )
 from angband_mechanicum.engine.dungeon_gen import (
+    ENVIRONMENTS,
     GeneratedMap,
     RoomHint,
     generate_map_from_hint,
@@ -251,6 +252,62 @@ class DeathNarrative:
     cause_of_death: str
 
 
+@dataclass(frozen=True)
+class TravelDestination:
+    """Resolved destination for a text-view travel request."""
+
+    request_text: str
+    environment: str
+    display_name: str
+    matched_terms: tuple[str, ...] = ()
+
+
+def _tokenize_destination_text(text: str) -> set[str]:
+    """Tokenize a travel request into comparable lowercase words."""
+    return {token for token in re.findall(r"[a-z0-9]+", text.lower()) if token}
+
+
+def _environment_display_name(environment_name: str, description: str) -> str:
+    """Return a compact label for a destination environment."""
+    prefix = description.split(" — ", 1)[0].strip()
+    if prefix:
+        return prefix
+    return environment_name.replace("_", " ").title()
+
+
+def _score_destination_match(
+    query: str,
+    query_tokens: set[str],
+    environment_name: str,
+    environment_description: str,
+) -> tuple[int, tuple[str, ...]]:
+    """Score how well a destination request matches an environment."""
+    env_tokens = _tokenize_destination_text(environment_name)
+    desc_tokens = _tokenize_destination_text(environment_description)
+    matched_terms: set[str] = set()
+    score = 0
+
+    if environment_name in query:
+        score += 5
+        matched_terms.add(environment_name)
+    name_phrase = environment_name.replace("_", " ")
+    if name_phrase in query:
+        score += 4
+        matched_terms.add(name_phrase)
+
+    env_overlap = query_tokens & env_tokens
+    desc_overlap = query_tokens & desc_tokens
+    score += len(env_overlap) * 4
+    score += len(desc_overlap) * 2
+    matched_terms.update(env_overlap)
+    matched_terms.update(desc_overlap)
+
+    if query.startswith(environment_name):
+        score += 2
+
+    return score, tuple(sorted(matched_terms))
+
+
 class GameEngine:
     """Processes player input via the Anthropic Claude API and returns narrative responses."""
 
@@ -336,6 +393,37 @@ class GameEngine:
         )
         if story.info_overrides:
             self._info_panel = dict(story.info_overrides)
+
+    def resolve_travel_destination(self, request_text: str) -> TravelDestination:
+        """Resolve a natural-language travel request to the closest environment."""
+        cleaned_request = request_text.strip()
+        query = cleaned_request.lower()
+        query_tokens = _tokenize_destination_text(query)
+
+        best_environment = "forge"
+        best_score = -1
+        best_terms: tuple[str, ...] = ()
+        for environment_name, environment in ENVIRONMENTS.items():
+            score, matched_terms = _score_destination_match(
+                query=query,
+                query_tokens=query_tokens,
+                environment_name=environment_name,
+                environment_description=environment.description,
+            )
+            if score > best_score:
+                best_environment = environment_name
+                best_score = score
+                best_terms = matched_terms
+
+        resolved_environment = ENVIRONMENTS.get(best_environment, ENVIRONMENTS["forge"])
+        return TravelDestination(
+            request_text=cleaned_request,
+            environment=resolved_environment.name,
+            display_name=_environment_display_name(
+                resolved_environment.name, resolved_environment.description
+            ),
+            matched_terms=best_terms,
+        )
 
     @property
     def party_hp(self) -> dict[str, tuple[int, int]]:

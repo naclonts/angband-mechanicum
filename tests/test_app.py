@@ -101,6 +101,43 @@ def _make_floor_with_contacts(
     )
 
 
+def _make_travel_floor(
+    *,
+    level_id: str,
+    name: str,
+    depth: int,
+    environment: str,
+) -> GeneratedFloor:
+    level = DungeonLevel(
+        level_id=level_id,
+        name=name,
+        depth=depth,
+        environment=environment,
+        width=7,
+        height=5,
+    )
+    for y in range(level.height):
+        for x in range(level.width):
+            if x in (0, level.width - 1) or y in (0, level.height - 1):
+                level.set_terrain(x, y, DungeonTerrain.WALL)
+            else:
+                level.set_terrain(x, y, DungeonTerrain.FLOOR)
+    level.player_pos = (2, 2)
+    level.stairs_up = [(2, 1)]
+    level.stairs_down = [(4, 2)]
+    level.set_terrain(2, 1, DungeonTerrain.STAIRS_UP)
+    level.set_terrain(4, 2, DungeonTerrain.STAIRS_DOWN)
+
+    return GeneratedFloor(
+        level=level,
+        rooms=[],
+        environment=environment,
+        entry_room_index=0,
+        exit_room_index=0,
+        entity_roster=DungeonEntityRoster(),
+    )
+
+
 def test_archive_player_death_saves_record_and_clears_live_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -356,6 +393,42 @@ def test_dungeon_session_round_trip_preserves_generated_contacts(
     ]
     assert restored.state.entities[0].description == "Generated contact 1"
     assert restored.state.entities[1].hp == 7
+
+
+def test_travel_to_destination_builds_environment_specific_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Text-view travel should mount a session for the resolved destination."""
+    request_text = "Take me to the sewer drains beneath the underhive."
+
+    def _fake_generate_dungeon_floor(**kwargs: object) -> GeneratedFloor:
+        return _make_travel_floor(
+            level_id=str(kwargs["level_id"]),
+            name=str(kwargs["name"]),
+            depth=int(kwargs["depth"]),
+            environment=str(kwargs["environment"]),
+        )
+
+    monkeypatch.setattr(app_module, "generate_dungeon_floor", _fake_generate_dungeon_floor)
+
+    app = AngbandMechanicumApp()
+    session, destination = app.build_destination_session(request_text)
+
+    assert destination.environment == "sewer"
+    assert destination.display_name == "Sub-hive drainage"
+    assert app.dungeon_session is session
+    assert session.destination_query == request_text
+    assert session.destination_environment == "sewer"
+    assert session.destination_label == "Sub-hive drainage"
+    assert session.location == "Sub-hive drainage"
+    assert session.state.level.environment == "sewer"
+    assert session.state.level.name == "Sub-hive drainage"
+    assert session.state.level.level_id.startswith("travel:sewer:")
+
+    restored = DungeonSession.from_dict(session.to_dict())
+    assert restored.destination_query == request_text
+    assert restored.destination_environment == "sewer"
+    assert restored.destination_label == "Sub-hive drainage"
 
 
 def test_game_screen_recognizes_structured_explore_hints() -> None:

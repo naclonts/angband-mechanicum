@@ -73,6 +73,30 @@ class TestStatusData:
         assert servo_skull["hp"] == 0
 
 
+class TestTravelDestinationResolution:
+    @pytest.mark.parametrize(
+        ("request_text", "expected_environment", "expected_label"),
+        [
+            ("Take me to the sewer drains beneath the underhive.", "sewer", "Sub-hive drainage"),
+            ("Lead me to the cathedral reliquary and shrine.", "cathedral", "Imperial cathedral"),
+        ],
+    )
+    def test_resolve_travel_destination_matches_supported_environment(
+        self,
+        request_text: str,
+        expected_environment: str,
+        expected_label: str,
+    ) -> None:
+        engine = GameEngine()
+
+        destination = engine.resolve_travel_destination(request_text)
+
+        assert destination.request_text == request_text
+        assert destination.environment == expected_environment
+        assert destination.display_name == expected_label
+        assert destination.matched_terms
+
+
 # ---------------------------------------------------------------------------
 # process_input — success path
 # ---------------------------------------------------------------------------
