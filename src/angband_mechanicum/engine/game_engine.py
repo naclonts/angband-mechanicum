@@ -247,7 +247,7 @@ class GameResponse:
 class GameEngine:
     """Processes player input via the Anthropic Claude API and returns narrative responses."""
 
-    # Default party members — entity IDs matching the seeded entities
+    # Default companion followers — entity IDs matching the seeded entities
     DEFAULT_PARTY_IDS: list[str] = [
         "skitarius-alpha-7",
         "enginseer-volta",
@@ -341,16 +341,16 @@ class GameEngine:
         Returns a dict with:
           - info: dict of key-value info fields (DESIGNATION, LOCATION, etc.)
           - integrity: (current, max) player HP
-          - party: list of {id, name, hp, max_hp} dicts
+          - companions: list of {id, name, hp, max_hp} dicts
         """
-        party: list[dict[str, Any]] = []
+        companions: list[dict[str, Any]] = []
         for pid in self._party_member_ids:
             if pid in PARTY_TEMPLATES:
                 tpl = PARTY_TEMPLATES[pid]
                 hp, max_hp = self._party_hp.get(
                     pid, (tpl["stats"]["hp"], tpl["stats"]["max_hp"])
                 )
-                party.append({
+                companions.append({
                     "id": pid,
                     "name": tpl["name"],
                     "hp": hp,
@@ -359,7 +359,8 @@ class GameEngine:
         return {
             "info": dict(self._info_panel),
             "integrity": (self._integrity, self._max_integrity),
-            "party": party,
+            "companions": companions,
+            "party": list(companions),
         }
 
     @property

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from angband_mechanicum.engine.combat_engine import CombatEngine, UnitTeam
+from angband_mechanicum.screens.combat_screen import CombatScreen
 from angband_mechanicum.widgets.combat_grid import _strip_markup, render_grid
 from angband_mechanicum.widgets.info_panel import DEFAULT_INFO, InfoPanel
 
@@ -13,7 +14,7 @@ from angband_mechanicum.widgets.info_panel import DEFAULT_INFO, InfoPanel
 
 
 class TestCombatGridSelectedIndicator:
-    """The active/selected party member should be visually distinct on the grid."""
+    """The active Tech-Priest should be visually distinct on the grid."""
 
     def test_active_unit_has_background_highlight(self) -> None:
         """The selected player unit's symbol should have a background highlight.
@@ -31,7 +32,7 @@ class TestCombatGridSelectedIndicator:
         assert f"[bold #00ff41 on #1a3a1a]{active.symbol}[/bold #00ff41 on #1a3a1a]" in output
 
     def test_non_active_party_member_has_bold_only(self) -> None:
-        """Non-selected party members should use plain bold (no underline)."""
+        """Any non-player ally should use plain bold (no underline)."""
         engine = CombatEngine(party_ids=["skitarius-alpha-7"])
         # The player (@) starts as active; the party member should be bold-only
         output = render_grid(engine)
@@ -45,7 +46,7 @@ class TestCombatGridSelectedIndicator:
         assert f"[bold]{party_unit.symbol}[/bold]" in output
 
     def test_cycling_unit_changes_indicator(self) -> None:
-        """After cycling, the newly active unit gets the background highlight."""
+        """After cycling, the newly active ally gets the background highlight."""
         engine = CombatEngine(party_ids=["skitarius-alpha-7"])
         first_active = engine.active_unit_id
         engine.cycle_active_unit()
@@ -74,6 +75,12 @@ class TestCombatGridSelectedIndicator:
         enemies = engine.get_alive_units(UnitTeam.ENEMY)
         # At least one enemy should have bold red markup
         assert any(f"[bold red]{e.symbol}[/bold red]" in output for e in enemies)
+
+
+class TestCombatScreenBindings:
+    def test_no_party_cycle_binding(self) -> None:
+        keys = [binding.key for binding in CombatScreen.BINDINGS]
+        assert "tab" not in keys
 
 
 class TestStripMarkup:
@@ -108,3 +115,20 @@ class TestInfoPanelFormatting:
     def test_default_info_has_required_fields(self) -> None:
         required = {"DESIGNATION", "LOCATION", "DATE", "NOOSPHERE"}
         assert required == set(DEFAULT_INFO.keys())
+
+    def test_update_status_renders_companions(self) -> None:
+        panel = InfoPanel()
+        panel.update_status(
+            {
+                "info": {"LOCATION": "Deep Strata"},
+                "integrity": (12, 20),
+                "companions": [
+                    {"id": "alpha-7", "name": "Skitarius Alpha-7", "hp": 8, "max_hp": 12},
+                    {"id": "volta", "name": "Enginseer Volta", "hp": 7, "max_hp": 10},
+                ],
+            }
+        )
+        rendered = str(panel.render())
+        assert "++ COMPANIONS ++" in rendered
+        assert "Alpha-7" in rendered
+        assert "Volta" in rendered

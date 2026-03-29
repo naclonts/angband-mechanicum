@@ -38,7 +38,7 @@ def _hp_bar(hp: int, max_hp: int, width: int = _BAR_WIDTH) -> str:
 
 
 def _abbreviate_name(name: str, max_len: int = 10) -> str:
-    """Shorten a party member name to fit the panel width.
+    """Shorten a companion name to fit the panel width.
 
     Strategy: use the last word of the name (e.g. "Skitarius Alpha-7" -> "Alpha-7").
     If still too long, truncate with ellipsis.
@@ -58,14 +58,14 @@ class InfoPanel(Static):
         self.update("\n".join(lines))
 
     def update_status(self, status: dict[str, Any]) -> None:
-        """Update the full status display with info fields, integrity, and party HP.
+        """Update the full status display with info fields, integrity, and companion HP.
 
         Expected *status* dict shape::
 
             {
                 "info": {"DESIGNATION": "...", "LOCATION": "...", ...},
                 "integrity": (current_hp, max_hp),
-                "party": [
+                "companions": [
                     {"id": "...", "name": "Full Name", "hp": 8, "max_hp": 12},
                     ...
                 ],
@@ -90,12 +90,12 @@ class InfoPanel(Static):
             lines.append("")
             lines.append(f"INTEGRITY  {_hp_bar(hp, max_hp)}")
 
-        # -- Party members --
-        party: list[dict[str, Any]] = status.get("party", [])
-        if party:
+        # -- Companions --
+        companions: list[dict[str, Any]] = status.get("companions", status.get("party", []))
+        if companions:
             lines.append("")
-            lines.append("++ PARTY ++")
-            for member in party:
+            lines.append("++ COMPANIONS ++")
+            for member in companions:
                 name = _abbreviate_name(member["name"])
                 bar = _hp_bar(member["hp"], member["max_hp"], width=6)
                 lines.append(f"  {name:<10} {bar}")

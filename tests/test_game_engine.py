@@ -55,6 +55,15 @@ class TestSerialization:
         assert engine.to_dict()["info_panel"] == {}
 
 
+class TestStatusData:
+    def test_companions_are_exposed_in_status_data(self) -> None:
+        engine = GameEngine()
+        status = engine.get_status_data()
+        assert "companions" in status
+        assert status["companions"] == status["party"]
+        assert any(member["name"] == "Skitarius Alpha-7" for member in status["companions"])
+
+
 # ---------------------------------------------------------------------------
 # process_input — success path
 # ---------------------------------------------------------------------------
