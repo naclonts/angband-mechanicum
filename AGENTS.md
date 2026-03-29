@@ -4,7 +4,13 @@ Instructions for AI coding agents working on this repository.
 
 ## Project
 
-Angband Mechanicum — a CLI roguelike where the player is a WH40K Adeptus Mechanicus Tech-Priest exploring persistent dungeons. Built with Python + Textual TUI framework. See `docs/context.md` for full context.
+Angband Mechanicum — a CLI roguelike where the player is a WH40K Adeptus Mechanicus Tech-Priest exploring persistent dungeons. Built with Python + Textual TUI framework. See `docs/context.md` for product context and `docs/architecture.md` for current code architecture, flow diagrams, and file map.
+
+## Precepts
+
+- Prioritize playability and fun over all else.
+- When code changes, update relevant docs as well.
+- Add tests for large changes or edge cases.
 
 ## Architecture: Two-View Model
 
