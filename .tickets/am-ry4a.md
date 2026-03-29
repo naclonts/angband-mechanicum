@@ -1,6 +1,6 @@
 ---
 id: am-ry4a
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-03-29T21:06:34Z

@@ -1378,10 +1378,15 @@ class DungeonScreen(Screen[None]):
         self._last_look_summary = str(context.get("look_summary", ""))
         engine = self.app.game_engine  # type: ignore[attr-defined]
         response = await engine.examine_dungeon_target(context)
+        scene_art = response.scene_art.strip() if isinstance(response.scene_art, str) else None
+        if not scene_art:
+            target_scene_art = context.get("target_scene_art")
+            if isinstance(target_scene_art, str) and target_scene_art.strip():
+                scene_art = target_scene_art
         interaction_target, speaking_npc_id = self._register_examine_history(context)
         restored_state = self._build_text_bridge_state(
             response.narrative_text,
-            scene_art=response.scene_art,
+            scene_art=scene_art,
             info_update=response.info_update,
         )
         restored_state.update(context)
