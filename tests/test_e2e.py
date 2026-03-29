@@ -278,6 +278,49 @@ class TestNewGame:
 
             assert map_pane.region.height > log_pane.region.height
 
+    @pytest.mark.asyncio
+    async def test_dungeon_map_fills_available_width(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The dungeon map rendered content should fill the pane's available width."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app, enter_explore_view=True)
+
+            map_pane = app.screen.query_one("#dungeon-map", DungeonMapPane)
+
+            # The pane must have a real layout region (not the zero-size fallback)
+            assert map_pane.content_region.width > 0, (
+                "Map pane content region has zero width after mounting"
+            )
+
+            # Access the rendered Text stored inside the Static widget
+            from rich.text import Text
+
+            content = map_pane._Static__content
+            assert isinstance(content, Text), (
+                f"Expected Rich Text content, got {type(content)}"
+            )
+            plain = content.plain
+            lines = plain.splitlines()
+            assert lines, "Map rendered no lines"
+
+            available_width = map_pane.content_region.width
+            max_line_width = max(len(line) for line in lines)
+
+            # The rendered map lines must fill the available content width,
+            # not the 56-column fallback that was used before the fix.
+            assert max_line_width == available_width, (
+                f"Map content width ({max_line_width}) does not match "
+                f"available pane width ({available_width})"
+            )
+            # Sanity check: the width should be well above the old fallback
+            assert max_line_width > 56, (
+                f"Map content width ({max_line_width}) should be wider than "
+                f"the old fallback (56)"
+            )
+
 
 # ---------------------------------------------------------------------------
 # Test: play 1-2 turns

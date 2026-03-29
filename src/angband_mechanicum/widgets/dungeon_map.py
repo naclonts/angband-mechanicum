@@ -255,6 +255,7 @@ class DungeonMapPane(Static):
     """Widget that renders the dungeon floor."""
 
     can_focus = True
+    expand = True
 
     def __init__(
         self,
@@ -297,6 +298,9 @@ class DungeonMapPane(Static):
         return region.height if region.height > 0 else 16
 
     def on_mount(self) -> None:
+        self.refresh_map()
+
+    def on_resize(self) -> None:
         self.refresh_map()
 
 
