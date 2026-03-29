@@ -16,7 +16,11 @@ from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager
 from angband_mechanicum.engine.dungeon_level import transition_terrain_label
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.screens.api_key_screen import ApiKeyScreen
-from angband_mechanicum.screens.dungeon_screen import DungeonMapState, DungeonScreen
+from angband_mechanicum.screens.dungeon_screen import (
+    DungeonMapState,
+    DungeonScreen,
+    build_map_entities_from_roster,
+)
 from angband_mechanicum.screens.hall_of_dead_screen import HallOfDeadScreen
 from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.menu_screen import MenuScreen
@@ -184,18 +188,18 @@ class AngbandMechanicumApp(App[None]):
         seed = zlib.adler32(source.encode("utf-8"))
         location = story_start.location if story_start else "Unknown Depths"
         floor = generate_dungeon_floor(
-        level_id=source,
-        depth=1,
-        environment=environment,
-        name=location,
-        seed=seed,
+            level_id=source,
+            depth=1,
+            environment=environment,
+            name=location,
+            seed=seed,
         )
         messages = [story_start.intro_narrative] if story_start else []
         return DungeonSession(
             state=DungeonMapState(
                 level=floor.level,
                 player_pos=floor.level.player_pos,
-                entities=[],
+                entities=build_map_entities_from_roster(floor.entity_roster),
                 messages=messages,
             ),
             story_id=story_start.id if story_start else None,
@@ -313,7 +317,7 @@ class AngbandMechanicumApp(App[None]):
                 next_state = DungeonMapState(
                     level=floor.level,
                     player_pos=floor.level.player_pos,
-                    entities=[],
+                    entities=build_map_entities_from_roster(floor.entity_roster),
                     messages=[
                         f"You travel via the {transition_label} to {floor.level.name}.",
                     ],

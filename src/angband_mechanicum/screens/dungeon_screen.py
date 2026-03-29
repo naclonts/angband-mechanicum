@@ -13,6 +13,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual import work
 
+from angband_mechanicum.engine.dungeon_entities import DungeonEntity, DungeonEntityRoster
 from angband_mechanicum.engine.dungeon_gen import GeneratedFloor, generate_dungeon_floor
 from angband_mechanicum.engine.dungeon_level import (
     DungeonLevel,
@@ -33,6 +34,41 @@ from angband_mechanicum.widgets.dungeon_map import (
 from angband_mechanicum.widgets.help_overlay import HelpOverlay
 
 logger = logging.getLogger(__name__)
+
+
+def _symbol_for_dungeon_entity(entity: DungeonEntity) -> str:
+    for char in entity.name:
+        if char.isalnum():
+            return char.upper()
+    return "?"
+
+
+def build_map_entities_from_roster(roster: DungeonEntityRoster) -> list[DungeonMapEntity]:
+    """Convert generated dungeon contacts into the lightweight map overlay model."""
+    entities: list[DungeonMapEntity] = []
+    for entity in roster.values():
+        if entity.position is None:
+            continue
+        x, y = entity.position
+        entities.append(
+            DungeonMapEntity(
+                entity_id=entity.entity_id,
+                name=entity.name,
+                x=x,
+                y=y,
+                symbol=_symbol_for_dungeon_entity(entity),
+                disposition=entity.disposition.value,
+                can_talk=entity.can_talk,
+                entity_type="character",
+                hp=entity.stats.hp,
+                max_hp=entity.stats.max_hp,
+                attack=entity.stats.attack,
+                armor=entity.stats.armor,
+                description=entity.description,
+                history_entity_id=entity.history_entity_id,
+            )
+        )
+    return entities
 
 
 class DungeonInteractionKind(enum.Enum):
@@ -502,11 +538,14 @@ class DungeonScreen(Screen[None]):
             )
         resolved_level = floor.level if floor is not None else level
         assert resolved_level is not None
+        resolved_entities = list(entities) if entities is not None else []
+        if entities is None and floor is not None:
+            resolved_entities = build_map_entities_from_roster(floor.entity_roster)
         self._state = DungeonMapState(
             level=resolved_level,
             player_pos=player_pos,
             fov_radius=fov_radius,
-            entities=list(entities or []),
+            entities=resolved_entities,
         )
 
     @property
