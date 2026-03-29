@@ -1911,6 +1911,7 @@ class DungeonScreen(Screen[None]):
     def action_cancel_look(self) -> None:
         if self._fire_mode:
             self._cancel_fire_mode()
+            return
         if self._environment_catalog_open:
             self._close_environment_catalog()
             return

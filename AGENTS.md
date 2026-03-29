@@ -78,6 +78,14 @@ tk dep <id> <dep-id>       # Declare id depends on dep-id
 
 When creating tickets, specify the difficulty in terms of ambiguity and scope (small, medium, large, x-large). When creating subagents, medium to x-large tickets should have the most powerful model available. Small tickets may be worked by a slightly smaller model.
 
+### Delegation Rules
+
+- **Parent/orchestrator agents** may spawn subagents for isolated ticket work, but must tell each spawned worker explicitly that it is a **subagent** working on behalf of a parent agent.
+- Parent/orchestrator prompts to subagents must explicitly say: the assigned ticket ID, the assigned worktree path, that the subagent must work only in that worktree, and that the subagent must **not spawn additional subagents**.
+- **Subagents must never recursively delegate.** If you are a subagent, do not spawn child subagents, do not attempt to fan out work, and do not invoke other agent runners or agent CLIs such as `claude` to continue delegation indirectly.
+- If a subagent cannot complete the assigned work itself, it must report the blocker back to the parent/orchestrator agent rather than trying to create more agents.
+- If the agent platform’s subagent tooling is unreliable, the parent/orchestrator should keep the work local or spawn fewer subagents instead of asking subagents to work around it with other agent frameworks.
+
 ### Agent Workflow
 
 1. Run `tk ready` to see available tickets.
@@ -90,7 +98,7 @@ When creating tickets, specify the difficulty in terms of ambiguity and scope (s
   - Complete tasks to the best of your ability with logic and creativity. If you see other issues that are outside the scope of your task or would be major improvements, create tickets for them with `tk`.
 8. Run `tk close <id>` when done.
 9. Reference ticket IDs in commit messages (e.g., `am-hsdv: wire up LLM engine`).
-10. Parent agent must merge the worktree branch back to `main` after the subagent completes, verify the merged result on `main`, and only then consider the ticket fully integrated.
+10. Parent agent must merge the worktree branch back to `main` after the subagent completes, verify the merged result on `main`, and only then close the ticket.
 
 ### Parallel Work with Worktrees
 
@@ -99,7 +107,7 @@ This project uses **git worktrees** for parallel agent isolation. Each subagent 
 **How it works:**
 
 1. **Parent agent** decomposes work into tickets with dependencies.
-2. **Parent spawns subagents** each in an isolated worktree. If the agent platform has an `isolation: "worktree"` option, use it. Otherwise, explicitly instruct the subagent to create a git worktree manually before touching code.
+2. **Parent spawns subagents** each in an isolated worktree. If the agent platform has an `isolation: "worktree"` option, use it. Otherwise, explicitly instruct the subagent to create a git worktree manually before touching code. The parent must also state that the worker is a subagent and must not delegate further.
 3. Each subagent gets its own branch and full repo copy. No shared mutable state.
 4. Subagent does `tk start <id>`, works, commits, `tk close <id>`.
 5. Parent merges branches back to `main` (or opens PRs for review), verifies the integrated result, and closes out any remaining ticket-file state in the main checkout.
@@ -141,7 +149,7 @@ uv run pytest
 1. Create or enter the assigned git worktree first.
 2. `uv sync` — install deps in worktree's venv
 3. `tk start <id>` — claim your ticket
-4. Do the work, commit with ticket ID in message (e.g., `am-pyqp: add mypy strict config`)
+4. Do the work yourself in that worktree. Do **not** spawn additional subagents or call other agent CLIs/frameworks to delegate the task.
 5. `tk close <id>`
 6. Exit — parent agent handles the merge
 
