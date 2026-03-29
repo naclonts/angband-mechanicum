@@ -25,6 +25,7 @@ The dungeon status pane shows gameplay-relevant player status, especially HP/int
 Tab cycles focus between the map, field log, and side panels so the non-map panes can be scrolled without losing movement controls.
 Creature turns now advance on the map after player actions: hostiles pursue or hold range based on line of sight, while friendly and neutral actors can follow, patrol, or wander in scenario-appropriate ways.
 The field log only records creature events the player could actually perceive in the current FOV/LOS window, so hidden movement stays silent while visible actions still report their results and damage.
+Hazard tiles such as acid pools and lava can be crossed, but they inflict deterministic traversal damage, with lava punishing the player more heavily than acid.
 
 ### Text View (narrative + dialogue + travel)
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.

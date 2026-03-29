@@ -74,7 +74,7 @@ _TERRAIN_PROPS: dict[DungeonTerrain, tuple[bool, bool, int]] = {
     DungeonTerrain.PORTAL:      (True,  True,  1),
     DungeonTerrain.LIFT:        (True,  True,  1),
     DungeonTerrain.WATER:       (True,  True,  2),
-    DungeonTerrain.LAVA:        (False, True,  0),
+    DungeonTerrain.LAVA:        (True,  True,  2),
     DungeonTerrain.CHASM:       (False, True,  0),
     DungeonTerrain.RUBBLE:      (True,  True,  2),
     DungeonTerrain.TERMINAL:    (True,  True,  1),
@@ -82,9 +82,19 @@ _TERRAIN_PROPS: dict[DungeonTerrain, tuple[bool, bool, int]] = {
     DungeonTerrain.GROWTH:      (True,  True,  2),
     DungeonTerrain.COVER:       (True,  True,  2),
     DungeonTerrain.GRATE:       (True,  True,  1),
-    DungeonTerrain.ACID_POOL:   (False, True,  0),
+    DungeonTerrain.ACID_POOL:   (True,  True,  2),
     DungeonTerrain.SHRINE:      (True,  True,  1),
 }
+
+_HAZARD_DAMAGE: dict[DungeonTerrain, int] = {
+    DungeonTerrain.ACID_POOL: 2,
+    DungeonTerrain.LAVA: 5,
+}
+
+
+def hazard_damage_for_terrain(terrain: DungeonTerrain) -> int:
+    """Return deterministic traversal damage for hazardous terrain."""
+    return _HAZARD_DAMAGE.get(terrain, 0)
 
 
 # ---------------------------------------------------------------------------

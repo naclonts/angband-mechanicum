@@ -29,6 +29,7 @@ from angband_mechanicum.engine.dungeon_level import (
     DungeonLevel,
     DungeonTerrain,
     FogState,
+    hazard_damage_for_terrain,
     is_transition_terrain,
     transition_terrain_label,
 )
@@ -115,6 +116,7 @@ class DungeonActionResult:
     target_disposition: str | None = None
     attack_damage: int = 0
     target_defeated: bool = False
+    player_damage: int = 0
     moved_to: tuple[int, int] | None = None
     scene_art: str | None = None
     speaking_npc_id: str | None = None
@@ -447,11 +449,19 @@ class DungeonMapState:
                 moved_to=(nx, ny),
             )
         terrain = terrain_type.value.replace("_", " ").title()
-        message = f"You move to {nx},{ny} across {terrain}."
+        hazard_damage = hazard_damage_for_terrain(terrain_type)
+        if terrain_type == DungeonTerrain.ACID_POOL:
+            hazard_text = f" Corrosive acid burns you for {hazard_damage} damage."
+        elif terrain_type == DungeonTerrain.LAVA:
+            hazard_text = f" Molten lava scorches you for {hazard_damage} damage."
+        else:
+            hazard_text = ""
+        message = f"You move to {nx},{ny} across {terrain}.{hazard_text}"
         self.append_message(message)
         return DungeonActionResult(
             kind=DungeonInteractionKind.MOVE,
             message=message,
+            player_damage=hazard_damage,
             moved_to=(nx, ny),
         )
 
@@ -1171,7 +1181,14 @@ class DungeonScreen(Screen[None]):
             return
         if result.kind == DungeonInteractionKind.MOVE:
             self._ambient_action_index += 1
+        engine = getattr(self.app, "game_engine", None)
+        if result.player_damage > 0 and engine is not None:
+            engine.take_damage(result.player_damage)
         self._refresh_all()
+        if result.player_damage > 0 and self._player_has_fallen():
+            self._death_in_progress = True
+            self._handle_player_death([])
+            return
         if result.kind in {
             DungeonInteractionKind.CONVERSATION,
             DungeonInteractionKind.OBJECT,
@@ -1214,6 +1231,8 @@ class DungeonScreen(Screen[None]):
         while True:
             result, should_continue = self._state.travel_step(dx, dy)
             self._process_step_result(result)
+            if self._death_in_progress:
+                return
             if not should_continue:
                 return
             await asyncio.sleep(self.TRAVEL_INTERVAL)
