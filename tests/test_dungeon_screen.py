@@ -104,7 +104,7 @@ def _make_open_area_travel_level() -> DungeonLevel:
         level.set_terrain(x, 2, DungeonTerrain.FLOOR)
     for x in range(4, 7):
         for y in range(1, 5):
-    level.set_terrain(x, y, DungeonTerrain.FLOOR)
+            level.set_terrain(x, y, DungeonTerrain.FLOOR)
     level.player_pos = (2, 2)
     level.compute_fov((2, 2), 1)
     return level
