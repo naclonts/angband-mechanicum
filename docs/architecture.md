@@ -121,6 +121,7 @@ Primary files:
 - Movement and bump interactions are resolved by `DungeonMapState.attempt_step()`.
 - Ctrl+direction travel reuses the same step resolution and stops when the path opens up, a contact appears, or combat/terrain interrupts control.
 - Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.
+- `DungeonTransitionPane.show_inspect()` renders ambient discoveries by keeping `scene_art` on unwrapped lines while allowing `narrative_text` to wrap to the pane width.
 - The screen refreshes the render widgets after each action.
 - Conversations or object interactions transition to `GameScreen` through app-level bridging.
 

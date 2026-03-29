@@ -614,6 +614,8 @@ class DungeonScreen(Screen[None]):
         self._last_examine_lines: list[str] = []
         self._ambient_discovery_title: str | None = None
         self._ambient_discovery_lines: list[str] = []
+        self._ambient_discovery_art: str | None = None
+        self._ambient_discovery_narrative: str | None = None
         self._ambient_seen_keys: set[str] = set()
         self._ambient_seen_terrain_types: set[str] = set()
         self._ambient_last_subject: str | None = None
@@ -728,7 +730,14 @@ class DungeonScreen(Screen[None]):
     def _refresh_inspect_pane(self) -> None:
         pane = self.query_one("#dungeon-inspect", DungeonTransitionPane)
         if self._ambient_discovery_title is not None:
-            pane.show_context(self._ambient_discovery_title, self._ambient_discovery_lines)
+            if self._ambient_discovery_art is not None or self._ambient_discovery_narrative is not None:
+                pane.show_inspect(
+                    self._ambient_discovery_title,
+                    scene_art=self._ambient_discovery_art,
+                    narrative_text=self._ambient_discovery_narrative,
+                )
+            else:
+                pane.show_context(self._ambient_discovery_title, self._ambient_discovery_lines)
             return
         pane.show_context(
             "⛨ FIELD SCAN",
@@ -859,9 +868,14 @@ class DungeonScreen(Screen[None]):
         self,
         title: str,
         lines: Sequence[str],
+        *,
+        scene_art: str | None = None,
+        narrative_text: str | None = None,
     ) -> None:
         self._ambient_discovery_title = title
         self._ambient_discovery_lines = list(lines)
+        self._ambient_discovery_art = scene_art
+        self._ambient_discovery_narrative = narrative_text
         self._refresh_all()
 
     def _maybe_trigger_ambient_discovery(self) -> None:
@@ -897,7 +911,12 @@ class DungeonScreen(Screen[None]):
             if response.narrative_text:
                 lines.extend(response.narrative_text.splitlines())
             title = f"⛨ AMBIENT: {str(context.get('target_label', 'Discovery')).upper()}"
-            self._set_ambient_discovery(title, lines)
+            self._set_ambient_discovery(
+                title,
+                lines,
+                scene_art=response.scene_art,
+                narrative_text=response.narrative_text,
+            )
         finally:
             self._ambient_discovery_busy = False
 
