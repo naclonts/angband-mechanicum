@@ -87,6 +87,9 @@ Rules for scene art:
 - Depict the physical environment: rooms, corridors, machinery, doorways, ruins, etc.
 - Match the scene to what is happening in the narrative — if the player enters a \
 corridor, show a corridor; if they are in a forge, show forge equipment.
+- When the player is directly speaking to or examining a specific character, make \
+the character the visual subject of scene_art. Use a close-up, conversational \
+tableau, or character-centric composition rather than only the surrounding room.
 - Keep a dark, industrial, gothic sci-fi aesthetic.
 - Do NOT use Rich markup in scene_art — plain text/unicode only.
 - Always provide scene_art when the location or environment changes. If the player \
@@ -428,6 +431,7 @@ class GameEngine:
             "map_return_pos",
             "look_mode",
             "look_summary",
+            "speaking_npc_id",
         }
         sanitized = {
             key: value for key, value in context.items()
@@ -474,6 +478,21 @@ class GameEngine:
             f"- Current location: {location}",
             f"- Focus target: {target_name}",
         ]
+
+        speaking_npc_id = context.get("speaking_npc_id")
+        character_target = (
+            context.get("interaction_entity_type") == "character"
+            or context.get("target_kind") == "character"
+            or context.get("interaction_kind") == "conversation"
+            or context.get("conversation_target") is not None
+            or isinstance(speaking_npc_id, str)
+        )
+        if character_target:
+            lines.append(
+                "- Scene focus: character-centric; show the addressed speaker or examine target, not just the surrounding room."
+            )
+            if isinstance(speaking_npc_id, str):
+                lines.append(f"- Speaking NPC id: {speaking_npc_id}")
 
         for source_key, label in (
             ("interaction_kind", "Interaction kind"),

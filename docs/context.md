@@ -24,6 +24,7 @@ Tab cycles focus between the map, field log, and side panels so the non-map pane
 
 ### Text View (narrative + dialogue + travel)
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.
+When the player is directly speaking to or closely examining a specific character, the scene art can center that character instead of only showing the broader surroundings.
 
 ### Transitions Between Views
 - **Map → Text**: Bump a friendly NPC (conversation), interact with a special object (spaceship, terminal), or look/examine something in detail
