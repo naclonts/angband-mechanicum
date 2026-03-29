@@ -11,6 +11,7 @@ from typing import Any, Sequence
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
+from textual.events import Key
 from textual.screen import Screen
 from textual import work
 
@@ -1210,6 +1211,13 @@ class DungeonScreen(Screen[None]):
 
     def action_cancel_look(self) -> None:
         self._cancel_look_mode()
+
+    def on_key(self, event: Key) -> None:
+        """Ensure look-mode confirmation still works even if focus changes."""
+        if self._look_mode and event.key in {"enter", "return"}:
+            self.action_confirm_look()
+            event.stop()
+            return
 
     def action_wait(self) -> None:
         self._state.wait()
