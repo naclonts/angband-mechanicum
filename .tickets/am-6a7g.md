@@ -1,6 +1,6 @@
 ---
 id: am-6a7g
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-03-29T06:25:07Z
