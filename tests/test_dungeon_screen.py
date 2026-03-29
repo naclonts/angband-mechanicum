@@ -8,8 +8,15 @@ from angband_mechanicum.app import AngbandMechanicumApp
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain, FogState
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.screens.game_screen import GameScreen
-from angband_mechanicum.screens.dungeon_screen import DungeonMapState
-from angband_mechanicum.widgets.dungeon_map import render_dungeon_map, render_dungeon_status
+from angband_mechanicum.screens.dungeon_screen import (
+    DungeonInteractionKind,
+    DungeonMapState,
+)
+from angband_mechanicum.widgets.dungeon_map import (
+    DungeonMapEntity,
+    render_dungeon_map,
+    render_dungeon_status,
+)
 
 
 def _make_level() -> DungeonLevel:
@@ -85,17 +92,125 @@ class TestDungeonMapState:
 
     def test_state_round_trips_through_dict(self) -> None:
         level = _make_level()
+        entity = DungeonMapEntity(
+            entity_id="alpha-7",
+            name="Alpha-7",
+            x=3,
+            y=2,
+            symbol="A",
+            fg="#123456",
+            disposition="friendly",
+            can_talk=True,
+            entity_type="character",
+            hp=5,
+            max_hp=8,
+            attack=3,
+            armor=1,
+            description="Skitarii companion",
+            scene_art="SCENE",
+            history_entity_id="skitarius-alpha-7",
+        )
         state = DungeonMapState(
             level=level,
             player_pos=(2, 2),
             fov_radius=2,
+            player_attack=6,
+            entities=[entity],
             messages=["First contact"],
         )
         restored = DungeonMapState.from_dict(state.to_dict())
         assert restored.player_pos == (2, 2)
         assert restored.fov_radius == 2
+        assert restored.player_attack == 6
         assert restored.messages == ["First contact"]
         assert restored.level.name == "Test Floor"
+        assert restored.entities[0].history_entity_id == "skitarius-alpha-7"
+
+    def test_hostile_bump_attacks_and_clears_tile(self) -> None:
+        level = _make_level()
+        hostile = DungeonMapEntity(
+            entity_id="rogue-servitor",
+            name="Rogue Servitor",
+            x=3,
+            y=2,
+            disposition="hostile",
+            hp=3,
+            max_hp=3,
+            attack=2,
+            armor=0,
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[hostile])
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.ATTACK
+        assert result.attack_damage == 4
+        assert result.target_defeated is True
+        assert state.player_pos == (3, 2)
+        assert state.entity_at((3, 2)) is None
+        assert "destroyed" in state.messages[-1]
+
+    def test_friendly_bump_prompts_conversation(self) -> None:
+        level = _make_level()
+        ally = DungeonMapEntity(
+            entity_id="alpha-7",
+            name="Alpha-7",
+            x=3,
+            y=2,
+            disposition="friendly",
+            can_talk=True,
+            history_entity_id="skitarius-alpha-7",
+            description="Skitarii companion",
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[ally])
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.CONVERSATION
+        assert result.speaking_npc_id == "skitarius-alpha-7"
+        assert result.interaction_context["interaction_entity_name"] == "Alpha-7"
+        assert state.player_pos == (2, 2)
+        assert state.messages[-1] == "You address Alpha-7."
+
+    def test_object_bump_prompts_text_view(self) -> None:
+        level = _make_level()
+        terminal = DungeonMapEntity(
+            entity_id="terminal-1",
+            name="Cogitator Terminal",
+            x=3,
+            y=2,
+            disposition="neutral",
+            entity_type="object",
+            description="A humming machine shrine of data.",
+            scene_art="TERMINAL",
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[terminal])
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.OBJECT
+        assert result.scene_art == "TERMINAL"
+        assert result.interaction_context["interaction_entity_type"] == "object"
+        assert state.messages[-1] == "You inspect Cogitator Terminal."
+
+    def test_neutral_bump_only_logs_local_description(self) -> None:
+        level = _make_level()
+        statue = DungeonMapEntity(
+            entity_id="statue-1",
+            name="Machine Statue",
+            x=3,
+            y=2,
+            disposition="neutral",
+            can_talk=False,
+            description="An ancient brass icon of the Omnissiah.",
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[statue])
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.NEUTRAL
+        assert "leave it undisturbed" in state.messages[-1]
+        assert state.player_pos == (2, 2)
 
 
 class TestTransitionHelpers:
@@ -129,3 +244,7 @@ class TestTransitionHelpers:
         assert payload["narrative_log"] == ["Conversation ended."]
         assert payload["current_scene_art"] == "SCENE"
         assert payload["info_update"] == {"LOCATION": "Vault"}
+
+    def test_game_screen_accepts_conversation_focus(self) -> None:
+        screen = GameScreen(speaking_npc_id="skitarius-alpha-7")
+        assert screen._speaking_npc_id == "skitarius-alpha-7"

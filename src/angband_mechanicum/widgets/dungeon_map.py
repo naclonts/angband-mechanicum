@@ -11,7 +11,7 @@ from textual.widgets import RichLog, Static
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, FogState, TerrainGlyph, get_terrain_glyph
 
 
-@dataclass(frozen=True)
+@dataclass
 class DungeonMapEntity:
     """A lightweight overlay for later dungeon NPC integration."""
 
@@ -23,8 +23,20 @@ class DungeonMapEntity:
     fg: str = "#00ff41"
     disposition: str = "neutral"
     can_talk: bool = False
+    entity_type: str = "character"
+    hp: int = 1
+    max_hp: int = 1
+    attack: int = 1
+    armor: int = 0
+    description: str = ""
+    scene_art: str | None = None
+    history_entity_id: str | None = None
 
-    def to_dict(self) -> dict[str, str | int | bool]:
+    @property
+    def alive(self) -> bool:
+        return self.hp > 0
+
+    def to_dict(self) -> dict[str, object]:
         return {
             "entity_id": self.entity_id,
             "name": self.name,
@@ -34,6 +46,14 @@ class DungeonMapEntity:
             "fg": self.fg,
             "disposition": self.disposition,
             "can_talk": self.can_talk,
+            "entity_type": self.entity_type,
+            "hp": self.hp,
+            "max_hp": self.max_hp,
+            "attack": self.attack,
+            "armor": self.armor,
+            "description": self.description,
+            "scene_art": self.scene_art,
+            "history_entity_id": self.history_entity_id,
         }
 
     @classmethod
@@ -47,6 +67,18 @@ class DungeonMapEntity:
             fg=str(data.get("fg", "#00ff41")),
             disposition=str(data.get("disposition", "neutral")),
             can_talk=bool(data.get("can_talk", False)),
+            entity_type=str(data.get("entity_type", "character")),
+            hp=int(data.get("hp", 1)),
+            max_hp=int(data.get("max_hp", 1)),
+            attack=int(data.get("attack", 1)),
+            armor=int(data.get("armor", 0)),
+            description=str(data.get("description", "")),
+            scene_art=data.get("scene_art") if data.get("scene_art") is not None else None,
+            history_entity_id=(
+                str(data.get("history_entity_id"))
+                if data.get("history_entity_id") is not None
+                else None
+            ),
         )
 
 
@@ -66,7 +98,11 @@ def render_dungeon_map(
     entities: Sequence[DungeonMapEntity] = (),
 ) -> str:
     """Render a dungeon floor as a rich-text map."""
-    entity_by_pos = {(entity.x, entity.y): entity for entity in entities}
+    entity_by_pos = {
+        (entity.x, entity.y): entity
+        for entity in entities
+        if entity.alive
+    }
     lines: list[str] = []
 
     header = "   "
@@ -115,7 +151,7 @@ def render_dungeon_status(
     entities_here = [
         entity.name
         for entity in entities
-        if (entity.x, entity.y) == player_pos
+        if entity.alive and (entity.x, entity.y) == player_pos
     ]
     lines = [
         f"LEVEL: {level.name}",
