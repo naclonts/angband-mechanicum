@@ -1,6 +1,6 @@
 ---
 id: am-ky9z
-status: open
+status: closed
 deps: [am-6448, am-v3m4]
 links: []
 created: 2026-03-29T02:49:13Z
@@ -29,3 +29,11 @@ Reference: TOME/Angband main game view — exploration and combat unified on one
 **2026-03-29T03:09:50Z**
 
 Map rendering should use per-tile colors from dungeon_level.get_terrain_glyph() with environment overrides, not the monochrome CRT green theme. CRT green stays for UI chrome (borders, panels, text) but map tiles get full terminal color palette. TerrainGlyph (char + fg hex) and Environment.color_overrides are defined in engine/dungeon_level.py. FOV dimming: VISIBLE tiles use full color, EXPLORED tiles should be dimmed (e.g. halve brightness or use a grey tint), HIDDEN tiles are not rendered.
+
+**2026-03-29T03:37:21Z**
+
+Implemented a working dungeon screen shell with  rendering, movement, FOV refresh, and side-panel/message log widgets. Verified with: uv run pytest tests/test_dungeon_screen.py tests/test_dungeon_gen.py
+
+**2026-03-29T03:37:28Z**
+
+Implemented a working dungeon screen shell with DungeonLevel rendering, movement, FOV refresh, and side-panel/message log widgets. Verified with: uv run pytest tests/test_dungeon_screen.py tests/test_dungeon_gen.py
