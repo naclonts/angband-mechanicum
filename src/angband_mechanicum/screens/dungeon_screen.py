@@ -390,6 +390,13 @@ class DungeonMapState:
 class DungeonScreen(Screen[None]):
     """Unified dungeon screen shell for exploration and future combat."""
 
+    PANEL_IDS = (
+        "dungeon-map",
+        "dungeon-log",
+        "dungeon-status",
+        "dungeon-inspect",
+    )
+
     BINDINGS = [
         Binding("up", "move_north", "Move north", show=False),
         Binding("down", "move_south", "Move south", show=False),
@@ -410,6 +417,7 @@ class DungeonScreen(Screen[None]):
         Binding("pageup", "move_northeast", "Move northeast", show=False),
         Binding("end", "move_southwest", "Move southwest", show=False),
         Binding("pagedown", "move_southeast", "Move southeast", show=False),
+        Binding("tab", "cycle_panel", "Cycle panels", show=True, priority=True),
         Binding("l", "look", "Look", show=True),
         Binding("enter", "confirm_look", "Inspect", show=False),
         Binding("escape", "cancel_look", "Cancel look", show=False),
@@ -421,6 +429,7 @@ class DungeonScreen(Screen[None]):
         ("Arrow keys", "Move"),
         ("HJK", "Cardinal movement"),
         ("L", "Look"),
+        ("Tab", "Cycle focus between dungeon panels"),
         ("Y / U / B / N", "Vi diagonals"),
         ("7 / Home", "Move northwest"),
         ("9 / PgUp", "Move northeast"),
@@ -512,6 +521,16 @@ class DungeonScreen(Screen[None]):
         self.title = f"DUNGEON: {self._state.level.name.upper()}"
         self._refresh_all()
         self.query_one("#dungeon-map", DungeonMapPane).focus()
+
+    def action_cycle_panel(self) -> None:
+        focused = self.focused
+        focused_id = getattr(focused, "id", None)
+        try:
+            current_index = self.PANEL_IDS.index(str(focused_id))
+        except ValueError:
+            current_index = -1
+        next_panel_id = self.PANEL_IDS[(current_index + 1) % len(self.PANEL_IDS)]
+        self.query_one(f"#{next_panel_id}").focus()
 
     def _get_player_pos(self) -> tuple[int, int]:
         assert self._state.player_pos is not None

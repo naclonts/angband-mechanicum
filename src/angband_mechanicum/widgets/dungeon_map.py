@@ -131,6 +131,7 @@ def render_dungeon_map(
     viewport_size: tuple[int, int] | None = None,
 ) -> str:
     """Render a dungeon floor as a rich-text map."""
+    target_width = viewport_size[0] if viewport_size is not None else None
     left, top, visible_cols, visible_rows = _resolve_viewport_window(
         level,
         player_pos,
@@ -178,6 +179,14 @@ def render_dungeon_map(
         lines.append("".join(row))
 
     lines.append(" " * row_label_width + "╚" + "═" * visible_cols + "╝")
+    if target_width is not None:
+        padded_lines: list[str] = []
+        for line in lines:
+            visible_width = len(Text.from_markup(line).plain)
+            if visible_width < target_width:
+                line = f"{line}{' ' * (target_width - visible_width)}"
+            padded_lines.append(line)
+        lines = padded_lines
     return "\n".join(lines)
 
 
@@ -291,15 +300,22 @@ class DungeonMapPane(Static):
         self.refresh_map()
 
 
-class DungeonTransitionPane(Static):
+class DungeonTransitionPane(RichLog):
     """Small helper used for future map/text transition previews."""
+
+    can_focus = True
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(markup=True, wrap=True, auto_scroll=False, **kwargs)  # type: ignore[arg-type]
 
     def show_context(self, title: str, lines: Sequence[str]) -> None:
         body = "\n".join(lines)
-        self.update(Text.from_markup(f"[bold]{title}[/bold]\n{body}"))
+        self.clear()
+        self.write(f"[bold]{title}[/bold]\n{body}")
+        self.scroll_home()
 
 
-class DungeonStatusPane(Static):
+class DungeonStatusPane(RichLog):
     """Widget that renders dungeon floor metadata."""
 
     def __init__(
@@ -312,7 +328,7 @@ class DungeonStatusPane(Static):
         get_look_summary: Callable[[], str | None] | None = None,
         **kwargs: object,
     ) -> None:
-        super().__init__(**kwargs)  # type: ignore[arg-type]
+        super().__init__(markup=True, wrap=True, auto_scroll=False, **kwargs)  # type: ignore[arg-type]
         self._level = level
         self._get_player_pos = get_player_pos
         self._get_entities = get_entities
@@ -325,18 +341,18 @@ class DungeonStatusPane(Static):
         look_summary = (
             self._get_look_summary() if self._get_look_summary is not None else None
         )
-        self.update(
-            Text.from_markup(
-                render_dungeon_status(
-                    self._level,
-                    self._get_player_pos(),
-                    self._get_message_count(),
-                    self._get_entities(),
-                    look_cursor=look_cursor,
-                    look_summary=look_summary,
-                )
+        self.clear()
+        self.write(
+            render_dungeon_status(
+                self._level,
+                self._get_player_pos(),
+                self._get_message_count(),
+                self._get_entities(),
+                look_cursor=look_cursor,
+                look_summary=look_summary,
             )
         )
+        self.scroll_home()
 
     def on_mount(self) -> None:
         self.border_title = "⛨ EXPLORATION STATUS"
@@ -346,7 +362,7 @@ class DungeonStatusPane(Static):
 class DungeonMessageLog(RichLog):
     """Scrollback log for map actions."""
 
-    can_focus = False
+    can_focus = True
 
     def __init__(
         self,

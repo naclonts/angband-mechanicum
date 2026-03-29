@@ -17,6 +17,9 @@ from angband_mechanicum.screens.dungeon_screen import (
 )
 from angband_mechanicum.widgets.dungeon_map import (
     DungeonMapEntity,
+    DungeonMessageLog,
+    DungeonStatusPane,
+    DungeonTransitionPane,
     _resolve_viewport_window,
     render_dungeon_map,
     render_dungeon_status,
@@ -51,6 +54,12 @@ class TestDungeonMapRendering:
         Text.from_markup(rendered)
         assert "[bold #00ff41]@[/bold #00ff41]" in rendered
         assert "#6e4b1e" in rendered
+
+    def test_render_pads_lines_to_viewport_width(self) -> None:
+        level = _make_level()
+        rendered = render_dungeon_map(level, (2, 2), viewport_size=(18, 7))
+        plain_lines = Text.from_markup(rendered).plain.splitlines()
+        assert max(len(line) for line in plain_lines) == 18
 
     def test_render_hides_unseen_tiles(self) -> None:
         level = _make_level()
@@ -98,6 +107,12 @@ class TestDungeonScreenBindings:
         assert hotkeys["9 / PgUp"] == "Move northeast"
         assert hotkeys["1 / End"] == "Move southwest"
         assert hotkeys["3 / PgDn"] == "Move southeast"
+        assert hotkeys["Tab"] == "Cycle focus between dungeon panels"
+
+    def test_non_map_panels_are_focusable(self) -> None:
+        assert DungeonMessageLog.can_focus is True
+        assert DungeonStatusPane.can_focus is True
+        assert DungeonTransitionPane.can_focus is True
 
 
 class TestDungeonMapCamera:
@@ -395,6 +410,59 @@ class TestDungeonLookMode:
 
         assert screen._look_mode is False
         assert screen._look_cursor_pos == (3, 2)
+
+
+class TestDungeonPanelFocus:
+    @pytest.mark.asyncio
+    async def test_tab_cycles_panels_and_log_scrolls(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        story = StoryStart(
+            id="focus-test",
+            title="The Silent Forge",
+            description="A forge goes silent.",
+            location="Forge-Cathedral Alpha",
+            intro_narrative="The forge awaits.",
+            scene_art="ART",
+        )
+        session = app.build_dungeon_session(story)
+        session.state.messages = [f"Log entry {i}" for i in range(40)]
+        app.dungeon_session = session
+
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.open_dungeon_view()
+            await pilot.pause()
+
+            assert app.screen.focused is not None
+            assert app.screen.focused.id == "dungeon-map"
+
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.screen.focused is not None
+            assert app.screen.focused.id == "dungeon-log"
+
+            log_pane = app.screen.query_one("#dungeon-log", DungeonMessageLog)
+            log_pane.scroll_home()
+            await pilot.press("pagedown")
+            await pilot.pause()
+            assert log_pane.scroll_y > 0
+
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.screen.focused is not None
+            assert app.screen.focused.id == "dungeon-status"
+
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.screen.focused is not None
+            assert app.screen.focused.id == "dungeon-inspect"
+
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.screen.focused is not None
+            assert app.screen.focused.id == "dungeon-map"
 
 
 class TestDungeonExamineIntegration:
