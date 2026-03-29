@@ -1,6 +1,6 @@
 ---
 id: am-bw0g
-status: open
+status: in_progress
 deps: [am-ky9z]
 links: []
 created: 2026-03-29T02:53:27Z
@@ -25,3 +25,9 @@ Text → Map triggers:
 
 Must handle: passing context between views (which NPC is being talked to, what dungeon to load, player position persistence). The existing game_screen becomes the text view; the new unified map screen is the map view. App manages which is active.
 
+
+## Notes
+
+**2026-03-29T03:44:16Z**
+
+Implemented app-level map/text bridge with persistent DungeonSession state, dungeon-first new game launch, text->map and map->text transition helpers, and autosave/load support for dungeon session state. Verified with uv run pytest tests/test_dungeon_screen.py tests/test_e2e.py.

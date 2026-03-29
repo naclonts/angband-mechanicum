@@ -24,6 +24,31 @@ class DungeonMapEntity:
     disposition: str = "neutral"
     can_talk: bool = False
 
+    def to_dict(self) -> dict[str, str | int | bool]:
+        return {
+            "entity_id": self.entity_id,
+            "name": self.name,
+            "x": self.x,
+            "y": self.y,
+            "symbol": self.symbol,
+            "fg": self.fg,
+            "disposition": self.disposition,
+            "can_talk": self.can_talk,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "DungeonMapEntity":
+        return cls(
+            entity_id=str(data["entity_id"]),
+            name=str(data["name"]),
+            x=int(data["x"]),
+            y=int(data["y"]),
+            symbol=str(data.get("symbol", "?")),
+            fg=str(data.get("fg", "#00ff41")),
+            disposition=str(data.get("disposition", "neutral")),
+            can_talk=bool(data.get("can_talk", False)),
+        )
+
 
 def _render_glyph(glyph: TerrainGlyph, visible: bool) -> str:
     if visible:
@@ -147,6 +172,14 @@ class DungeonMapPane(Static):
 
     def on_mount(self) -> None:
         self.refresh_map()
+
+
+class DungeonTransitionPane(Static):
+    """Small helper used for future map/text transition previews."""
+
+    def show_context(self, title: str, lines: Sequence[str]) -> None:
+        body = "\n".join(lines)
+        self.update(Text.from_markup(f"[bold]{title}[/bold]\n{body}"))
 
 
 class DungeonStatusPane(Static):

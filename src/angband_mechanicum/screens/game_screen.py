@@ -138,6 +138,36 @@ class GameScreen(Screen[None]):
             )
         )
 
+    def build_dungeon_transition_state(
+        self,
+        narrative_lines: list[str],
+        *,
+        scene_art: str | None = None,
+        info_update: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Build a text-view restore payload that can be passed back to the app."""
+        state: dict[str, Any] = {
+            "narrative_log": list(narrative_lines),
+            "current_scene_art": scene_art,
+        }
+        if info_update:
+            state["info_update"] = dict(info_update)
+        return state
+
+    def return_to_dungeon(
+        self,
+        narrative_lines: list[str] | None = None,
+        *,
+        scene_art: str | None = None,
+        info_update: dict[str, str] | None = None,
+    ) -> None:
+        """Request the app to switch back to the persistent dungeon view."""
+        self.app.return_to_dungeon_view(
+            narrative_lines=narrative_lines,
+            scene_art=scene_art,
+            info_update=info_update,
+        )
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         prompt: PromptInput = self.query_one("#prompt", PromptInput)
         if prompt.is_processing:
@@ -402,6 +432,12 @@ class GameScreen(Screen[None]):
             engine = self.app.game_engine  # type: ignore[attr-defined]
             state: dict[str, Any] = engine.to_dict()
             state["narrative_log"] = list(self._narrative_log)
+            dungeon_session = getattr(self.app, "dungeon_session", None)
+            if dungeon_session is not None:
+                state["mode"] = "text"
+                state["dungeon_session"] = dungeon_session.state.to_dict()
+                if dungeon_session.story_id is not None:
+                    state["story_start_id"] = dungeon_session.story_id
             self._save_manager.save(slot_id, state)
             logger.info(
                 "Autosaved turn %d to slot %s", engine.turn_count, slot_id

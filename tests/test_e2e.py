@@ -16,6 +16,7 @@ import pytest
 
 from angband_mechanicum.app import AngbandMechanicumApp
 from angband_mechanicum.engine.game_engine import NOOSPHERE_ERRORS
+from angband_mechanicum.screens.dungeon_screen import DungeonScreen
 from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.menu_screen import MenuScreen
 from angband_mechanicum.widgets.info_panel import InfoPanel
@@ -50,8 +51,13 @@ def _mock_engine_client(app: AngbandMechanicumApp, response_json: str) -> MagicM
     return mock_client
 
 
-async def _start_new_game(pilot: Any, app: AngbandMechanicumApp) -> None:
-    """Navigate NEW GAME → character setup → story select → GameScreen."""
+async def _start_new_game(
+    pilot: Any,
+    app: AngbandMechanicumApp,
+    *,
+    restore_text_view: bool = True,
+) -> None:
+    """Navigate NEW GAME → character setup → story select → dungeon, optionally back to text."""
     await pilot.click("#btn-new")
     await pilot.pause()
     # CharacterSetupScreen: confirm with default name
@@ -60,6 +66,15 @@ async def _start_new_game(pilot: Any, app: AngbandMechanicumApp) -> None:
     # StorySelectScreen: pick random story
     await pilot.click("#btn-random")
     await pilot.pause()
+    if restore_text_view:
+        session = app.dungeon_session
+        assert session is not None
+        app.open_text_view(
+            restored_state=session.to_text_restore_state(
+                [session.intro_narrative] if session.intro_narrative else []
+            )
+        )
+        await pilot.pause()
     # Disable autosave so tests don't write to disk
     app.save_slot = None
 
@@ -121,10 +136,10 @@ class TestAppLaunch:
 
 class TestNewGame:
     @pytest.mark.asyncio
-    async def test_game_screen_loads_after_new_game(
+    async def test_dungeon_screen_loads_after_new_game(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Clicking NEW GAME and completing setup reaches the GameScreen."""
+        """Clicking NEW GAME and completing setup reaches the DungeonScreen."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
@@ -135,6 +150,17 @@ class TestNewGame:
             await pilot.pause()
             await pilot.click("#btn-random")
             await pilot.pause()
+            assert isinstance(app.screen, DungeonScreen)
+
+    @pytest.mark.asyncio
+    async def test_helper_can_restore_text_view_after_dungeon_start(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The new bridge can return from dungeon start to the text view."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app, restore_text_view=True)
             assert isinstance(app.screen, GameScreen)
 
     @pytest.mark.asyncio
@@ -145,7 +171,7 @@ class TestNewGame:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
             prompt = app.screen.query_one("#prompt", PromptInput)
             assert prompt.has_focus
 
@@ -157,7 +183,7 @@ class TestNewGame:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
             info = app.screen.query_one("#info", InfoPanel)
             rendered = str(info.render())
             assert "Magos Explorator" in rendered
@@ -172,7 +198,7 @@ class TestNewGame:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
             assert app.game_engine.turn_count == 0
             assert len(app.game_engine._conversation_history) == 0
 
@@ -205,7 +231,7 @@ class TestPlayTurns:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
 
             # Mock the API client before submitting any command
             response = json.dumps({
@@ -231,7 +257,7 @@ class TestPlayTurns:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
 
             # --- Turn 1: no info update ---
             response_1 = json.dumps({
@@ -277,7 +303,7 @@ class TestErrorHandling:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
 
             # Mock the client to raise an API error
             mock_client = MagicMock()
@@ -304,7 +330,7 @@ class TestErrorHandling:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
 
             # Turn 1: API error
             mock_client = MagicMock()
@@ -345,7 +371,7 @@ class TestPromptBorder:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
             prompt = app.screen.query_one("#prompt", PromptInput)
 
             top_style, _ = prompt.styles.border_top
@@ -366,7 +392,7 @@ class TestPromptBorder:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app)
+            await _start_new_game(pilot, app, restore_text_view=True)
             prompt = app.screen.query_one("#prompt", PromptInput)
             prompt.focus()
             await pilot.pause()
