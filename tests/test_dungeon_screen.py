@@ -72,6 +72,34 @@ class TestDungeonMapRendering:
         assert "TILE:  floor" in status
 
 
+class TestDungeonScreenBindings:
+    def test_diagonal_movement_bindings_include_vi_and_numpad_aliases(self) -> None:
+        keys = {binding.key for binding in DungeonScreen.BINDINGS}
+        expected = {
+            "y",
+            "u",
+            "b",
+            "n",
+            "7",
+            "9",
+            "1",
+            "3",
+            "home",
+            "pageup",
+            "end",
+            "pagedown",
+        }
+        assert expected <= keys
+
+    def test_help_text_lists_each_diagonal_direction(self) -> None:
+        hotkeys = dict(DungeonScreen.HOTKEYS)
+        assert hotkeys["Y / U / B / N"] == "Vi diagonals"
+        assert hotkeys["7 / Home"] == "Move northwest"
+        assert hotkeys["9 / PgUp"] == "Move northeast"
+        assert hotkeys["1 / End"] == "Move southwest"
+        assert hotkeys["3 / PgDn"] == "Move southeast"
+
+
 class TestDungeonMapCamera:
     def test_viewport_window_follows_player_near_edges(self) -> None:
         level = DungeonLevel(
