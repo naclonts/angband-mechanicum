@@ -36,6 +36,9 @@ class DungeonMovementAI(enum.Enum):
 
 
 _DEFAULT_PORTRAIT_KEYS: dict[str, str] = {
+    "servo-skull": "cyber_cherub",
+    "servo": "cyber_cherub",
+    "skull": "cyber_cherub",
     "alpha": "skitarii",
     "skitarii": "skitarii",
     "volta": "enginseer",
@@ -51,6 +54,7 @@ _DEFAULT_PORTRAIT_KEYS: dict[str, str] = {
 }
 
 _DEFAULT_PARTY_DESCRIPTIONS: dict[str, str] = {
+    "servo-skull": "A hovering servo-skull fitted with auspex lenses and a crackling vox-grille",
     "skitarius-alpha-7": "A battle-scarred ranger with a galvanic rifle",
     "enginseer-volta": "Young, eager, still more flesh than machine, carries a power axe",
 }
@@ -410,7 +414,7 @@ def make_dungeon_party_member(entity_id: str) -> DungeonEntity:
         name=tpl["name"],
         disposition=DungeonDisposition.FRIENDLY,
         movement_ai=DungeonMovementAI.FOLLOW_PLAYER,
-        can_talk=True,
+        can_talk=entity_id != "servo-skull",
         portrait_key=infer_portrait_key(tpl["name"], description),
         stats=CombatStats(**tpl["stats"]),
         description=description,
@@ -420,6 +424,6 @@ def make_dungeon_party_member(entity_id: str) -> DungeonEntity:
 def make_dungeon_party_roster() -> DungeonEntityRoster:
     """Create a roster containing the default party followers."""
     roster = DungeonEntityRoster()
-    for entity_id in ("skitarius-alpha-7", "enginseer-volta"):
+    for entity_id in ("servo-skull",):
         roster.add(make_dungeon_party_member(entity_id))
     return roster

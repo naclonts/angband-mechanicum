@@ -105,9 +105,8 @@ stationed on the forge world **Metallica Secundus**, in the great manufactorum-c
 unidentified energy signatures detected in the deep strata beneath the forge. The \
 Fabricator-Locum has assigned the player to investigate.
 
-The player has two acolytes assigned to their expedition:
-- **Skitarius Alpha-7** — a battle-scarred ranger with a galvanic rifle
-- **Enginseer Volta** — young, eager, still more flesh than machine, carries a power axe
+The player is not assumed to have a standing humanoid party with them unless the \
+current scene explicitly establishes one.
 
 A servo-skull hovers nearby. The cargo lift to the underhive awaits.
 
@@ -255,10 +254,9 @@ class DeathNarrative:
 class GameEngine:
     """Processes player input via the Anthropic Claude API and returns narrative responses."""
 
-    # Default companion followers — entity IDs matching the seeded entities
+    # Default companion followers — the opening expedition only includes the servo-skull.
     DEFAULT_PARTY_IDS: list[str] = [
-        "skitarius-alpha-7",
-        "enginseer-volta",
+        "servo-skull",
     ]
 
     def __init__(self, player_name: str = "Magos Explorator") -> None:
@@ -282,6 +280,7 @@ class GameEngine:
         self._party_hp: dict[str, tuple[int, int]] = self._init_party_hp()
         self._story_suffix: str = _DEFAULT_STORY_SUFFIX
         self._story_start_id: str | None = None
+        self._active_interaction_context: dict[str, Any] | None = None
 
     def set_scene_pane_size(self, width: int, height: int) -> None:
         """Update the scene pane dimensions used in LLM prompts.
@@ -388,11 +387,6 @@ class GameEngine:
     def _seed_starting_entities(self) -> None:
         """Pre-register entities from the game's opening scenario."""
         reg = self._history.register_entity
-        # Characters
-        reg("Skitarius Alpha-7", EntityType.CHARACTER,
-            "A battle-scarred ranger with a galvanic rifle")
-        reg("Enginseer Volta", EntityType.CHARACTER,
-            "Young, eager, still more flesh than machine, carries a power axe")
         # Places
         reg("Metallica Secundus", EntityType.PLACE,
             "Forge world where the game is set")
@@ -401,6 +395,45 @@ class GameEngine:
         # Items
         reg("Servo-skull", EntityType.ITEM,
             "A hovering skull drone that accompanies the player's expedition")
+
+    def clear_active_interaction_context(self) -> None:
+        """Forget any focused dungeon conversation/examine target."""
+        self._active_interaction_context = None
+
+    def set_active_interaction_context(self, context: dict[str, Any] | None) -> None:
+        """Track the currently addressed dungeon target for prompt grounding."""
+        if not context:
+            self._active_interaction_context = None
+            return
+        allowed_keys = {
+            "interaction_kind",
+            "interaction_target",
+            "interaction_entity_id",
+            "interaction_entity_name",
+            "interaction_entity_type",
+            "interaction_entity_disposition",
+            "interaction_entity_description",
+            "interaction_entity_history_id",
+            "conversation_target",
+            "target_entity_id",
+            "target_entity_name",
+            "target_entity_type",
+            "target_disposition",
+            "target_description",
+            "target_kind",
+            "target_label",
+            "terrain",
+            "target_position",
+            "player_position",
+            "map_return_pos",
+            "look_mode",
+            "look_summary",
+        }
+        sanitized = {
+            key: value for key, value in context.items()
+            if key in allowed_keys and value is not None
+        }
+        self._active_interaction_context = sanitized or None
 
     def _build_system_prompt(self) -> str:
         """Build the full system prompt with dynamic entity registry and scene dimensions."""
@@ -412,10 +445,59 @@ class GameEngine:
         registry_context = self._history.get_registry_context()
         if registry_context:
             prompt += "\n\n" + registry_context
+        active_interaction = self._build_active_interaction_prompt_context()
+        if active_interaction:
+            prompt += "\n\n" + active_interaction
         companion_context = self._build_companion_status_context()
         if companion_context:
             prompt += "\n\n" + companion_context
         return prompt
+
+    def _build_active_interaction_prompt_context(self) -> str:
+        """Describe the currently addressed dungeon target for the next replies."""
+        if not self._active_interaction_context:
+            return ""
+
+        context = self._active_interaction_context
+        target_name = (
+            context.get("interaction_entity_name")
+            or context.get("target_entity_name")
+            or context.get("target_label")
+            or "Unknown target"
+        )
+        location = self._info_panel.get("LOCATION", "Unknown location")
+        lines = [
+            "## Current Interaction Focus",
+            "The player is addressing or examining a specific dungeon target right now.",
+            "Keep responses anchored to this target and the current dungeon environment.",
+            "Do not substitute a different known character, companion, or prior scene.",
+            f"- Current location: {location}",
+            f"- Focus target: {target_name}",
+        ]
+
+        for source_key, label in (
+            ("interaction_kind", "Interaction kind"),
+            ("interaction_entity_type", "Target type"),
+            ("interaction_entity_disposition", "Disposition"),
+            ("interaction_entity_description", "Target description"),
+            ("target_kind", "Look target kind"),
+            ("terrain", "Terrain"),
+        ):
+            value = context.get(source_key)
+            if value is not None:
+                lines.append(f"- {label}: {value}")
+
+        target_position = context.get("target_position")
+        if isinstance(target_position, list) and len(target_position) == 2:
+            lines.append(f"- Target position: {target_position[0]},{target_position[1]}")
+
+        history_id = context.get("conversation_target") or context.get("interaction_target")
+        if isinstance(history_id, str):
+            entity_context = self._history.get_entity_context(history_id)
+            if entity_context:
+                lines.extend(["", entity_context])
+
+        return "\n".join(lines)
 
     def _build_companion_status_context(self) -> str:
         """Build a compact prompt block describing companion survival state."""
@@ -952,6 +1034,11 @@ You MUST respond with ONLY a valid JSON object, no other text:
             "party_hp": {k: list(v) for k, v in self._party_hp.items()},
             "story_start_id": self._story_start_id,
             "story_suffix": self._story_suffix,
+            "active_interaction_context": (
+                dict(self._active_interaction_context)
+                if self._active_interaction_context is not None
+                else None
+            ),
         }
 
     @classmethod
@@ -975,6 +1062,10 @@ You MUST respond with ONLY a valid JSON object, no other text:
         engine._integrity = data.get("integrity", engine._max_integrity)
         engine._story_start_id = data.get("story_start_id")
         engine._story_suffix = data.get("story_suffix", _DEFAULT_STORY_SUFFIX)
+        interaction_context = data.get("active_interaction_context")
+        engine._active_interaction_context = (
+            dict(interaction_context) if isinstance(interaction_context, dict) else None
+        )
         history_data = data.get("history")
         if history_data:
             engine._history = GameHistory.from_dict(history_data)

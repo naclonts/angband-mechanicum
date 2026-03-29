@@ -94,6 +94,8 @@ class GameScreen(Screen[None]):
             self.query_one("#narrative", NarrativePane).append_narrative(intro)
             self._narrative_log.append(intro)
 
+        self._sync_active_interaction_context()
+
         # Push deterministic status (integrity + party HP) to the panel
         self._push_status_to_panel()
         if self._speaking_npc_id:
@@ -151,6 +153,32 @@ class GameScreen(Screen[None]):
                 "[dim]++ SESSION RESTORED ++ MACHINE SPIRIT APPEASED ++[/dim]"
             )
 
+    def _build_active_interaction_context(self) -> dict[str, Any] | None:
+        """Return the focused dungeon interaction payload for the engine, if any."""
+        if not self._restored_state:
+            return None
+        if not any(
+            key in self._restored_state
+            for key in (
+                "interaction_target",
+                "conversation_target",
+                "interaction_entity_name",
+                "target_entity_name",
+                "target_label",
+            )
+        ):
+            return None
+        return dict(self._restored_state)
+
+    def _sync_active_interaction_context(self) -> None:
+        """Push any focused dungeon interaction into the engine prompt context."""
+        engine = self.app.game_engine  # type: ignore[attr-defined]
+        interaction_context = self._build_active_interaction_context()
+        if interaction_context is None:
+            engine.clear_active_interaction_context()
+            return
+        engine.set_active_interaction_context(interaction_context)
+
     def action_show_help(self) -> None:
         """Push the help overlay with story-mode hotkeys."""
         self.app.push_screen(
@@ -184,6 +212,7 @@ class GameScreen(Screen[None]):
         info_update: dict[str, str] | None = None,
     ) -> None:
         """Request the app to switch back to the persistent dungeon view."""
+        self.app.game_engine.clear_active_interaction_context()  # type: ignore[attr-defined]
         self.app.return_to_dungeon_view(
             narrative_lines=narrative_lines,
             scene_art=scene_art,

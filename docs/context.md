@@ -17,6 +17,7 @@ Holding Ctrl while moving engages travel mode and keeps stepping in that directi
 The dungeon viewport follows the player so large levels stay centered in the terminal instead of rendering from a fixed top-left corner.
 Transition tiles are part of the dungeon itself: stairs, lifts, elevators, gates, and portals move the player between persistent levels or themed areas while preserving the session stack.
 The bottom-right inspect panel now also surfaces occasional ambient line-of-sight discoveries for nearby characters, objects, and notable features while explicit look/examine still routes into text view.
+When text view is opened from a dungeon interaction, the active target and current dungeon context are carried into the prompt so follow-up dialogue stays anchored to the addressed character or object.
 Tab cycles focus between the map, field log, and side panels so the non-map panes can be scrolled without losing movement controls.
 
 ### Text View (narrative + dialogue + travel)

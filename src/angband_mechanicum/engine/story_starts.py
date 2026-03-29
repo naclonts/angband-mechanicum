@@ -47,9 +47,8 @@ arrived through the Noosphere — something has been detected in the \
 deep strata beneath the forge. Seismic anomalies. Unidentified energy \
 signatures. The Fabricator-Locum has assigned [bold]you[/bold] to investigate.
 
-[dim]Two acolytes have been assigned to your expedition. Your servo-skull \
-hovers nearby, its red eye sweeping the chamber. The cargo lift to the \
-underhive awaits.[/dim]
+[dim]Your servo-skull hovers nearby, its red eye sweeping the chamber. The \
+cargo lift to the underhive awaits.[/dim]
 
 [bold]What do you do, Tech-Priest?[/bold]""",
         scene_art="""\

@@ -673,6 +673,7 @@ PLAYER_POWERS: list[Power] = [
 
 # Party member powers (keyed by entity_id)
 PARTY_POWERS: dict[str, list[Power]] = {
+    "servo-skull": [],
     "skitarius-alpha-7": [],  # pure gunner, no powers
     "enginseer-volta": [
         Power(
@@ -804,6 +805,11 @@ def make_player(
 # ---------------------------------------------------------------------------
 
 PARTY_TEMPLATES: dict[str, dict[str, Any]] = {
+    "servo-skull": {
+        "name": "Servo-skull",
+        "symbol": "s",
+        "stats": {"max_hp": 6, "hp": 6, "attack": 2, "armor": 0, "movement": 5, "attack_range": 6},
+    },
     "skitarius-alpha-7": {
         "name": "Skitarius Alpha-7",
         "symbol": "A",

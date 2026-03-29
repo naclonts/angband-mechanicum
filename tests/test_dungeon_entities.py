@@ -33,20 +33,13 @@ def _make_open_level(width: int = 7, height: int = 7) -> DungeonLevel:
 
 
 def test_default_party_members_have_expected_metadata() -> None:
-    alpha = make_dungeon_party_member("skitarius-alpha-7")
-    volta = make_dungeon_party_member("enginseer-volta")
+    servo_skull = make_dungeon_party_member("servo-skull")
 
-    assert alpha.disposition == DungeonDisposition.FRIENDLY
-    assert alpha.movement_ai == DungeonMovementAI.FOLLOW_PLAYER
-    assert alpha.can_talk is True
-    assert alpha.portrait_key == "skitarii"
-    assert alpha.stats == CombatStats(max_hp=12, hp=12, attack=4, armor=1, movement=4, attack_range=15)
-
-    assert volta.disposition == DungeonDisposition.FRIENDLY
-    assert volta.movement_ai == DungeonMovementAI.FOLLOW_PLAYER
-    assert volta.can_talk is True
-    assert volta.portrait_key == "enginseer"
-    assert volta.stats == CombatStats(max_hp=14, hp=14, attack=6, armor=1, movement=3, attack_range=1)
+    assert servo_skull.disposition == DungeonDisposition.FRIENDLY
+    assert servo_skull.movement_ai == DungeonMovementAI.FOLLOW_PLAYER
+    assert servo_skull.can_talk is False
+    assert servo_skull.portrait_key == "cyber_cherub"
+    assert servo_skull.stats == CombatStats(max_hp=6, hp=6, attack=2, armor=0, movement=5, attack_range=6)
 
 
 def test_roster_places_followers_near_player() -> None:
@@ -56,7 +49,7 @@ def test_roster_places_followers_near_player() -> None:
 
     placed = roster.place_followers(level, level.player_pos)
 
-    assert len(placed) == 2
+    assert len(placed) == 1
     positions = {entity.position for entity in placed}
     assert level.player_pos not in positions
     for entity in placed:
@@ -138,21 +131,15 @@ def test_history_registration_uses_character_entities() -> None:
 
     history_ids = roster.register_with_history(history)
 
-    assert len(history_ids) == 2
-    alpha_source = roster.get("skitarius-alpha-7")
-    volta_source = roster.get("enginseer-volta")
-    assert alpha_source is not None
-    assert volta_source is not None
-    assert alpha_source.description
-    assert volta_source.description
-    assert alpha_source.description == "A battle-scarred ranger with a galvanic rifle"
-    assert volta_source.description == "Young, eager, still more flesh than machine, carries a power axe"
+    assert len(history_ids) == 1
+    servo_skull_source = roster.get("servo-skull")
+    assert servo_skull_source is not None
+    assert servo_skull_source.description
+    assert servo_skull_source.description == (
+        "A hovering servo-skull fitted with auspex lenses and a crackling vox-grille"
+    )
 
-    alpha = history.get_entity("skitarius-alpha-7")
-    volta = history.get_entity("enginseer-volta")
-    assert alpha is not None
-    assert volta is not None
-    assert alpha.type == EntityType.CHARACTER
-    assert volta.type == EntityType.CHARACTER
-    assert alpha.description == alpha_source.description
-    assert volta.description == volta_source.description
+    servo_skull = history.get_entity("servo-skull")
+    assert servo_skull is not None
+    assert servo_skull.type == EntityType.CHARACTER
+    assert servo_skull.description == servo_skull_source.description
