@@ -459,6 +459,60 @@ CombatInfo {
     border-title-style: bold;
 }
 
+/* ── Dungeon Screen ── */
+
+DungeonScreen {
+    background: $crt-bg;
+}
+
+#dungeon-layout {
+    layout: horizontal;
+    height: 100%;
+    width: 100%;
+    background: $crt-bg;
+}
+
+#dungeon-left {
+    layout: vertical;
+    width: 3fr;
+    height: 100%;
+}
+
+DungeonMapPane {
+    border: heavy $crt-dim;
+    color: $crt-bright;
+    background: $crt-surface;
+    height: 2fr;
+    padding: 0 1;
+    overflow-y: auto;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+DungeonMessageLog {
+    border: heavy $crt-dim;
+    color: $crt-medium;
+    background: $crt-surface;
+    height: 1fr;
+    padding: 0 1;
+    scrollbar-color: $crt-dim;
+    scrollbar-color-hover: $crt-bright;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+DungeonStatusPane {
+    border: heavy $crt-dim;
+    color: $crt-medium;
+    background: $crt-surface;
+    width: 1fr;
+    height: 100%;
+    padding: 1 1;
+    overflow-y: auto;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
 /* ── Story Select Screen ── */
 
 StorySelectScreen {
