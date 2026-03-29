@@ -13,9 +13,11 @@ from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.dungeon_screen import (
     DungeonInteractionKind,
     DungeonMapState,
+    DungeonScreen,
 )
 from angband_mechanicum.widgets.dungeon_map import (
     DungeonMapEntity,
+    _resolve_viewport_window,
     render_dungeon_map,
     render_dungeon_status,
 )
@@ -68,6 +70,54 @@ class TestDungeonMapRendering:
         assert "LEVEL: Test Floor" in status
         assert "FOV:" in status
         assert "TILE:  floor" in status
+
+
+class TestDungeonMapCamera:
+    def test_viewport_window_follows_player_near_edges(self) -> None:
+        level = DungeonLevel(
+            level_id="camera-test",
+            name="Camera Test",
+            depth=1,
+            environment="forge",
+            width=20,
+            height=20,
+        )
+        left, top, visible_cols, visible_rows = _resolve_viewport_window(
+            level,
+            (18, 18),
+            (12, 8),
+        )
+
+        assert (left, top) == (12, 15)
+        assert (visible_cols, visible_rows) == (8, 5)
+
+    def test_render_crops_to_follow_player_window(self) -> None:
+        level = DungeonLevel(
+            level_id="camera-test",
+            name="Camera Test",
+            depth=1,
+            environment="forge",
+            width=20,
+            height=20,
+        )
+        for y in range(level.height):
+            for x in range(level.width):
+                level.set_terrain(x, y, DungeonTerrain.FLOOR)
+        level.set_terrain(1, 1, DungeonTerrain.TERMINAL)
+        level.set_terrain(17, 18, DungeonTerrain.SHRINE)
+        level.player_pos = (18, 18)
+        level.compute_fov((18, 18), 5)
+
+        rendered = render_dungeon_map(
+            level,
+            (18, 18),
+            viewport_size=(12, 8),
+        )
+
+        assert "[bold #00ff41]@[/bold #00ff41]" in rendered
+        assert "†" in rendered
+        assert "¤" not in rendered
+        assert rendered.splitlines()[1] == "  ╔════════╗"
 
 
 class TestDungeonMapState:
@@ -277,6 +327,34 @@ class TestTransitionHelpers:
     def test_game_screen_accepts_conversation_focus(self) -> None:
         screen = GameScreen(speaking_npc_id="skitarius-alpha-7")
         assert screen._speaking_npc_id == "skitarius-alpha-7"
+
+
+class TestDungeonLookMode:
+    def test_look_mode_stays_modal_across_cursor_moves(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        screen.action_look()
+        screen.action_move_east()
+        screen.action_move_east()
+
+        assert screen._look_mode is True
+        assert screen._look_cursor_pos == (4, 2)
+        assert screen.state.player_pos == (2, 2)
+
+    def test_confirm_exits_look_mode_explicitly(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+        monkeypatch.setattr(screen, "_run_examine", lambda position: None)
+
+        screen.action_look()
+        screen.action_move_east()
+        screen.action_confirm_look()
+
+        assert screen._look_mode is False
+        assert screen._look_cursor_pos == (3, 2)
 
 
 class TestDungeonExamineIntegration:

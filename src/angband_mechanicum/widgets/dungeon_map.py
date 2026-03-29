@@ -97,13 +97,48 @@ def _tile_visible(level: DungeonLevel, x: int, y: int) -> bool:
     return level.in_bounds(x, y) and level.get_tile(x, y).fog == FogState.VISIBLE
 
 
+def _resolve_viewport_window(
+    level: DungeonLevel,
+    player_pos: tuple[int, int],
+    viewport_size: tuple[int, int] | None,
+) -> tuple[int, int, int, int]:
+    """Return the camera window anchored around the player.
+
+    The rendered map reserves a few columns for row labels and a border, so
+    the usable tile area is smaller than the raw widget content region.
+    """
+    if viewport_size is None:
+        return 0, 0, level.width, level.height
+
+    viewport_width, viewport_height = viewport_size
+    row_label_width = max(2, len(str(level.height - 1)))
+    visible_cols = min(level.width, max(1, viewport_width - row_label_width - 2))
+    visible_rows = min(level.height, max(1, viewport_height - 3))
+
+    px, py = player_pos
+    max_left = max(0, level.width - visible_cols)
+    max_top = max(0, level.height - visible_rows)
+    left = min(max(px - visible_cols // 2, 0), max_left)
+    top = min(max(py - visible_rows // 2, 0), max_top)
+    return left, top, visible_cols, visible_rows
+
+
 def render_dungeon_map(
     level: DungeonLevel,
     player_pos: tuple[int, int],
     entities: Sequence[DungeonMapEntity] = (),
     cursor_pos: tuple[int, int] | None = None,
+    viewport_size: tuple[int, int] | None = None,
 ) -> str:
     """Render a dungeon floor as a rich-text map."""
+    left, top, visible_cols, visible_rows = _resolve_viewport_window(
+        level,
+        player_pos,
+        viewport_size,
+    )
+    right = left + visible_cols
+    bottom = top + visible_rows
+    row_label_width = max(2, len(str(level.height - 1)))
     entity_by_pos = {
         (entity.x, entity.y): entity
         for entity in entities
@@ -111,15 +146,15 @@ def render_dungeon_map(
     }
     lines: list[str] = []
 
-    header = "   "
-    for x in range(level.width):
+    header = " " * (row_label_width + 1)
+    for x in range(left, right):
         header += f"{x % 10}" if x % 5 == 0 else " "
     lines.append(header)
-    lines.append("  ╔" + "═" * level.width + "╗")
+    lines.append(" " * row_label_width + "╔" + "═" * visible_cols + "╗")
 
-    for y in range(level.height):
-        row: list[str] = [f"{y:2d}║"]
-        for x in range(level.width):
+    for y in range(top, bottom):
+        row: list[str] = [f"{y:>{row_label_width}}║"]
+        for x in range(left, right):
             if cursor_pos is not None and (x, y) == cursor_pos:
                 row.append(_render_cursor())
                 continue
@@ -142,7 +177,7 @@ def render_dungeon_map(
         row.append("║")
         lines.append("".join(row))
 
-    lines.append("  ╚" + "═" * level.width + "╝")
+    lines.append(" " * row_label_width + "╚" + "═" * visible_cols + "╝")
     return "\n".join(lines)
 
 
@@ -235,9 +270,22 @@ class DungeonMapPane(Static):
                     self._get_player_pos(),
                     self._get_entities(),
                     cursor_pos=cursor_pos,
+                    viewport_size=(self.content_width, self.content_height),
                 )
             )
         )
+
+    @property
+    def content_width(self) -> int:
+        """Return the usable width inside the pane (excluding border + padding)."""
+        region = self.content_region
+        return region.width if region.width > 0 else 56
+
+    @property
+    def content_height(self) -> int:
+        """Return the usable height inside the pane (excluding border + padding)."""
+        region = self.content_region
+        return region.height if region.height > 0 else 16
 
     def on_mount(self) -> None:
         self.refresh_map()

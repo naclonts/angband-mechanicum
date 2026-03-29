@@ -416,7 +416,6 @@ class DungeonScreen(Screen[None]):
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._look_mode: bool = False
-        self._look_primed: bool = False
         self._look_cursor_pos: tuple[int, int] | None = None
         self._last_look_summary: str | None = None
         self._last_examine_title: str | None = None
@@ -557,9 +556,6 @@ class DungeonScreen(Screen[None]):
         self._look_cursor_pos = (nx, ny)
         self._last_look_summary = self._state.get_look_summary(self._look_cursor_pos)
         self._refresh_all()
-        if self._look_primed:
-            self._look_primed = False
-            self.action_confirm_look()
 
     def _open_text_view_for_interaction(self, result: DungeonActionResult) -> None:
         if result.target_entity_id is None:
@@ -651,7 +647,6 @@ class DungeonScreen(Screen[None]):
 
     def _begin_look_mode(self) -> None:
         self._look_mode = True
-        self._look_primed = True
         self._look_cursor_pos = self._state.player_pos
         self._last_look_summary = self._state.get_look_summary(self._look_cursor_pos)
         self._state.append_message("Look mode engaged. Move the cursor to a visible target.")
@@ -661,7 +656,6 @@ class DungeonScreen(Screen[None]):
         if not self._look_mode:
             return
         self._look_mode = False
-        self._look_primed = False
         self._look_cursor_pos = None
         self._last_look_summary = None
         self._state.append_message("Look mode cancelled.")
@@ -713,7 +707,6 @@ class DungeonScreen(Screen[None]):
             self._refresh_all()
             return
         self._look_mode = False
-        self._look_primed = False
         self._run_examine(self._look_cursor_pos)
 
     def action_cancel_look(self) -> None:
