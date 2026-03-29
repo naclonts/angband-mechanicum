@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections import deque
+import random
 
 import pytest
 
@@ -32,6 +34,8 @@ from angband_mechanicum.engine.dungeon_gen import (
     _compute_spawns,
     _floor_tiles,
     _contacts_for_environment,
+    _group_size_for_archetype,
+    _pick_group_positions,
     _scatter_features,
 )
 
@@ -517,6 +521,49 @@ class TestEnvironmentContactRosters:
         assert any(keyword in names for keyword in expected_keywords)
 
 
+class TestEnvironmentContactGrouping:
+    def test_group_size_rules_bias_swarm_and_pack_hostiles(self) -> None:
+        rat = next(
+            archetype
+            for archetype in _contacts_for_environment("sewer")["hostile"]
+            if "rat" in archetype.name.lower()
+        )
+        cult = next(
+            archetype
+            for archetype in _contacts_for_environment("corrupted")["hostile"]
+            if "cult" in archetype.name.lower()
+        )
+
+        rat_size = _group_size_for_archetype(rat, "sewer", 8, random.Random(1))
+        cult_size = _group_size_for_archetype(cult, "corrupted", 8, random.Random(2))
+
+        assert 4 <= rat_size <= 10
+        assert 2 <= cult_size <= 10
+
+    def test_group_positions_cluster_within_a_single_room(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="group-cluster-test",
+            depth=5,
+            environment="forge",
+            seed=211,
+        )
+        room = max(floor.rooms, key=lambda candidate: candidate.width * candidate.height)
+        positions = _pick_group_positions(
+            floor.level,
+            room,
+            4,
+            set(),
+            random.Random(7),
+        )
+
+        assert len(positions) == 4
+        assert all(room.contains(x, y) for x, y in positions)
+        assert max(
+            abs(x - room.center[0]) + abs(y - room.center[1])
+            for x, y in positions
+        ) <= 5
+
+
 # ---------------------------------------------------------------------------
 # Edge cases
 # ---------------------------------------------------------------------------
@@ -664,6 +711,24 @@ class TestDungeonFloorGeneration:
             assert floor.level.get_tile(x, y).passable
             assert floor.level.get_creature(x, y) == entity.entity_id
             assert floor.level.get_terrain(x, y) == DungeonTerrain.FLOOR
+
+    def test_floor_hostile_contacts_spawn_in_groups(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-8-grouped",
+            depth=8,
+            environment="sewer",
+            seed=109,
+        )
+
+        contacts = floor.entity_roster.values()
+        hostile_counts = Counter(
+            entity.name
+            for entity in contacts
+            if entity.disposition == DungeonDisposition.HOSTILE
+        )
+        assert len(contacts) >= 3
+        assert hostile_counts
+        assert any(count > 1 for count in hostile_counts.values())
 
     def test_floor_contacts_are_seed_reproducible(self) -> None:
         first = generate_dungeon_floor(level_id="floor-9", depth=9, environment="forge", seed=109)
