@@ -7,7 +7,8 @@ from dataclasses import dataclass
 import pytest
 
 from angband_mechanicum import app as app_module
-from angband_mechanicum.app import AngbandMechanicumApp
+from angband_mechanicum.app import AngbandMechanicumApp, DungeonSession
+from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.engine.save_manager import DeathRecord
 
 
@@ -58,3 +59,72 @@ def test_archive_player_death_saves_record_and_clears_live_state(
     assert app.save_slot is None
     assert app.dungeon_session is None
     assert returned == [True]
+
+
+def test_travel_dungeon_transition_descends_and_returns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dungeon transitions should preserve and restore prior floor state."""
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="forge-transition-test",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="ART",
+    )
+    session = app.build_dungeon_session(story)
+    app.dungeon_session = session
+    opened: list[str] = []
+    monkeypatch.setattr(
+        app,
+        "open_dungeon_view",
+        lambda *args, **kwargs: opened.append(session.state.level.level_id),
+    )
+
+    down_pos = session.state.level.stairs_down[0]
+    session.state.player_pos = down_pos
+    session.state.level.player_pos = down_pos
+
+    app.travel_dungeon_transition()
+
+    assert session.state.level.depth == 2
+    assert session.level_stack == [story.id]
+    assert session.state.player_pos == session.state.level.stairs_up[0]
+    assert opened == [session.state.level.level_id]
+
+    descended_state = session.state
+    up_pos = descended_state.level.stairs_up[0]
+    descended_state.player_pos = up_pos
+    descended_state.level.player_pos = up_pos
+
+    app.travel_dungeon_transition()
+
+    assert session.state.level.depth == 1
+    assert session.level_stack == []
+    assert session.state.level.level_id == story.id
+    assert session.state is session.level_states[story.id]
+    assert session.state.messages[-1].startswith("You return via the")
+
+
+def test_dungeon_session_round_trip_preserves_level_stack() -> None:
+    """Transition history should survive serialization and restoration."""
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="forge-stack-test",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="ART",
+    )
+    session = app.build_dungeon_session(story)
+    session.level_stack.append("previous-level")
+    session.snapshot_current_state()
+
+    restored = DungeonSession.from_dict(session.to_dict())
+
+    assert restored.level_stack == ["previous-level"]
+    assert restored.state.level.level_id == session.state.level.level_id
+    assert restored.level_states[session.state.level.level_id].level.name == session.state.level.name

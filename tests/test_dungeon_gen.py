@@ -328,6 +328,43 @@ class TestThemeFeatures:
         gm = generate_map(theme="alien_dimension", seed=22)
         assert isinstance(gm.grid, Grid)
 
+    @pytest.mark.parametrize(
+        ("environment", "expected_terrain"),
+        [
+            ("forge", DungeonTerrain.LIFT),
+            ("manufactorum", DungeonTerrain.LIFT),
+            ("hive", DungeonTerrain.ELEVATOR),
+            ("cathedral", DungeonTerrain.GATE),
+            ("tomb", DungeonTerrain.GATE),
+            ("corrupted", DungeonTerrain.PORTAL),
+        ],
+    )
+    def test_exploration_floors_use_thematic_transition_tiles(
+        self,
+        environment: str,
+        expected_terrain: DungeonTerrain,
+    ) -> None:
+        floor = generate_dungeon_floor(
+            level_id=f"{environment}-transition-test",
+            depth=1,
+            environment=environment,
+            seed=77,
+        )
+
+        assert floor.level.get_terrain(*floor.level.stairs_up[0]) == expected_terrain
+        assert floor.level.get_terrain(*floor.level.stairs_down[0]) == expected_terrain
+
+    def test_fallback_environment_keeps_standard_stairs(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="sewer-transition-test",
+            depth=1,
+            environment="sewer",
+            seed=78,
+        )
+
+        assert floor.level.get_terrain(*floor.level.stairs_up[0]) == DungeonTerrain.STAIRS_UP
+        assert floor.level.get_terrain(*floor.level.stairs_down[0]) == DungeonTerrain.STAIRS_DOWN
+
 
 # ---------------------------------------------------------------------------
 # Map naming
@@ -517,8 +554,8 @@ class TestDungeonFloorGeneration:
         assert floor.level.player_pos == floor.level.stairs_up[0]
         up_x, up_y = floor.level.stairs_up[0]
         down_x, down_y = floor.level.stairs_down[0]
-        assert floor.level.get_terrain(up_x, up_y) == DungeonTerrain.STAIRS_UP
-        assert floor.level.get_terrain(down_x, down_y) == DungeonTerrain.STAIRS_DOWN
+        assert floor.level.get_terrain(up_x, up_y) == DungeonTerrain.LIFT
+        assert floor.level.get_terrain(down_x, down_y) == DungeonTerrain.LIFT
 
     def test_floor_is_connected_between_stairs(self) -> None:
         floor = generate_dungeon_floor(level_id="floor-3", depth=3, seed=103)

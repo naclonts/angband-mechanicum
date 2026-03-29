@@ -477,7 +477,7 @@ class GameScreen(Screen[None]):
             dungeon_session = getattr(self.app, "dungeon_session", None)
             if dungeon_session is not None:
                 state["mode"] = "text"
-                state["dungeon_session"] = dungeon_session.state.to_dict()
+                state["dungeon_session"] = dungeon_session.to_dict()
                 if dungeon_session.story_id is not None:
                     state["story_start_id"] = dungeon_session.story_id
             self._save_manager.save(slot_id, state)

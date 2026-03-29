@@ -8,6 +8,7 @@ from angband_mechanicum.engine.dungeon_level import (
     DungeonLevel,
     DungeonTerrain,
     FogState,
+    DungeonTile,
 )
 
 
@@ -79,3 +80,22 @@ class TestDungeonLevelFov:
 
         with pytest.raises(ValueError):
             level.compute_fov((3, 3), radius=-1)
+
+
+class TestTransitionTerrains:
+    @pytest.mark.parametrize(
+        "terrain",
+        [
+            DungeonTerrain.ELEVATOR,
+            DungeonTerrain.GATE,
+            DungeonTerrain.PORTAL,
+            DungeonTerrain.LIFT,
+        ],
+    )
+    def test_transition_tiles_round_trip_and_stay_passable(self, terrain: DungeonTerrain) -> None:
+        tile = DungeonTile(terrain=terrain)
+        restored = DungeonTile.from_dict(tile.to_dict())
+
+        assert restored.terrain == terrain
+        assert restored.passable is True
+        assert restored.transparent is True

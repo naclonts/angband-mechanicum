@@ -85,7 +85,7 @@ class MenuScreen(Screen[None]):
 
     def _load_game(self, slot_id: str) -> None:
         from angband_mechanicum.engine.game_engine import GameEngine
-        from angband_mechanicum.screens.dungeon_screen import DungeonMapState
+        from angband_mechanicum.app import DungeonSession
 
         manager: SaveManager = SaveManager()
         state = manager.load(slot_id)
@@ -93,11 +93,8 @@ class MenuScreen(Screen[None]):
         self.app.game_engine = engine  # type: ignore[attr-defined]
         self.app.save_slot = slot_id  # type: ignore[attr-defined]
         if state.get("dungeon_session"):
-            session = self.app.build_dungeon_session(None)  # type: ignore[attr-defined]
-            session.state = DungeonMapState.from_dict(state["dungeon_session"])
-            session.story_id = state.get("story_start_id")
-            session.location = state.get("info_panel", {}).get("LOCATION")
-            session.intro_narrative = None
+            session = DungeonSession.from_dict(state["dungeon_session"])
+            session.story_id = state.get("story_start_id", session.story_id)
             self.app.dungeon_session = session  # type: ignore[attr-defined]
             self.app.open_dungeon_view()  # type: ignore[attr-defined]
             return
