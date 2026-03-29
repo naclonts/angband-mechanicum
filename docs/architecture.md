@@ -42,6 +42,7 @@ The main architectural seam is:
 
 - UI code does not call the LLM directly.
 - `GameEngine` is the boundary for narrative generation and structured world-memory updates.
+- Death narration also lives behind `GameEngine`; the UI asks for a memorial summary and then persists it through `SaveManager`.
 
 ## Runtime Topology
 
@@ -62,6 +63,7 @@ flowchart LR
     F --> L["GameHistory"]
     F --> M["Anthropic API"]
     A --> N["SaveManager"]
+    A --> O["Hall of the Dead<br/>persistent memorials"]
 ```
 
 ## Startup And Screen Flow
@@ -80,12 +82,15 @@ flowchart TD
     I --> J["GameEngine.apply_story_start()"]
     I --> K["build_dungeon_session()"]
     K --> L["DungeonScreen"]
+    F --> R["HallOfDeadScreen"]
 
     L -->|conversation/object interaction| M["open_text_view()"]
     M --> N["GameScreen"]
     N -->|return_to_dungeon_view()| L
     N -->|combat trigger or /combat| O["CombatScreen"]
     O --> N
+    N -->|death| P["archive_player_death()"]
+    P --> Q["MenuScreen"]
 ```
 
 ## Primary Code Flows
@@ -159,6 +164,20 @@ Primary files:
 - [src/angband_mechanicum/widgets/combat_grid.py](../src/angband_mechanicum/widgets/combat_grid.py)
 - [src/angband_mechanicum/widgets/combat_info.py](../src/angband_mechanicum/widgets/combat_info.py)
 - [src/angband_mechanicum/widgets/combat_log.py](../src/angband_mechanicum/widgets/combat_log.py)
+
+### 5. Permadeath And Hall Flow
+
+- On defeat, `GameScreen` asks `GameEngine` for a memorial summary, creates a `DeathRecord`, and hands it to `AngbandMechanicumApp.archive_player_death()`.
+- `archive_player_death()` persists the memorial, deletes the live save, resets transient dungeon state, and returns to the main menu.
+- `MenuScreen` now exposes `HallOfDeadScreen`, which reads persisted memorials from `SaveManager`.
+
+Primary files:
+
+- [src/angband_mechanicum/screens/game_screen.py](../src/angband_mechanicum/screens/game_screen.py)
+- [src/angband_mechanicum/app.py](../src/angband_mechanicum/app.py)
+- [src/angband_mechanicum/screens/menu_screen.py](../src/angband_mechanicum/screens/menu_screen.py)
+- [src/angband_mechanicum/screens/hall_of_dead_screen.py](../src/angband_mechanicum/screens/hall_of_dead_screen.py)
+- [src/angband_mechanicum/engine/save_manager.py](../src/angband_mechanicum/engine/save_manager.py)
 
 ## Data Flow
 

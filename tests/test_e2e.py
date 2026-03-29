@@ -16,6 +16,7 @@ import pytest
 
 from angband_mechanicum.app import AngbandMechanicumApp
 from angband_mechanicum.engine.game_engine import NOOSPHERE_ERRORS
+from angband_mechanicum.screens.hall_of_dead_screen import HallOfDeadScreen
 from angband_mechanicum.screens.dungeon_screen import DungeonScreen
 from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.menu_screen import MenuScreen
@@ -128,6 +129,29 @@ class TestAppLaunch:
         async with app.run_test(size=APP_SIZE) as pilot:
             btn = app.screen.query_one("#btn-load")
             assert btn is not None
+
+    @pytest.mark.asyncio
+    async def test_hall_button_exists(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The menu screen contains a HALL OF THE DEAD button."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            btn = app.screen.query_one("#btn-hall")
+            assert btn is not None
+
+    @pytest.mark.asyncio
+    async def test_hall_screen_opens_from_menu(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Clicking HALL OF THE DEAD opens the memorial screen."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await pilot.click("#btn-hall")
+            await pilot.pause()
+            assert isinstance(app.screen, HallOfDeadScreen)
 
 
 # ---------------------------------------------------------------------------

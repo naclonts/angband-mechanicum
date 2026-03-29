@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import zlib
 from dataclasses import dataclass, field
@@ -11,13 +12,17 @@ from typing import Any
 from textual.app import App
 
 from angband_mechanicum.engine.game_engine import GameEngine
+from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.screens.api_key_screen import ApiKeyScreen
 from angband_mechanicum.screens.dungeon_screen import DungeonMapState, DungeonScreen
+from angband_mechanicum.screens.hall_of_dead_screen import HallOfDeadScreen
 from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.menu_screen import MenuScreen
 from angband_mechanicum.engine.dungeon_gen import generate_dungeon_floor
 from angband_mechanicum.theme import CRT_GREEN
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 def _load_env_file() -> None:
@@ -168,6 +173,14 @@ class AngbandMechanicumApp(App[None]):
             )
         )
 
+    def open_hall_of_dead_view(self) -> None:
+        """Switch to the Hall of the Dead screen."""
+        self.switch_screen(HallOfDeadScreen())
+
+    def return_to_menu_view(self) -> None:
+        """Return to the main menu."""
+        self.switch_screen(MenuScreen())
+
     def begin_new_game(self, player_name: str, story_start: StoryStart) -> None:
         """Create engine and dungeon state for a new game, then enter the dungeon."""
         engine = GameEngine(player_name=player_name)
@@ -195,6 +208,21 @@ class AngbandMechanicumApp(App[None]):
         if info_update:
             self.dungeon_session.pending_text_context.update(info_update)
         self.open_dungeon_view()
+
+    def archive_player_death(self, record: DeathRecord) -> None:
+        """Persist a death record, delete the live save, and return to the menu."""
+        manager = SaveManager()
+        try:
+            manager.save_death_record(record)
+            if self.save_slot:
+                manager.delete_save(self.save_slot)
+        except Exception as exc:
+            logger.error("Failed to archive player death: %s", exc)
+        finally:
+            self.save_slot = None
+            self.dungeon_session = None
+            self.game_engine = GameEngine()
+            self.return_to_menu_view()
 
     def on_mount(self) -> None:
         self.register_theme(CRT_GREEN)

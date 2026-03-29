@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from angband_mechanicum.engine.save_manager import SaveManager, SaveMetadata
+from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager, SaveMetadata
 
 
 class TestSaveLoad:
@@ -85,6 +85,41 @@ class TestDeleteSave:
     def test_delete_nonexistent_is_noop(self, save_manager: SaveManager) -> None:
         # Should not raise
         save_manager.delete_save("ghost")
+
+
+class TestDeathRecords:
+    def test_save_and_list_death_record(
+        self, save_manager: SaveManager
+    ) -> None:
+        record = DeathRecord(
+            record_id="death-1",
+            timestamp=1_000.0,
+            player_name="Magos Explorator",
+            location="Lower Forge",
+            turns_survived=12,
+            enemies_slain=4,
+            deepest_level_reached=3,
+            cause_of_death="Crushed by a daemon engine",
+            summary="The Tech-Priest fell in glorious service.",
+            save_slot_id="slot-1",
+            story_start_id="forge-escape",
+        )
+
+        path = save_manager.save_death_record(record)
+
+        assert path.exists()
+
+        records = save_manager.list_death_records()
+        assert len(records) == 1
+        loaded = records[0]
+        assert loaded.record_id == "death-1"
+        assert loaded.player_name == "Magos Explorator"
+        assert loaded.location == "Lower Forge"
+        assert loaded.turns_survived == 12
+        assert loaded.enemies_slain == 4
+        assert loaded.deepest_level_reached == 3
+        assert loaded.cause_of_death == "Crushed by a daemon engine"
+        assert loaded.summary == "The Tech-Priest fell in glorious service."
 
 
 class TestSaveMetadata:

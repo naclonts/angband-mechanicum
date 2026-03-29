@@ -153,6 +153,24 @@ MenuScreen {
     border: tall $crt-surface;
 }
 
+#btn-hall {
+    width: 100%;
+    color: $crt-bright;
+    background: $crt-surface;
+    border: tall $crt-dim;
+    text-style: bold;
+}
+
+#btn-hall:focus {
+    color: $crt-bg;
+    background: $crt-bright;
+    border: tall $crt-bright;
+}
+
+#btn-hall:hover {
+    border: tall $crt-bright;
+}
+
 #menu-footer {
     text-align: center;
     color: $crt-dim;
@@ -172,6 +190,56 @@ MenuScreen {
     text-align: center;
     color: $crt-bright;
     margin-bottom: 1;
+}
+
+HallOfDeadScreen {
+    background: $crt-bg;
+    align: center middle;
+}
+
+#hall-container {
+    width: 85;
+    height: 95%;
+    max-height: 95%;
+    padding: 0 2;
+    overflow-y: hidden;
+}
+
+#hall-title {
+    text-align: center;
+    color: $crt-bright;
+    background: $crt-surface;
+    margin-bottom: 1;
+}
+
+#hall-subtitle {
+    text-align: center;
+    color: $crt-dim;
+    margin-bottom: 1;
+}
+
+#hall-records {
+    height: 1fr;
+    max-height: 1fr;
+    overflow-y: auto;
+    scrollbar-color: $crt-dim;
+    scrollbar-color-hover: $crt-bright;
+    margin-bottom: 1;
+}
+
+.hall-record {
+    width: 100%;
+    margin: 0 0 1 0;
+    padding: 1 1;
+    color: $crt-medium;
+    background: $crt-surface;
+    border: tall $crt-dim;
+}
+
+#hall-empty {
+    color: $crt-dim;
+    text-align: center;
+    padding: 1 1;
 }
 
 .save-entry {

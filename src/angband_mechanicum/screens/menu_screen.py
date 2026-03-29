@@ -29,6 +29,7 @@ class MenuScreen(Screen[None]):
                 yield Static(TITLE_ART, id="menu-title")
                 yield Button("++ NEW GAME ++", id="btn-new", variant="primary")
                 yield Button("++ LOAD GAME ++", id="btn-load", variant="default")
+                yield Button("++ HALL OF THE DEAD ++", id="btn-hall", variant="default")
                 yield Static(FOOTER_TEXT, id="menu-footer")
                 yield Vertical(id="save-list")
 
@@ -45,6 +46,8 @@ class MenuScreen(Screen[None]):
             self._start_new_game()
         elif event.button.id == "btn-load":
             self._show_save_list()
+        elif event.button.id == "btn-hall":
+            self.app.open_hall_of_dead_view()  # type: ignore[attr-defined]
         elif event.button.id and event.button.id.startswith("save-"):
             slot_id: str = event.button.id.removeprefix("save-")
             self._load_game(slot_id)

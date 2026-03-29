@@ -244,6 +244,14 @@ class GameResponse:
     speaking_npc: str | None = None
 
 
+@dataclass
+class DeathNarrative:
+    """Structured memorial text generated when the player dies."""
+
+    summary: str
+    cause_of_death: str
+
+
 class GameEngine:
     """Processes player input via the Anthropic Claude API and returns narrative responses."""
 
@@ -688,6 +696,28 @@ You MUST respond with ONLY a valid JSON object, no other text:
 
         return result
 
+    def _fallback_death_narrative(self, death_context: dict[str, Any]) -> DeathNarrative:
+        """Build a deterministic memorial when the LLM cannot answer."""
+        player_name = str(death_context.get("player_name", self._player_name))
+        location = str(death_context.get("location", "the depths"))
+        enemy_summary = str(death_context.get("enemy_summary", "unknown hostiles"))
+        turns_survived = int(death_context.get("turns_survived", self._turn_count))
+        enemies_slain = int(death_context.get("enemies_slain", 0))
+        deepest_level = int(death_context.get("deepest_level_reached", 0))
+        companion_summary = str(death_context.get("companion_summary", "")).strip()
+        cause_of_death = str(
+            death_context.get("cause_of_death", f"fell against {enemy_summary}")
+        )
+        lines = [
+            f"{player_name} descended into {location} and did not return.",
+            f"After {turns_survived} turns, {enemies_slain} enemies lay broken, and the faith of the Omnissiah held until the end.",
+            f"The final battle came on depth {deepest_level} against {enemy_summary}.",
+        ]
+        if companion_summary:
+            lines.append(f"Companions at their side: {companion_summary}.")
+        lines.append("Their last rites are now etched into the Hall of the Dead.")
+        return DeathNarrative(summary=" ".join(lines), cause_of_death=cause_of_death)
+
     async def examine_dungeon_target(self, target_context: dict[str, Any]) -> GameResponse:
         """Ask the LLM to narrate a close examination of a dungeon target."""
         prompt_lines: list[str] = [
@@ -713,6 +743,55 @@ You MUST respond with ONLY a valid JSON object, no other text:
             ]
         )
         return await self.process_input("\n".join(prompt_lines))
+
+    async def generate_death_narrative(
+        self,
+        death_context: dict[str, Any],
+    ) -> DeathNarrative:
+        """Ask the LLM to chronicle the death of the current Tech-Priest."""
+        prompt_lines: list[str] = [
+            "Write an epic memorial chronicle for the fallen Tech-Priest of Angband Mechanicum.",
+            "Return valid JSON with keys summary and cause_of_death.",
+            "summary should be 3-6 sentences: gothic, reverent, and specific to the final stand.",
+            "cause_of_death should be a short phrase suitable for a hall record.",
+            "",
+            "Death context:",
+        ]
+        for key in sorted(death_context):
+            value = death_context[key]
+            if isinstance(value, (dict, list)):
+                value_text = json.dumps(value, ensure_ascii=False)
+            else:
+                value_text = str(value)
+            prompt_lines.append(f"- {key}: {value_text}")
+
+        system_prompt = self._build_system_prompt()
+        try:
+            message = await self._client.messages.create(
+                model=MODEL,
+                max_tokens=1024,
+                system=system_prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": "\n".join(prompt_lines),
+                    },
+                ],
+            )
+            raw_text = message.content[0].text  # type: ignore[union-attr]
+            response_data = _extract_json(raw_text)
+            summary = str(response_data.get("summary") or raw_text).strip()
+            cause = str(
+                response_data.get("cause_of_death")
+                or death_context.get("cause_of_death")
+                or "Unknown"
+            ).strip()
+            if not summary:
+                return self._fallback_death_narrative(death_context)
+            return DeathNarrative(summary=summary, cause_of_death=cause or "Unknown")
+        except Exception as exc:
+            logger.warning("Death narrative generation failed (%s), using fallback", exc)
+            return self._fallback_death_narrative(death_context)
 
     def record_combat_result(self, result: CombatResult) -> None:
         """Persist a combat result into conversation history and game history.

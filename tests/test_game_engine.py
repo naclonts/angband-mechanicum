@@ -238,6 +238,38 @@ class TestProcessInput:
         assert r4.narrative_text == NOOSPHERE_ERRORS[0]
 
 
+class TestDeathNarrative:
+    @pytest.mark.asyncio
+    async def test_generate_death_narrative(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        response_json = json.dumps(
+            {
+                "summary": "The Tech-Priest fell beneath the forge in a blaze of incense and steel.",
+                "cause_of_death": "cut down by a rogue servitor",
+            }
+        )
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        result = await engine.generate_death_narrative(
+            {
+                "player_name": "Magos Explorator",
+                "location": "Lower Forge",
+                "turns_survived": 12,
+                "enemies_slain": 4,
+                "deepest_level_reached": 3,
+                "enemy_summary": "rogue servitors",
+                "cause_of_death": "cut down by a rogue servitor",
+            }
+        )
+
+        assert result.summary == (
+            "The Tech-Priest fell beneath the forge in a blaze of incense and steel."
+        )
+        assert result.cause_of_death == "cut down by a rogue servitor"
+
+
 # ---------------------------------------------------------------------------
 # generate_encounter
 # ---------------------------------------------------------------------------
