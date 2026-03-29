@@ -7,7 +7,7 @@ from collections import deque
 import pytest
 
 from angband_mechanicum.engine.combat_engine import Grid, Terrain, Tile, auto_place_enemies
-from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain
+from angband_mechanicum.engine.dungeon_level import ENVIRONMENTS, DungeonLevel, DungeonTerrain
 from angband_mechanicum.engine.dungeon_entities import DungeonDisposition, DungeonMovementAI
 from angband_mechanicum.engine.dungeon_gen import (
     DEFAULT_HEIGHT,
@@ -31,6 +31,7 @@ from angband_mechanicum.engine.dungeon_gen import (
     _BUILDERS,
     _compute_spawns,
     _floor_tiles,
+    _contacts_for_environment,
     _scatter_features,
 )
 
@@ -482,6 +483,38 @@ class TestEnemyPlacementIntegration:
         assert engine.grid.height == gm.grid.height
         player = engine.get_player()
         assert player.alive
+
+
+# ---------------------------------------------------------------------------
+# Environment contact rosters
+# ---------------------------------------------------------------------------
+
+
+class TestEnvironmentContactRosters:
+    def test_contact_roster_exists_for_every_environment(self) -> None:
+        for environment in ENVIRONMENTS:
+            roster = _contacts_for_environment(environment)
+            assert roster["hostile"], f"{environment} has no hostile contact roster"
+
+    @pytest.mark.parametrize(
+        ("environment", "expected_keywords"),
+        [
+            ("sewer", {"rat", "cutpurse", "warden"}),
+            ("voidship", {"raider", "armsman", "pilgrim"}),
+            ("radwastes", {"mutant", "scavenger", "trader"}),
+            ("data_vault", {"intruder", "heretek", "logister"}),
+            ("penal_oubliette", {"convict", "warden", "scribe"}),
+            ("plasma_reactorum", {"reactor", "cultist", "servitor"}),
+        ],
+    )
+    def test_environment_rosters_are_thematic(self, environment: str, expected_keywords: set[str]) -> None:
+        roster = _contacts_for_environment(environment)
+        names = " ".join(
+            archetype.name.lower()
+            for group in roster.values()
+            for archetype in group
+        )
+        assert any(keyword in names for keyword in expected_keywords)
 
 
 # ---------------------------------------------------------------------------

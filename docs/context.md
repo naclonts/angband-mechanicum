@@ -69,7 +69,7 @@ The destination vocabulary is built around an expandable environment catalog, so
 
 - **Text view** (game_screen.py) — fully functional with LLM narrative, portraits, entity tracking
 - **Tactical combat** (combat_screen.py + combat_engine.py) — separate XCOM-style grid combat screen. Will be replaced by unified map view with bump-to-attack
-- **Dungeon generation** (dungeon_gen.py) — procedural multi-room dungeon floors with seeded room contacts, still expanding toward the full exploration loop
+- **Dungeon generation** (dungeon_gen.py) — procedural multi-room dungeon floors with seeded, environment-specific contact rosters, still expanding toward the full exploration loop
 - **Save/load** (save_manager.py) — game state persistence
 - **Entity/history tracking** (history.py) — structured world memory for LLM context
 
