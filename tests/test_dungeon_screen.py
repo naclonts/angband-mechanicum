@@ -7,6 +7,14 @@ import pytest
 
 from angband_mechanicum.app import AngbandMechanicumApp
 from angband_mechanicum.app import DungeonSession
+from angband_mechanicum.engine.combat_engine import CombatStats
+from angband_mechanicum.engine.dungeon_entities import (
+    DungeonDisposition,
+    DungeonEntity,
+    DungeonEntityRoster,
+    DungeonMovementAI,
+)
+from angband_mechanicum.engine.dungeon_gen import GeneratedFloor
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain, FogState
 from angband_mechanicum.engine.game_engine import GameEngine
 from angband_mechanicum.engine.story_starts import StoryStart
@@ -47,6 +55,38 @@ def _make_level() -> DungeonLevel:
     level.player_pos = (2, 2)
     level.compute_fov((2, 2), 1)
     return level
+
+
+def _make_floor_with_contacts() -> GeneratedFloor:
+    level = _make_level()
+    roster = DungeonEntityRoster()
+    entity = DungeonEntity(
+        entity_id="forge-priest",
+        name="Forge Priest",
+        disposition=DungeonDisposition.FRIENDLY,
+        movement_ai=DungeonMovementAI.STATIONARY,
+        can_talk=True,
+        portrait_key="mechanicus_adept",
+        stats=CombatStats(
+            max_hp=6,
+            hp=6,
+            attack=2,
+            armor=1,
+            movement=3,
+            attack_range=1,
+        ),
+        description="A live contact pulled from the generated roster.",
+    )
+    roster.add(entity)
+    entity.place(level, 3, 2)
+    return GeneratedFloor(
+        level=level,
+        rooms=[],
+        environment="forge",
+        entry_room_index=0,
+        exit_room_index=0,
+        entity_roster=roster,
+    )
 
 
 class TestDungeonMapRendering:
@@ -384,6 +424,13 @@ class TestTransitionHelpers:
     def test_game_screen_accepts_conversation_focus(self) -> None:
         screen = GameScreen(speaking_npc_id="skitarius-alpha-7")
         assert screen._speaking_npc_id == "skitarius-alpha-7"
+
+    def test_dungeon_screen_uses_floor_contacts_when_floor_is_provided(self) -> None:
+        floor = _make_floor_with_contacts()
+        screen = DungeonScreen(floor=floor)
+
+        assert [entity.entity_id for entity in screen.state.entities] == ["forge-priest"]
+        assert (screen.state.entities[0].x, screen.state.entities[0].y) == (3, 2)
 
 
 class TestDungeonLookMode:

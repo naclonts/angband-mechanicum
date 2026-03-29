@@ -117,6 +117,7 @@ Primary files:
 - `DungeonScreen` owns or receives a `DungeonMapState`.
 - `DungeonMapState` wraps a persistent `DungeonLevel`, player position, FOV radius, messages, and lightweight map entities.
 - `generate_dungeon_floor()` now seeds a small environment-aware roster of hostile and non-hostile contacts alongside the floor geometry.
+- Fresh sessions and descended floors convert `entity_roster` entries into live map contacts, so generated NPCs persist through movement and save/load.
 - Movement and bump interactions are resolved by `DungeonMapState.attempt_step()`.
 - Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.
 - The screen refreshes the render widgets after each action.
