@@ -11,6 +11,7 @@ Angband Mechanicum — a CLI roguelike where the player is a WH40K Adeptus Mecha
 - Prioritize playability and fun over all else.
 - When code changes, update relevant docs as well.
 - Add tests for large changes or edge cases.
+- For UI layout or text-wrapping fixes, verify the live rendered widget output in addition to unit-level helpers. A fix is not complete if it only proves `Text` flags, mocks, or intermediate formatting objects while the real Textual pane can still overflow at runtime.
 
 ## Architecture: Two-View Model
 
@@ -106,9 +107,10 @@ This project uses **git worktrees** for parallel agent isolation. Each subagent 
 
 1. Parent creates a branch name and worktree path for the ticket, for example `wt/am-5mdw-look-mode`.
 2. Parent or subagent runs `git worktree add <path> -b <branch-name>`.
-3. Subagent `cd`s into that worktree and does all implementation work there.
-4. Subagent must not edit files from the main checkout while the ticket is in progress.
-5. Parent merges the finished branch into `main`, verifies the integrated result from the main checkout, and removes the worktree when done.
+3. Prefer placing agent worktrees under `/tmp/angband-mechanicum-worktrees/` in Codex-style sandboxed environments, for example `/tmp/angband-mechanicum-worktrees/am-5mdw-look-mode`, so the worktree lives on a writable filesystem outside the main checkout.
+4. Subagent `cd`s into that worktree and does all implementation work there.
+5. Subagent must not edit files from the main checkout while the ticket is in progress.
+6. Parent merges the finished branch into `main`, verifies the integrated result from the main checkout, and removes the worktree when done.
 
 **Why this works with `tk`:** Each ticket is its own `.md` file in `.tickets/`. Agents working different tickets edit different files, so git merges cleanly. No locking or coordination primitives needed.
 
