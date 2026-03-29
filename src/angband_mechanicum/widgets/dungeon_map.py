@@ -253,6 +253,8 @@ def render_dungeon_status(
     entities: Sequence[DungeonMapEntity] = (),
     look_cursor: tuple[int, int] | None = None,
     look_summary: str | None = None,
+    target_mode: str | None = None,
+    target_details: Sequence[str] = (),
 ) -> str:
     """Render the side panel for the dungeon screen."""
     px, py = player_pos
@@ -284,20 +286,27 @@ def render_dungeon_status(
         )
     if look_cursor is not None:
         lx, ly = look_cursor
+        mode_label = "FIRE MODE:" if target_mode == "fire" else "LOOK MODE:"
         lines.extend(
             [
                 "",
-                "LOOK MODE:",
+                mode_label,
                 f"  TARGET: ({lx},{ly})",
             ]
         )
         if look_summary:
             lines.append(f"  {look_summary}")
+        for detail in target_details:
+            lines.append(f"  {detail}")
+        if target_mode == "fire":
+            lines.append("  [dim]Enter: fire / Esc: cancel[/dim]")
+        else:
+            lines.append("  [dim]Enter: inspect / Esc: cancel[/dim]")
     else:
         lines.extend(
             [
                 "",
-                "[dim]l: look / Enter: inspect / Esc: cancel[/dim]",
+                "[dim]f: fire / l: look[/dim]",
             ]
         )
     if entities_here:
@@ -419,6 +428,8 @@ class DungeonStatusPane(RichLog):
         get_integrity: Callable[[], tuple[int, int] | None],
         get_look_cursor: Callable[[], tuple[int, int] | None] | None = None,
         get_look_summary: Callable[[], str | None] | None = None,
+        get_target_mode: Callable[[], str | None] | None = None,
+        get_target_details: Callable[[], Sequence[str]] | None = None,
         **kwargs: object,
     ) -> None:
         super().__init__(markup=True, wrap=True, auto_scroll=False, **kwargs)  # type: ignore[arg-type]
@@ -428,11 +439,19 @@ class DungeonStatusPane(RichLog):
         self._get_integrity = get_integrity
         self._get_look_cursor = get_look_cursor
         self._get_look_summary = get_look_summary
+        self._get_target_mode = get_target_mode
+        self._get_target_details = get_target_details
 
     def refresh_status(self) -> None:
         look_cursor = self._get_look_cursor() if self._get_look_cursor is not None else None
         look_summary = (
             self._get_look_summary() if self._get_look_summary is not None else None
+        )
+        target_mode = (
+            self._get_target_mode() if self._get_target_mode is not None else None
+        )
+        target_details = (
+            self._get_target_details() if self._get_target_details is not None else ()
         )
         self.clear()
         self.write(
@@ -443,6 +462,8 @@ class DungeonStatusPane(RichLog):
                 self._get_entities(),
                 look_cursor=look_cursor,
                 look_summary=look_summary,
+                target_mode=target_mode,
+                target_details=target_details,
             )
         )
         self.scroll_home()

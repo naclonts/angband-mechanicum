@@ -116,6 +116,7 @@ class DungeonActionResult:
     target_disposition: str | None = None
     attack_damage: int = 0
     target_defeated: bool = False
+    ranged_attack: bool = False
     player_damage: int = 0
     moved_to: tuple[int, int] | None = None
     scene_art: str | None = None
@@ -131,6 +132,7 @@ class DungeonMapState:
     player_pos: tuple[int, int] | None = None
     fov_radius: int = 8
     player_attack: int = 4
+    player_attack_range: int = 8
     entities: list[DungeonMapEntity] = field(default_factory=list)
     messages: list[str] = field(default_factory=list)
 
@@ -253,6 +255,7 @@ class DungeonMapState:
             "player_pos": list(self.player_pos) if self.player_pos is not None else None,
             "fov_radius": self.fov_radius,
             "player_attack": self.player_attack,
+            "player_attack_range": self.player_attack_range,
             "entities": [entity.to_dict() for entity in self.entities],
             "messages": list(self.messages),
         }
@@ -269,6 +272,7 @@ class DungeonMapState:
             player_pos=player_pos,
             fov_radius=int(data.get("fov_radius", 8)),
             player_attack=int(data.get("player_attack", 4)),
+            player_attack_range=int(data.get("player_attack_range", 8)),
             entities=[
                 DungeonMapEntity.from_dict(entity_data)
                 for entity_data in data.get("entities", [])
@@ -297,6 +301,10 @@ class DungeonMapState:
         self.player_pos = position
         self._apply_position()
         self.recompute_fov()
+
+    def distance_from_player(self, position: tuple[int, int]) -> int:
+        assert self.player_pos is not None
+        return abs(self.player_pos[0] - position[0]) + abs(self.player_pos[1] - position[1])
 
     def move_player(self, dx: int, dy: int) -> bool:
         return self.attempt_step(dx, dy).kind != DungeonInteractionKind.BLOCKED
@@ -328,6 +336,65 @@ class DungeonMapState:
             target_defeated=target_defeated,
             moved_to=self.player_pos if target_defeated else None,
         )
+
+    def attempt_ranged_attack(self, position: tuple[int, int]) -> DungeonActionResult:
+        assert self.player_pos is not None
+        x, y = position
+        if not self.level.in_bounds(x, y):
+            message = "The targeting reticle cannot leave the map."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if self.level.get_tile(x, y).fog != FogState.VISIBLE:
+            message = "That target is not visible."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        entity = self.entity_at(position)
+        if entity is None or entity.disposition != "hostile":
+            message = "No hostile target is locked there."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        distance = self.distance_from_player(position)
+        if distance > self.player_attack_range:
+            message = f"Target out of range ({distance}/{self.player_attack_range})."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if not self.level.line_of_sight(self.player_pos, position):
+            message = "No line of sight to target."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        damage = max(1, self.player_attack - entity.armor)
+        entity.hp = max(0, entity.hp - damage)
+        message = f"You shoot {entity.name} for {damage} damage."
+        target_defeated = entity.hp == 0
+        if target_defeated:
+            self.remove_entity(entity.entity_id)
+            self.level.remove_creature(entity.x, entity.y)
+            message = f"{message} {entity.name} is destroyed."
+        else:
+            message = (
+                f"{message} {entity.name} staggers with "
+                f"{entity.hp}/{entity.max_hp} integrity remaining."
+            )
+        self.append_message(message)
+        result = DungeonActionResult(
+            kind=DungeonInteractionKind.ATTACK,
+            message=message,
+            target_entity_id=entity.entity_id,
+            target_entity_name=entity.name,
+            target_entity_type=entity.entity_type,
+            target_disposition=entity.disposition,
+            attack_damage=damage,
+            target_defeated=target_defeated,
+            ranged_attack=True,
+        )
+        result.interaction_context = self._register_interaction_context(
+            entity,
+            DungeonInteractionKind.ATTACK,
+        )
+        return result
 
     def _conversation_result(self, entity: DungeonMapEntity) -> DungeonActionResult:
         message = f"You address {entity.name}."
@@ -693,6 +760,7 @@ class DungeonScreen(Screen[None]):
         Binding("ctrl+end", "travel_southwest", "Travel southwest", show=False),
         Binding("ctrl+pagedown", "travel_southeast", "Travel southeast", show=False),
         Binding("tab", "cycle_panel", "Cycle panels", show=True, priority=True),
+        Binding("f", "fire", "Fire", show=True),
         Binding("l", "look", "Look", show=True),
         Binding("enter", "confirm_look", "Inspect", show=False),
         Binding("escape", "cancel_look", "Cancel look", show=False),
@@ -704,6 +772,7 @@ class DungeonScreen(Screen[None]):
     HOTKEYS: list[tuple[str, str]] = [
         ("Arrow keys", "Move"),
         ("HJK", "Cardinal movement"),
+        ("F", "Fire at a visible hostile"),
         ("L", "Look"),
         ("Tab", "Cycle focus between dungeon panels"),
         ("Y / U / B / N", "Vi diagonals"),
@@ -731,6 +800,7 @@ class DungeonScreen(Screen[None]):
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._save_manager: SaveManager = SaveManager()
         self._look_mode: bool = False
+        self._fire_mode: bool = False
         self._look_cursor_pos: tuple[int, int] | None = None
         self._last_look_summary: str | None = None
         self._last_examine_title: str | None = None
@@ -829,6 +899,8 @@ class DungeonScreen(Screen[None]):
                     self._get_integrity,
                     self._get_look_cursor,
                     self._get_look_summary,
+                    self._get_target_mode,
+                    self._get_target_details,
                     id="dungeon-status",
                 )
                 yield DungeonTransitionPane(id="dungeon-inspect")
@@ -871,7 +943,21 @@ class DungeonScreen(Screen[None]):
     def _get_look_summary(self) -> str | None:
         if self._look_cursor_pos is None:
             return self._last_look_summary
+        if self._fire_mode:
+            return self._get_fire_target_summary(self._look_cursor_pos)
         return self._state.get_look_summary(self._look_cursor_pos)
+
+    def _get_target_mode(self) -> str | None:
+        if self._fire_mode:
+            return "fire"
+        if self._look_mode:
+            return "look"
+        return None
+
+    def _get_target_details(self) -> Sequence[str]:
+        if not self._fire_mode or self._look_cursor_pos is None:
+            return ()
+        return self._build_fire_target_details(self._look_cursor_pos)
 
     def _refresh_all(self) -> None:
         self.query_one("#dungeon-map", DungeonMapPane).refresh_map()
@@ -1170,7 +1256,7 @@ class DungeonScreen(Screen[None]):
     def _step(self, dx: int, dy: int) -> None:
         if self._death_in_progress:
             return
-        if self._look_mode:
+        if self._look_mode or self._fire_mode:
             self._move_look_cursor(dx, dy)
             return
         result = self._state.attempt_step(dx, dy)
@@ -1400,6 +1486,7 @@ class DungeonScreen(Screen[None]):
         )
 
     def _begin_look_mode(self) -> None:
+        self._fire_mode = False
         self._look_mode = True
         self._look_cursor_pos = self._state.player_pos
         self._last_look_summary = self._state.get_look_summary(self._look_cursor_pos)
@@ -1414,6 +1501,90 @@ class DungeonScreen(Screen[None]):
         self._last_look_summary = None
         self._state.append_message("Look mode cancelled.")
         self._refresh_all()
+
+    def _visible_hostile_targets(self) -> list[DungeonMapEntity]:
+        hostiles = [
+            entity
+            for entity in self._state.entities
+            if entity.alive
+            and entity.disposition == "hostile"
+            and self._state.level.get_tile(entity.x, entity.y).fog == FogState.VISIBLE
+        ]
+        hostiles.sort(
+            key=lambda entity: (
+                self._state.distance_from_player((entity.x, entity.y)),
+                entity.name,
+            )
+        )
+        return hostiles
+
+    def _get_fire_target_summary(self, position: tuple[int, int]) -> str:
+        entity = self._state.entity_at(position)
+        distance = self._state.distance_from_player(position)
+        if entity is None:
+            return f"No hostile target at ({position[0]},{position[1]})."
+        if entity.disposition != "hostile":
+            return f"{entity.name} is not a hostile target."
+        locked = (
+            distance <= self._state.player_attack_range
+            and self._state.level.line_of_sight(self._state.player_pos, position)
+        )
+        status = "locked" if locked else "invalid"
+        return f"{entity.name} ({status})"
+
+    def _build_fire_target_details(self, position: tuple[int, int]) -> list[str]:
+        entity = self._state.entity_at(position)
+        distance = self._state.distance_from_player(position)
+        details = [f"RANGE: {distance}/{self._state.player_attack_range}"]
+        if entity is None:
+            details.append("[dim]No hostile contact on this tile[/dim]")
+            return details
+        if entity.disposition != "hostile":
+            details.append("[dim]Target must be hostile[/dim]")
+            return details
+        if not self._state.level.line_of_sight(self._state.player_pos, position):
+            details.append("[dim]No line of sight[/dim]")
+        elif distance > self._state.player_attack_range:
+            details.append("[dim]Target out of range[/dim]")
+        else:
+            details.append("[dim]Target lock confirmed[/dim]")
+        details.append(f"HP: {entity.hp}/{entity.max_hp}  ARM: {entity.armor}")
+        return details
+
+    def _begin_fire_mode(self) -> None:
+        hostiles = self._visible_hostile_targets()
+        if not hostiles:
+            self._state.append_message("No hostile target is visible.")
+            self._refresh_all()
+            return
+        self._look_mode = False
+        self._fire_mode = True
+        self._look_cursor_pos = (hostiles[0].x, hostiles[0].y)
+        self._last_look_summary = self._get_fire_target_summary(self._look_cursor_pos)
+        self._state.append_message("Fire mode engaged. Move the cursor to a visible hostile.")
+        self._refresh_all()
+
+    def _cancel_fire_mode(self) -> None:
+        if not self._fire_mode:
+            return
+        self._fire_mode = False
+        self._look_cursor_pos = None
+        self._last_look_summary = None
+        self._state.append_message("Fire mode cancelled.")
+        self._refresh_all()
+
+    def _confirm_fire_mode(self) -> None:
+        if not self._fire_mode or self._look_cursor_pos is None:
+            return
+        result = self._state.attempt_ranged_attack(self._look_cursor_pos)
+        if result.kind != DungeonInteractionKind.ATTACK:
+            self._last_look_summary = self._get_fire_target_summary(self._look_cursor_pos)
+            self._refresh_all()
+            return
+        self._fire_mode = False
+        self._look_cursor_pos = None
+        self._last_look_summary = None
+        self._process_step_result(result)
 
     def _sync_entity_history_id(self, entity_id: str, history_entity_id: str | None) -> None:
         if history_entity_id is None:
@@ -1448,7 +1619,7 @@ class DungeonScreen(Screen[None]):
         self._step(1, 1)
 
     def _travel_or_step(self, dx: int, dy: int) -> None:
-        if self._look_mode:
+        if self._look_mode or self._fire_mode:
             self._step(dx, dy)
             return
         self._run_travel(dx, dy)
@@ -1483,7 +1654,16 @@ class DungeonScreen(Screen[None]):
             return
         self._begin_look_mode()
 
+    def action_fire(self) -> None:
+        if self._fire_mode:
+            self._cancel_fire_mode()
+            return
+        self._begin_fire_mode()
+
     def action_confirm_look(self) -> None:
+        if self._fire_mode:
+            self._confirm_fire_mode()
+            return
         if not self._look_mode or self._look_cursor_pos is None:
             return
         position = self._look_cursor_pos
@@ -1498,11 +1678,14 @@ class DungeonScreen(Screen[None]):
         self._run_examine(position)
 
     def action_cancel_look(self) -> None:
+        if self._fire_mode:
+            self._cancel_fire_mode()
+            return
         self._cancel_look_mode()
 
     def on_key(self, event: Key) -> None:
         """Ensure look-mode confirmation still works even if focus changes."""
-        if self._look_mode and event.key in {"enter", "return"}:
+        if (self._look_mode or self._fire_mode) and event.key in {"enter", "return"}:
             self.action_confirm_look()
             event.stop()
             return
