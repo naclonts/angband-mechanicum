@@ -88,20 +88,24 @@ def render_combat_info(engine: CombatEngine) -> str:
     lines.append(f"MAP:   {engine.map_name}")
     lines.append("")
 
-    # All player-team units
-    active_id = engine.active_unit_id
-    player_units = [
-        engine._units[uid] for uid in engine.player_unit_ids
-    ]
-    player_count = sum(1 for u in player_units if u.alive)
-    lines.append(f"[bold]-- PARTY ({player_count} active) --[/bold]")
-    for unit in player_units:
-        is_active = unit.unit_id == active_id
-        lines.extend(_render_unit_block(unit, is_active))
+    # Single-character focus: show the player Tech-Priest first and foremost.
+    player = engine.get_player()
+    lines.append("[bold]-- PLAYER --[/bold]")
+    lines.extend(_render_unit_block(player, True))
     lines.append("")
 
+    companions = [
+        engine._units[uid]
+        for uid in engine.player_unit_ids
+        if uid != "player"
+    ]
+    if companions:
+        lines.append(f"[bold]-- COMPANIONS ({len(companions)}) --[/bold]")
+        for unit in companions:
+            lines.extend(_render_unit_block(unit, False))
+        lines.append("")
+
     # Enemies
-    player = engine.get_player()
     enemies = engine.get_alive_units(UnitTeam.ENEMY)
     lines.append(f"[bold]-- HOSTILES ({len(enemies)}) --[/bold]")
     for e in enemies:
@@ -151,7 +155,6 @@ def render_combat_info(engine: CombatEngine) -> str:
     lines.append("[dim]m: move to cursor[/dim]")
     lines.append("[dim]a/s: attack/shoot at cursor[/dim]")
     lines.append("[dim]p: cast power at cursor[/dim]")
-    lines.append("[dim]Tab: next unit[/dim]")
     lines.append("[dim]e: end turn[/dim]")
     lines.append("[dim]q: retreat (forfeit)[/dim]")
 

@@ -41,7 +41,6 @@ class CombatScreen(Screen[CombatResult]):
         Binding("a", "attack_target", "Attack/Shoot", show=True),
         Binding("s", "attack_target", "Shoot (alias)", show=False),
         Binding("p", "cast_power", "Cast power", show=True),
-        Binding("tab", "next_unit", "Next unit", show=True),
         Binding("e", "end_turn", "End turn", show=True),
         Binding("q", "retreat", "Retreat", show=True),
         Binding("h", "show_help", "Help", show=True),
@@ -52,7 +51,6 @@ class CombatScreen(Screen[CombatResult]):
         ("m", "Move to cursor"),
         ("a / s", "Attack/Shoot at cursor"),
         ("p", "Cast power at cursor"),
-        ("Tab", "Next unit"),
         ("e", "End turn"),
         ("q", "Retreat"),
         ("h", "This help"),
@@ -145,13 +143,6 @@ class CombatScreen(Screen[CombatResult]):
         self._refresh_all()
 
     # -- Player actions ------------------------------------------------------
-
-    def action_next_unit(self) -> None:
-        """Cycle to the next living party unit."""
-        if self._engine.phase != CombatPhase.PLAYER_TURN:
-            return
-        self._engine.cycle_active_unit()
-        self._refresh_all()
 
     def action_move_unit(self) -> None:
         """Move the active player unit to the cursor position."""

@@ -379,12 +379,12 @@ class GameScreen(Screen[None]):
 
             self.query_one("#prompt", PromptInput).focus()
 
-        # Pass current integrity, party, and generated roster into the combat screen
+        # Pass current integrity and generated roster into the combat screen.
+        # Companions now remain map-side NPCs instead of direct combat units.
         self.app.push_screen(
             CombatScreen(
                 player_hp=engine.integrity,
                 player_max_hp=engine.max_integrity,
-                party_ids=engine.party_member_ids,
                 enemy_roster=enemy_roster if enemy_roster else None,
                 map_def=map_def,
                 player_name=engine.player_name,
