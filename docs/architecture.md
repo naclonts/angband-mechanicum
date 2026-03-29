@@ -383,7 +383,6 @@ The tree below focuses on tracked, architecture-relevant files. Generated caches
 |-- .gitignore                          - Git ignore rules.
 |-- .python-version                     - Local Python version pin.
 |-- AGENTS.md                           - Repository-specific instructions for coding agents.
-|-- CLAUDE.md                           - Additional agent guidance for working in this repo.
 |-- README.md                           - Short project intro, requirements, and screenshots.
 |-- pyproject.toml                      - Package metadata, dependencies, script entrypoint, mypy, pytest config.
 |-- uv.lock                             - Locked dependency graph for uv.

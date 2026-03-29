@@ -64,7 +64,8 @@ src/angband_mechanicum/
 This project uses [`ticket`](https://github.com/wedow/ticket) (`tk`) for issue tracking. Tickets are markdown files in `.tickets/`.
 
 ```bash
-tk ls                      # List all open tickets
+tk ls                      # List all tickets
+tk ls | grep '\[open\]'    # List all open tickets
 tk ready                   # Tickets ready to work on (deps resolved)
 tk blocked                 # Tickets waiting on dependencies
 tk show <id>               # View ticket details
@@ -107,7 +108,7 @@ This project uses **git worktrees** for parallel agent isolation. Each subagent 
 
 1. Parent creates a branch name and worktree path for the ticket, for example `wt/am-5mdw-look-mode`.
 2. Parent or subagent runs `git worktree add <path> -b <branch-name>`.
-3. Prefer placing agent worktrees under `/tmp/angband-mechanicum-worktrees/` in Codex-style sandboxed environments, for example `/tmp/angband-mechanicum-worktrees/am-5mdw-look-mode`, so the worktree lives on a writable filesystem outside the main checkout.
+3. Prefer placing agent worktrees under the project-local `.worktrees/` directory, for example `.worktrees/am-5mdw-look-mode`, so all parallel branches stay easy to discover and manage from the repository root.
 4. Subagent `cd`s into that worktree and does all implementation work there.
 5. Subagent must not edit files from the main checkout while the ticket is in progress.
 6. Parent merges the finished branch into `main`, verifies the integrated result from the main checkout, and removes the worktree when done.
