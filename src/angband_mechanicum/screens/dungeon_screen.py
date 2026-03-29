@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -21,6 +22,7 @@ from angband_mechanicum.engine.dungeon_level import (
     transition_terrain_label,
 )
 from angband_mechanicum.engine.history import EntityType
+from angband_mechanicum.engine.save_manager import SaveManager
 from angband_mechanicum.widgets.dungeon_map import (
     DungeonMapEntity,
     DungeonMapPane,
@@ -29,6 +31,8 @@ from angband_mechanicum.widgets.dungeon_map import (
     DungeonStatusPane,
 )
 from angband_mechanicum.widgets.help_overlay import HelpOverlay
+
+logger = logging.getLogger(__name__)
 
 
 class DungeonInteractionKind(enum.Enum):
@@ -443,6 +447,7 @@ class DungeonScreen(Screen[None]):
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._save_manager: SaveManager = SaveManager()
         self._look_mode: bool = False
         self._look_cursor_pos: tuple[int, int] | None = None
         self._last_look_summary: str | None = None
@@ -555,6 +560,23 @@ class DungeonScreen(Screen[None]):
             return
         pane.show_context(self._last_examine_title, self._last_examine_lines)
 
+    def _autosave(self) -> None:
+        """Persist the current dungeon session after a meaningful turn."""
+        try:
+            slot_id: str | None = getattr(self.app, "save_slot", None)  # type: ignore[attr-defined]
+            dungeon_session = getattr(self.app, "dungeon_session", None)  # type: ignore[attr-defined]
+            if not slot_id or dungeon_session is None:
+                return
+            state: dict[str, Any] = self.app.game_engine.to_dict()  # type: ignore[attr-defined]
+            state["mode"] = "dungeon"
+            state["dungeon_session"] = dungeon_session.to_dict()
+            if dungeon_session.story_id is not None:
+                state["story_start_id"] = dungeon_session.story_id
+            self._save_manager.save(slot_id, state)
+            logger.info("Autosaved dungeon turn to slot %s", slot_id)
+        except Exception as exc:
+            logger.error("Dungeon autosave failed: %s", exc)
+
     def _step(self, dx: int, dy: int) -> None:
         if self._look_mode:
             self._move_look_cursor(dx, dy)
@@ -566,8 +588,12 @@ class DungeonScreen(Screen[None]):
             DungeonInteractionKind.OBJECT,
         }:
             self._open_text_view_for_interaction(result)
+            self._autosave()
         elif result.kind == DungeonInteractionKind.TRANSITION:
             self.app.travel_dungeon_transition()  # type: ignore[attr-defined]
+            self._autosave()
+        elif result.kind != DungeonInteractionKind.BLOCKED:
+            self._autosave()
 
     def _move_look_cursor(self, dx: int, dy: int) -> None:
         if self._look_cursor_pos is None:
@@ -732,12 +758,14 @@ class DungeonScreen(Screen[None]):
     def action_confirm_look(self) -> None:
         if not self._look_mode or self._look_cursor_pos is None:
             return
-        if self._state.level.get_tile(*self._look_cursor_pos).fog != FogState.VISIBLE:
+        position = self._look_cursor_pos
+        if self._state.level.get_tile(*position).fog != FogState.VISIBLE:
             self._state.append_message("That target is not visible.")
             self._refresh_all()
             return
         self._look_mode = False
-        self._run_examine(self._look_cursor_pos)
+        self._look_cursor_pos = None
+        self._run_examine(position)
 
     def action_cancel_look(self) -> None:
         self._cancel_look_mode()
@@ -745,6 +773,7 @@ class DungeonScreen(Screen[None]):
     def action_wait(self) -> None:
         self._state.wait()
         self._refresh_all()
+        self._autosave()
 
     def action_show_help(self) -> None:
         self.app.push_screen(

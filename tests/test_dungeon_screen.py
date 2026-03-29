@@ -6,10 +6,12 @@ from rich.text import Text
 import pytest
 
 from angband_mechanicum.app import AngbandMechanicumApp
+from angband_mechanicum.app import DungeonSession
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain, FogState
 from angband_mechanicum.engine.game_engine import GameEngine
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.screens.game_screen import GameScreen
+import angband_mechanicum.screens.dungeon_screen as dungeon_screen_module
 from angband_mechanicum.screens.dungeon_screen import (
     DungeonInteractionKind,
     DungeonMapState,
@@ -394,7 +396,94 @@ class TestDungeonLookMode:
         screen.action_confirm_look()
 
         assert screen._look_mode is False
-        assert screen._look_cursor_pos == (3, 2)
+        assert screen._look_cursor_pos is None
+
+
+class _FakeEngine:
+    def __init__(self) -> None:
+        self.turn_count = 7
+
+    def to_dict(self) -> dict[str, object]:
+        return {"turn_count": self.turn_count}
+
+
+class _FakeSaveManager:
+    def __init__(self) -> None:
+        self.saved: list[tuple[str, dict[str, object]]] = []
+
+    def save(self, slot_id: str, state: dict[str, object]) -> None:
+        self.saved.append((slot_id, state))
+
+
+def _build_autosave_screen(
+    level: DungeonLevel,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[DungeonScreen, _FakeSaveManager, AngbandMechanicumApp]:
+    save_manager = _FakeSaveManager()
+    monkeypatch.setattr(dungeon_screen_module, "SaveManager", lambda: save_manager)
+    screen = DungeonScreen(level=level, player_pos=(2, 2))
+    app = AngbandMechanicumApp()
+    app.game_engine = _FakeEngine()  # type: ignore[assignment]
+    app.save_slot = "slot-1"
+    app.dungeon_session = DungeonSession(state=screen.state)
+    object.__setattr__(screen, "_parent", app)
+    monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+    return screen, save_manager, app
+
+
+class TestDungeonAutosave:
+    def test_movement_autosaves_current_dungeon_session(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        level = _make_level()
+        screen, save_manager, _app = _build_autosave_screen(level, monkeypatch)
+
+        screen._step(1, 0)
+
+        assert len(save_manager.saved) == 1
+        slot_id, payload = save_manager.saved[0]
+        assert slot_id == "slot-1"
+        assert payload["mode"] == "dungeon"
+        assert payload["dungeon_session"]["state"]["player_pos"] == [3, 2]
+
+    def test_blocked_move_does_not_autosave(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        level = _make_level()
+        screen, save_manager, _app = _build_autosave_screen(level, monkeypatch)
+
+        screen._step(3, 0)
+
+        assert save_manager.saved == []
+
+    def test_wait_autosaves_after_rescan(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        level = _make_level()
+        screen, save_manager, _app = _build_autosave_screen(level, monkeypatch)
+
+        screen.action_wait()
+
+        assert len(save_manager.saved) == 1
+        assert save_manager.saved[0][1]["dungeon_session"]["state"]["messages"][-1] == (
+            "You hold position and scan the chamber."
+        )
+
+    def test_transition_autosaves_after_travel_trigger(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        level = _make_level()
+        level.set_terrain(3, 2, DungeonTerrain.STAIRS_DOWN)
+        level.stairs_down = [(3, 2)]
+        screen, save_manager, app = _build_autosave_screen(level, monkeypatch)
+        transition_calls: list[bool] = []
+        app.travel_dungeon_transition = lambda: transition_calls.append(True)  # type: ignore[assignment]
+
+        screen._step(1, 0)
+
+        assert transition_calls == [True]
+        assert len(save_manager.saved) == 1
+        assert save_manager.saved[0][1]["dungeon_session"]["state"]["player_pos"] == [3, 2]
 
 
 class TestDungeonExamineIntegration:
