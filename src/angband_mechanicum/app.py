@@ -234,14 +234,22 @@ class AngbandMechanicumApp(App[None]):
         self.switch_screen(MenuScreen())
 
     def begin_new_game(self, player_name: str, story_start: StoryStart) -> None:
-        """Create engine and dungeon state for a new game, then enter the dungeon."""
+        """Create engine and dungeon state for a new game, then enter text view."""
         engine = GameEngine(player_name=player_name)
         engine.apply_story_start(story_start)
         self.game_engine = engine
         self.save_slot = _generate_slot_id()
         self._story_start = story_start
         self.dungeon_session = self.build_dungeon_session(story_start)
-        self.open_dungeon_view()
+        restored_state = self.dungeon_session.to_text_restore_state(
+            [story_start.intro_narrative],
+            scene_art=story_start.scene_art,
+            info_update=story_start.info_overrides,
+        )
+        self.open_text_view(
+            restored_state=restored_state,
+            story_start=story_start,
+        )
 
     def return_to_dungeon_view(
         self,

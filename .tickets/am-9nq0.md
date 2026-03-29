@@ -1,6 +1,6 @@
 ---
 id: am-9nq0
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-03-29T04:39:27Z
@@ -26,3 +26,7 @@ Clarify intended UX split: explicit player look/examine (`l` then `Enter`) shoul
 **2026-03-29T05:11:42Z**
 
 Related ticket: am-81se covers ambient bottom-right LOS discoveries. This ticket is the explicit player-driven path: l + Enter should open full text view for the selected subject, while ambient panel updates remain occasional and separate.
+
+**2026-03-29T05:22:27Z**
+
+Explicit look examine now bridges into text view and clears the lingering look cursor state; added unit/e2e tests for the path.

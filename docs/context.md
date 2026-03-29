@@ -21,7 +21,7 @@ The existing 4-pane layout: scene art, character portrait, narrative log, and co
 
 ### Transitions Between Views
 - **Map → Text**: Bump a friendly NPC (conversation), interact with a special object (spaceship, terminal), or look/examine something in detail
-- **Text → Map**: LLM narrates arrival at a new location (new dungeon loads), conversation ends (return to map at same position)
+- **Text → Map**: `/explore` returns to the live dungeon session, and narrative responses can also hint that play should resume on the map. New games begin in text view and transition into exploration when the player is ready.
 
 Zone navigation between different areas (forge worlds, different dungeons) happens via text view — no overworld map in v1.
 

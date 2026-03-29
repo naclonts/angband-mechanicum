@@ -652,6 +652,51 @@ class DungeonScreen(Screen[None]):
             restored_state=restored_state,
         )
 
+    def _register_examine_history(self, context: dict[str, Any]) -> tuple[str | None, str | None]:
+        """Return history IDs and speaking context for an explicit examine action."""
+        target_entity_id = context.get("target_entity_id")
+        target_name = str(context.get("target_entity_name") or context.get("target_label") or "Unknown")
+        target_description = str(context.get("target_description") or target_name)
+        target_kind = str(context.get("target_kind", "terrain"))
+        app = self.app
+        history = app.game_engine.history  # type: ignore[attr-defined]
+
+        if target_kind == "character":
+            history_id = context.get("target_entity_history_id") or context.get("target_history_id")
+            if isinstance(history_id, str):
+                history_entity = history.get_entity(history_id)
+                if history_entity is None:
+                    history_id = None
+            if not isinstance(history_id, str):
+                existing_entity = self._state.entity_at(
+                    tuple(context.get("target_position", self._state.player_pos or (0, 0)))
+                )
+                history_id = existing_entity.history_entity_id if existing_entity is not None else None
+            if isinstance(history_id, str):
+                history_entity = history.get_entity(history_id)
+                if history_entity is None:
+                    history_id = None
+            if not isinstance(history_id, str):
+                history_entity = history.register_entity(
+                    name=target_name,
+                    entity_type=EntityType.CHARACTER,
+                    description=target_description,
+                )
+                history_id = history_entity.id
+            if isinstance(target_entity_id, str):
+                self._sync_entity_history_id(target_entity_id, history_id)
+            speaking_npc_id = history_id if context.get("target_can_talk") else None
+            return history_id, speaking_npc_id
+
+        history_entity = history.register_entity(
+            name=target_name,
+            entity_type=EntityType.PLACE,
+            description=target_description,
+        )
+        if isinstance(target_entity_id, str):
+            self._sync_entity_history_id(target_entity_id, history_entity.id)
+        return history_entity.id, None
+
     @work(exclusive=True)
     async def _run_examine(self, position: tuple[int, int]) -> None:
         context = self._state.build_examine_context(position)
@@ -665,15 +710,22 @@ class DungeonScreen(Screen[None]):
         self._last_look_summary = str(context.get("look_summary", ""))
         engine = self.app.game_engine  # type: ignore[attr-defined]
         response = await engine.examine_dungeon_target(context)
-        title = str(context.get("target_label", "Examination"))
-        self._last_examine_title = f"⛨ {title.upper()}"
-        self._last_examine_lines = []
-        if response.scene_art:
-            self._last_examine_lines.extend(response.scene_art.splitlines())
-            self._last_examine_lines.append("")
-        self._last_examine_lines.append(response.narrative_text)
-        self._state.append_message(response.narrative_text)
-        self._refresh_all()
+        interaction_target, speaking_npc_id = self._register_examine_history(context)
+        restored_state = self.build_text_view_context(
+            response.narrative_text,
+            scene_art=response.scene_art,
+        )
+        if response.info_update:
+            restored_state["info_update"] = dict(response.info_update)
+        restored_state.update(context)
+        restored_state["interaction_kind"] = "examine"
+        if interaction_target is not None:
+            restored_state["interaction_target"] = interaction_target
+            restored_state["interaction_entity_history_id"] = interaction_target
+        self.app.open_text_view(  # type: ignore[attr-defined]
+            restored_state=restored_state,
+            speaking_npc_id=speaking_npc_id,
+        )
 
     def _begin_look_mode(self) -> None:
         self._look_mode = True
@@ -736,8 +788,11 @@ class DungeonScreen(Screen[None]):
             self._state.append_message("That target is not visible.")
             self._refresh_all()
             return
+        position = self._look_cursor_pos
         self._look_mode = False
-        self._run_examine(self._look_cursor_pos)
+        self._look_cursor_pos = None
+        self._last_look_summary = None
+        self._run_examine(position)
 
     def action_cancel_look(self) -> None:
         self._cancel_look_mode()
