@@ -81,6 +81,7 @@ tk dep <id> <dep-id>       # Declare id depends on dep-id
 5. If your agent platform does **not** expose a worktree/isolation flag, the parent/orchestration agent must still instruct each implementation subagent to create and use its own git worktree manually. "The tool did not offer isolation" is not a valid reason to skip worktrees.
 6. If you cannot create a worktree for a subagent, do **not** delegate implementation work to that subagent. Keep the edits local or use the subagent only for read-only analysis.
 7. Do the work. Use `tk add-note <id> "text"` to leave context for other agents.
+  - Complete tasks to the best of your ability with logic and creativity. If you see other issues that are outside the scope of your task or would be major improvements, create tickets for them with `tk`.
 8. Run `tk close <id>` when done.
 9. Reference ticket IDs in commit messages (e.g., `am-hsdv: wire up LLM engine`).
 10. Parent agent must merge the worktree branch back to `main` after the subagent completes, verify the merged result on `main`, and only then consider the ticket fully integrated.
