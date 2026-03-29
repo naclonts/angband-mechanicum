@@ -185,8 +185,15 @@ class TestDungeonScreenBindings:
             "ctrl+pageup",
             "ctrl+end",
             "ctrl+pagedown",
+            "5",
         }
         assert expected <= keys
+
+    def test_wait_binding_includes_numpad_five(self) -> None:
+        bindings = {binding.key: binding.action for binding in DungeonScreen.BINDINGS}
+
+        assert bindings["5"] == "wait"
+        assert bindings["space"] == "wait"
 
     def test_help_text_lists_each_diagonal_direction(self) -> None:
         hotkeys = dict(DungeonScreen.HOTKEYS)
@@ -200,6 +207,7 @@ class TestDungeonScreenBindings:
             hotkeys["Ctrl + arrows / HJKYUBN / 7-9-1-3 / Home-PgUp-End-PgDn"]
             == "Travel until something interesting happens"
         )
+        assert hotkeys["5 / Space"] == "Wait / rescan"
 
     def test_non_map_panels_are_focusable(self) -> None:
         assert DungeonMessageLog.can_focus is True
@@ -416,7 +424,7 @@ class TestDungeonMapState:
         assert reports[0].attacked_player is False
         assert reports[0].moved_to == (2, 2)
         assert state.entities[0].position == (2, 2)
-        assert state.messages[-1].startswith("Rogue Servitor moves")
+        assert state.messages == []
 
     def test_advance_creature_turns_applies_ranged_attack_report(self) -> None:
         level = _make_level()
@@ -445,7 +453,61 @@ class TestDungeonMapState:
         assert reports[0].attack_damage == 5
         assert reports[0].moved_to is None
         assert state.entities[0].position == (1, 2)
-        assert state.messages[-1].startswith("Loota attacks")
+        assert state.messages[-1] == "Loota attacks the player for 5 damage."
+
+    def test_advance_creature_turns_logs_visible_movement(self) -> None:
+        level = _make_level()
+        level.player_pos = (2, 2)
+        level.compute_fov((2, 2), 2)
+
+        hostile = DungeonMapEntity(
+            entity_id="rogue-servitor",
+            name="Rogue Servitor",
+            x=5,
+            y=2,
+            disposition="hostile",
+            movement_ai="aggressive",
+            hp=6,
+            max_hp=6,
+            attack=3,
+            movement=3,
+            attack_range=1,
+            armor=0,
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=2, entities=[hostile])
+
+        reports = state.advance_creature_turns()
+
+        assert reports[0].attacked_player is False
+        assert reports[0].moved_to == (4, 2)
+        assert state.messages[-1] == "Rogue Servitor moves to 4,2."
+
+    def test_advance_creature_turns_suppresses_hidden_movement_logs(self) -> None:
+        level = _make_level()
+        level.player_pos = (2, 2)
+        level.compute_fov((2, 2), 1)
+
+        hostile = DungeonMapEntity(
+            entity_id="rogue-servitor",
+            name="Rogue Servitor",
+            x=5,
+            y=2,
+            disposition="hostile",
+            movement_ai="aggressive",
+            hp=6,
+            max_hp=6,
+            attack=3,
+            movement=3,
+            attack_range=1,
+            armor=0,
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=1, entities=[hostile])
+
+        reports = state.advance_creature_turns()
+
+        assert reports[0].attacked_player is False
+        assert reports[0].moved_to == (4, 2)
+        assert state.messages == []
 
     def test_hostile_bump_attacks_and_clears_tile(self) -> None:
         level = _make_level()
@@ -467,9 +529,36 @@ class TestDungeonMapState:
         assert result.kind == DungeonInteractionKind.ATTACK
         assert result.attack_damage == 4
         assert result.target_defeated is True
-        assert state.player_pos == (3, 2)
+        assert state.player_pos == (2, 2)
         assert state.entity_at((3, 2)) is None
-        assert "destroyed" in state.messages[-1]
+        assert level.get_creature(3, 2) is None
+        assert state.messages[-1] == "You strike Rogue Servitor for 4 damage. Rogue Servitor is destroyed."
+
+    def test_hostile_bump_attack_without_kill_keeps_player_in_place(self) -> None:
+        level = _make_level()
+        hostile = DungeonMapEntity(
+            entity_id="rogue-servitor",
+            name="Rogue Servitor",
+            x=3,
+            y=2,
+            disposition="hostile",
+            hp=6,
+            max_hp=6,
+            attack=2,
+            armor=0,
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[hostile])
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.ATTACK
+        assert result.attack_damage == 4
+        assert result.target_defeated is False
+        assert state.player_pos == (2, 2)
+        assert state.entity_at((3, 2)) is hostile
+        assert state.messages[-1] == (
+            "You strike Rogue Servitor for 4 damage. Rogue Servitor reels with 2/6 integrity remaining."
+        )
 
     def test_friendly_bump_prompts_conversation(self) -> None:
         level = _make_level()
@@ -564,7 +653,8 @@ class TestDungeonMapState:
 
         assert result.kind == DungeonInteractionKind.ATTACK
         assert should_continue is False
-        assert state.player_pos == (3, 2)
+        assert state.player_pos == (2, 2)
+        assert state.entity_at((3, 2)) is None
 
     def test_travel_step_stops_when_object_is_spotted(self) -> None:
         level = _make_level()

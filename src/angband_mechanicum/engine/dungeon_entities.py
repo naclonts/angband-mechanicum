@@ -561,7 +561,7 @@ class DungeonEntity:
 
         message: str
         if attacked_player:
-            message = f"{self.name} attacks from {distance} tiles away."
+            message = f"{self.name} attacks the player for {attack_damage} damage."
         elif moved_to is not None and moved_to != position_before:
             message = f"{self.name} moves to {moved_to[0]},{moved_to[1]}."
         elif sensed:

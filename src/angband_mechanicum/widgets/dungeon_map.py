@@ -309,7 +309,7 @@ def render_dungeon_status(
         [
             "",
             "[dim]ARROWS / HJKL: move[/dim]",
-            "[dim]. or space: wait[/dim]",
+            "[dim]. / 5 / space: wait[/dim]",
             "[dim]F1: help[/dim]",
         ]
     )

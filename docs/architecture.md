@@ -125,6 +125,7 @@ Primary files:
 - Door placement only promotes tiles that still read as genuine chokepoints, and it skips sparse candidate sets so small rooms do not get forced doors.
 - Fresh sessions and descended floors convert `entity_roster` entries into live map contacts, so generated NPCs persist through movement and save/load.
 - Creature turns now advance from the dungeon map itself, with hostile pursuit, ranged engagement, and idle/search transitions driven by the live map state instead of the legacy combat screen.
+- Creature log lines are gated by the player's current LOS/FOV perception so off-screen movement stays quiet while visible attacks and movement still surface in the field log.
 - Movement and bump interactions are resolved by `DungeonMapState.attempt_step()`.
 - Ctrl+direction travel reuses the same step resolution and stops when the path opens up, a contact appears, or combat/terrain interrupts control.
 - Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.

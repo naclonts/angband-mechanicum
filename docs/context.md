@@ -14,6 +14,7 @@ A CLI roguelike set in the Warhammer 40K universe. The player is an Adeptus Mech
 ### Map View (dungeon exploration + combat)
 Roguelike overhead tile map. The player (@) moves through persistent dungeon levels using numpad/vi-keys. Combat is Angband-style bump-to-attack on the same map — no separate combat screen. FOV/line-of-sight determines visibility. NPCs, items, and terrain features populate the dungeon.
 Holding Ctrl while moving engages travel mode and keeps stepping in that direction until something notable appears or the route becomes blocked. Diagonal ctrl-travel covers the vi, numpad, and navigation-key aliases where supported.
+Wait is available on both space and numpad 5, spending a turn without moving.
 The dungeon viewport follows the player so large levels stay centered in the terminal instead of rendering from a fixed top-left corner.
 Transition tiles are part of the dungeon itself: stairs, lifts, elevators, gates, and portals move the player between persistent levels or themed areas while preserving the session stack.
 The bottom-right inspect panel now also surfaces occasional ambient line-of-sight discoveries for nearby characters, objects, and notable features while explicit look/examine still routes into text view.
@@ -23,6 +24,7 @@ When ambient responses include both `scene_art` and `narrative_text`, the art is
 The dungeon status pane shows gameplay-relevant player status, especially HP/integrity, instead of a log-entry count.
 Tab cycles focus between the map, field log, and side panels so the non-map panes can be scrolled without losing movement controls.
 Creature turns now advance on the map after player actions: hostiles pursue or hold range based on line of sight, while friendly and neutral actors can follow, patrol, or wander in scenario-appropriate ways.
+The field log only records creature events the player could actually perceive in the current FOV/LOS window, so hidden movement stays silent while visible actions still report their results and damage.
 
 ### Text View (narrative + dialogue + travel)
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.

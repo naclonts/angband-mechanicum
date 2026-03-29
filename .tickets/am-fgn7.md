@@ -1,6 +1,6 @@
 ---
 id: am-fgn7
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-03-29T20:12:46Z

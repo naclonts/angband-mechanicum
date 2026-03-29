@@ -156,6 +156,21 @@ class DungeonMapState:
     def append_message(self, text: str) -> None:
         self.messages.append(text)
 
+    def _tile_is_visible(self, position: tuple[int, int] | None) -> bool:
+        if position is None:
+            return False
+        x, y = position
+        return self.level.in_bounds(x, y) and self.level.get_tile(x, y).fog == FogState.VISIBLE
+
+    def _should_log_turn_result(
+        self,
+        current_position: tuple[int, int] | None,
+        result: DungeonTurnResult,
+    ) -> bool:
+        if self._tile_is_visible(current_position):
+            return True
+        return self._tile_is_visible(result.moved_to)
+
     def build_examine_context(self, position: tuple[int, int]) -> dict[str, Any]:
         """Build a structured context payload for a look/examine action."""
         x, y = position
@@ -293,8 +308,7 @@ class DungeonMapState:
         if target_defeated:
             self.remove_entity(entity.entity_id)
             self.level.remove_creature(entity.x, entity.y)
-            self._move_player_to((entity.x, entity.y))
-            message = f"{message} {entity.name} is destroyed and the way is clear."
+            message = f"{message} {entity.name} is destroyed."
         else:
             message = (
                 f"{message} {entity.name} reels with "
@@ -590,7 +604,7 @@ class DungeonMapState:
             elif current_position is not None:
                 occupied.add(current_position)
 
-            if plan.message:
+            if plan.message and self._should_log_turn_result(current_position, plan):
                 self.append_message(plan.message)
             reports.append(plan)
 
@@ -672,6 +686,7 @@ class DungeonScreen(Screen[None]):
         Binding("l", "look", "Look", show=True),
         Binding("enter", "confirm_look", "Inspect", show=False),
         Binding("escape", "cancel_look", "Cancel look", show=False),
+        Binding("5", "wait", "Wait", show=False),
         Binding("space", "wait", "Wait", show=True),
         Binding("f1", "show_help", "Help", show=True),
     ]
@@ -689,7 +704,7 @@ class DungeonScreen(Screen[None]):
         ("Ctrl + arrows / HJKYUBN / 7-9-1-3 / Home-PgUp-End-PgDn", "Travel until something interesting happens"),
         ("Enter", "Inspect target"),
         ("Esc", "Cancel look mode"),
-        ("Space", "Wait / rescan"),
+        ("5 / Space", "Wait / rescan"),
         ("F1", "Help"),
     ]
 
