@@ -15,7 +15,7 @@ from typing import Any
 import anthropic
 from anthropic.types import MessageParam
 
-from angband_mechanicum.assets.placeholder_art import INTRO_NARRATIVE
+from angband_mechanicum.assets.placeholder_art import INTRO_NARRATIVE as DEFAULT_INTRO_NARRATIVE
 from angband_mechanicum.engine.combat_engine import (
     CombatResult,
     ENEMY_TEMPLATES,
@@ -207,11 +207,21 @@ characters who act, places the player is in or moves to, and items that are used
 - Return an empty array [] if no entities are relevant to this response
 """
 
-_STORY_SUFFIX: str = """
+def _strip_rich_markup(text: str) -> str:
+    """Strip Rich markup tags from text for use in LLM prompts."""
+    return (
+        text.replace("[bold]", "")
+        .replace("[/bold]", "")
+        .replace("[dim]", "")
+        .replace("[/dim]", "")
+    )
+
+
+_DEFAULT_STORY_SUFFIX: str = """
 ## Story So Far
 The player has just received this introduction:
 
-""" + INTRO_NARRATIVE.replace("[bold]", "").replace("[/bold]", "").replace("[dim]", "").replace("[/dim]", "")
+""" + _strip_rich_markup(DEFAULT_INTRO_NARRATIVE)
 
 
 NOOSPHERE_ERRORS: list[str] = [
@@ -262,6 +272,8 @@ class GameEngine:
         self._integrity: int = 20
         self._max_integrity: int = 20
         self._party_hp: dict[str, tuple[int, int]] = self._init_party_hp()
+        self._story_suffix: str = _DEFAULT_STORY_SUFFIX
+        self._story_start_id: str | None = None
 
     def set_scene_pane_size(self, width: int, height: int) -> None:
         """Update the scene pane dimensions used in LLM prompts.
@@ -299,6 +311,24 @@ class GameEngine:
                 s = PARTY_TEMPLATES[pid]["stats"]
                 result[pid] = (s["hp"], s["max_hp"])
         return result
+
+    def apply_story_start(self, story: Any) -> None:
+        """Configure the engine for a specific story starting scenario.
+
+        Parameters
+        ----------
+        story:
+            A :class:`~angband_mechanicum.engine.story_starts.StoryStart`
+            instance. Uses ``Any`` type to avoid circular import at
+            module level.
+        """
+        self._story_start_id = story.id
+        self._story_suffix = (
+            "\n## Story So Far\nThe player has just received this introduction:\n\n"
+            + _strip_rich_markup(story.intro_narrative)
+        )
+        if story.info_overrides:
+            self._info_panel = dict(story.info_overrides)
 
     @property
     def party_hp(self) -> dict[str, tuple[int, int]]:
@@ -368,7 +398,7 @@ class GameEngine:
             "{player_name}", self._player_name
         ) + _build_scene_art_instructions(
             self._scene_pane_width, self._scene_pane_height
-        ) + _STORY_SUFFIX
+        ) + self._story_suffix
         registry_context = self._history.get_registry_context()
         if registry_context:
             prompt += "\n\n" + registry_context
@@ -702,6 +732,8 @@ You MUST respond with ONLY a valid JSON object, no other text:
             "max_integrity": self._max_integrity,
             "party_member_ids": list(self._party_member_ids),
             "party_hp": {k: list(v) for k, v in self._party_hp.items()},
+            "story_start_id": self._story_start_id,
+            "story_suffix": self._story_suffix,
         }
 
     @classmethod
@@ -723,6 +755,8 @@ You MUST respond with ONLY a valid JSON object, no other text:
         engine._scene_pane_height = DEFAULT_ART_HEIGHT
         engine._max_integrity = data.get("max_integrity", 20)
         engine._integrity = data.get("integrity", engine._max_integrity)
+        engine._story_start_id = data.get("story_start_id")
+        engine._story_suffix = data.get("story_suffix", _DEFAULT_STORY_SUFFIX)
         history_data = data.get("history")
         if history_data:
             engine._history = GameHistory.from_dict(history_data)

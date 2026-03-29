@@ -20,6 +20,7 @@ from angband_mechanicum.assets.placeholder_art import (
     TECHPRIEST_PORTRAIT,
 )
 from angband_mechanicum.engine.combat_engine import CombatResult
+from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.engine.save_manager import SaveManager
 from angband_mechanicum.screens.combat_screen import CombatScreen
 from angband_mechanicum.widgets.help_overlay import HelpOverlay
@@ -48,10 +49,12 @@ class GameScreen(Screen[None]):
     def __init__(
         self,
         restored_state: dict[str, Any] | None = None,
+        story_start: StoryStart | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._restored_state: dict[str, Any] | None = restored_state
+        self._story_start: StoryStart | None = story_start
         self._save_manager: SaveManager = SaveManager()
         self._narrative_log: list[str] = []
         self._pending_room_hint: dict | None = None
@@ -59,7 +62,8 @@ class GameScreen(Screen[None]):
         self._showing_npc_portrait: bool = False
 
     def compose(self) -> ComposeResult:
-        yield ScenePane(FORGE_SCENE, id="scene")
+        initial_scene = self._story_start.scene_art if self._story_start else FORGE_SCENE
+        yield ScenePane(initial_scene, id="scene")
         yield PortraitPane(TECHPRIEST_PORTRAIT, id="portrait")
         yield NarrativePane(id="narrative")
         yield Vertical(
@@ -77,11 +81,15 @@ class GameScreen(Screen[None]):
         if self._restored_state:
             self._restore_ui(self._restored_state)
         else:
-            self.query_one("#narrative", NarrativePane).append_narrative(INTRO_NARRATIVE)
-            self._narrative_log.append(INTRO_NARRATIVE)
-            # Initialize engine info panel with defaults for save tracking
+            intro = self._story_start.intro_narrative if self._story_start else INTRO_NARRATIVE
+            self.query_one("#narrative", NarrativePane).append_narrative(intro)
+            self._narrative_log.append(intro)
+            # Initialize engine info panel with story overrides or player-name defaults
             engine = self.app.game_engine  # type: ignore[attr-defined]
-            engine._info_panel = default_info(engine.player_name)
+            if self._story_start and self._story_start.info_overrides:
+                engine._info_panel = dict(self._story_start.info_overrides)
+            else:
+                engine._info_panel = default_info(engine.player_name)
 
         # Push deterministic status (integrity + party HP) to the panel
         self._push_status_to_panel()

@@ -53,12 +53,22 @@ class MenuScreen(Screen[None]):
         from angband_mechanicum.screens.character_setup_screen import CharacterSetupScreen
 
         def on_name_chosen(name: str) -> None:
-            from angband_mechanicum.engine.game_engine import GameEngine
-            from angband_mechanicum.screens.game_screen import GameScreen
+            from angband_mechanicum.engine.story_starts import StoryStart
+            from angband_mechanicum.screens.story_select_screen import StorySelectScreen
 
-            self.app.game_engine = GameEngine(player_name=name)  # type: ignore[attr-defined]
-            self.app.save_slot = _generate_slot_id()  # type: ignore[attr-defined]
-            self.app.switch_screen(GameScreen())
+            def on_story_selected(story: StoryStart | None) -> None:
+                if story is None:
+                    return
+                from angband_mechanicum.engine.game_engine import GameEngine
+                from angband_mechanicum.screens.game_screen import GameScreen
+
+                engine = GameEngine(player_name=name)
+                engine.apply_story_start(story)
+                self.app.game_engine = engine  # type: ignore[attr-defined]
+                self.app.save_slot = _generate_slot_id()  # type: ignore[attr-defined]
+                self.app.switch_screen(GameScreen(story_start=story))
+
+            self.app.push_screen(StorySelectScreen(), callback=on_story_selected)
 
         self.app.push_screen(CharacterSetupScreen(), callback=on_name_chosen)
 
