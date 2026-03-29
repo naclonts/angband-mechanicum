@@ -157,9 +157,16 @@ class AngbandMechanicumApp(App[None]):
         *,
         restored_state: dict[str, Any] | None = None,
         story_start: StoryStart | None = None,
+        speaking_npc_id: str | None = None,
     ) -> None:
         """Switch to the narrative screen with optional restored UI state."""
-        self.switch_screen(GameScreen(restored_state=restored_state, story_start=story_start))
+        self.switch_screen(
+            GameScreen(
+                restored_state=restored_state,
+                story_start=story_start,
+                speaking_npc_id=speaking_npc_id,
+            )
+        )
 
     def begin_new_game(self, player_name: str, story_start: StoryStart) -> None:
         """Create engine and dungeon state for a new game, then enter the dungeon."""

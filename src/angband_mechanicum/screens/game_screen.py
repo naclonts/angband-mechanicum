@@ -50,11 +50,13 @@ class GameScreen(Screen[None]):
         self,
         restored_state: dict[str, Any] | None = None,
         story_start: StoryStart | None = None,
+        speaking_npc_id: str | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self._restored_state: dict[str, Any] | None = restored_state
         self._story_start: StoryStart | None = story_start
+        self._speaking_npc_id: str | None = speaking_npc_id
         self._save_manager: SaveManager = SaveManager()
         self._narrative_log: list[str] = []
         self._pending_room_hint: dict | None = None
@@ -93,6 +95,8 @@ class GameScreen(Screen[None]):
 
         # Push deterministic status (integrity + party HP) to the panel
         self._push_status_to_panel()
+        if self._speaking_npc_id:
+            self._update_speaking_portrait(self._speaking_npc_id)
 
         self.query_one("#prompt", PromptInput).focus()
         # Push initial pane dimensions to the engine after layout

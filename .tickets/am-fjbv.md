@@ -1,6 +1,6 @@
 ---
 id: am-fjbv
-status: open
+status: in_progress
 deps: [am-ky9z, am-mq4t, am-bw0g]
 links: []
 created: 2026-03-29T02:49:24Z
@@ -20,3 +20,9 @@ When the player walks into an entity on the dungeon map, trigger context-appropr
 
 The text view transitions are the key bridge between the two modes — map view handles tactical/spatial gameplay, text view handles narrative/dialogue/travel.
 
+
+## Notes
+
+**2026-03-29T04:17:14Z**
+
+Implemented bump interactions in the dungeon map flow: hostile bumps resolve in-map melee, friendly bumps open text view for conversation, object bumps open text view with object context, and neutral bumps stay local with a description only. Verified with uv run pytest tests/test_dungeon_screen.py tests/test_e2e.py.
