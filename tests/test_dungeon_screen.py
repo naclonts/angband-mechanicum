@@ -586,6 +586,10 @@ class TestTransitionHelpers:
 
         assert screen._build_active_interaction_context() is None
 
+    def test_game_screen_detects_travel_request(self) -> None:
+        assert GameScreen._looks_like_travel_request("Take me to the sewer tunnels.") is True
+        assert GameScreen._looks_like_travel_request("Look around the chamber.") is False
+
     def test_dungeon_screen_uses_floor_contacts_when_floor_is_provided(self) -> None:
         floor = _make_floor_with_contacts()
         screen = DungeonScreen(floor=floor)

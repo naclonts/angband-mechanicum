@@ -11,7 +11,7 @@ from typing import Any
 
 from textual.app import App
 
-from angband_mechanicum.engine.game_engine import GameEngine
+from angband_mechanicum.engine.game_engine import GameEngine, TravelDestination
 from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager
 from angband_mechanicum.engine.dungeon_level import transition_terrain_label
 from angband_mechanicum.engine.story_starts import StoryStart
@@ -24,7 +24,7 @@ from angband_mechanicum.screens.dungeon_screen import (
 from angband_mechanicum.screens.hall_of_dead_screen import HallOfDeadScreen
 from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.menu_screen import MenuScreen
-from angband_mechanicum.engine.dungeon_gen import generate_dungeon_floor
+from angband_mechanicum.engine.dungeon_gen import GeneratedFloor, generate_dungeon_floor
 from angband_mechanicum.theme import CRT_GREEN
 
 logger: logging.Logger = logging.getLogger(__name__)
@@ -61,6 +61,9 @@ class DungeonSession:
     story_id: str | None = None
     location: str | None = None
     intro_narrative: str | None = None
+    destination_query: str | None = None
+    destination_environment: str | None = None
+    destination_label: str | None = None
     pending_text_context: dict[str, Any] = field(default_factory=dict)
     level_stack: list[str] = field(default_factory=list)
     level_states: dict[str, DungeonMapState] = field(default_factory=dict)
@@ -68,7 +71,7 @@ class DungeonSession:
     def __post_init__(self) -> None:
         self.level_states.setdefault(self.state.level.level_id, self.state)
         if self.location is None:
-            self.location = self.state.level.name
+            self.location = self.destination_label or self.state.level.name
 
     def snapshot_current_state(self) -> None:
         """Remember the live dungeon state under its level ID."""
@@ -82,6 +85,9 @@ class DungeonSession:
             "story_id": self.story_id,
             "location": self.location,
             "intro_narrative": self.intro_narrative,
+            "destination_query": self.destination_query,
+            "destination_environment": self.destination_environment,
+            "destination_label": self.destination_label,
             "pending_text_context": dict(self.pending_text_context),
             "level_stack": list(self.level_stack),
             "level_states": {
@@ -107,8 +113,11 @@ class DungeonSession:
         return cls(
             state=state,
             story_id=data.get("story_id"),
-            location=data.get("location") or state.level.name,
+            location=data.get("location") or data.get("destination_label") or state.level.name,
             intro_narrative=data.get("intro_narrative"),
+            destination_query=data.get("destination_query"),
+            destination_environment=data.get("destination_environment"),
+            destination_label=data.get("destination_label"),
             pending_text_context=dict(data.get("pending_text_context", {})),
             level_stack=[str(level_id) for level_id in data.get("level_stack", [])],
             level_states=level_states,
@@ -151,6 +160,34 @@ class AngbandMechanicumApp(App[None]):
     # ------------------------------------------------------------------
     # View bridge helpers
     # ------------------------------------------------------------------
+
+    def _build_session_from_floor(
+        self,
+        floor: GeneratedFloor,
+        *,
+        story_id: str | None = None,
+        location: str | None = None,
+        intro_narrative: str | None = None,
+        destination_query: str | None = None,
+        destination_environment: str | None = None,
+        destination_label: str | None = None,
+        messages: list[str] | None = None,
+    ) -> DungeonSession:
+        """Create a DungeonSession from a generated floor."""
+        return DungeonSession(
+            state=DungeonMapState(
+                level=floor.level,
+                player_pos=floor.level.player_pos,
+                entities=build_map_entities_from_roster(floor.entity_roster),
+                messages=list(messages or []),
+            ),
+            story_id=story_id,
+            location=location or floor.level.name,
+            intro_narrative=intro_narrative,
+            destination_query=destination_query,
+            destination_environment=destination_environment,
+            destination_label=destination_label,
+        )
 
     @staticmethod
     def _infer_dungeon_environment(story_start: StoryStart | None) -> str:
@@ -195,17 +232,48 @@ class AngbandMechanicumApp(App[None]):
             seed=seed,
         )
         messages = [story_start.intro_narrative] if story_start else []
-        return DungeonSession(
-            state=DungeonMapState(
-                level=floor.level,
-                player_pos=floor.level.player_pos,
-                entities=build_map_entities_from_roster(floor.entity_roster),
-                messages=messages,
-            ),
+        return self._build_session_from_floor(
+            floor,
             story_id=story_start.id if story_start else None,
             location=floor.level.name,
             intro_narrative=story_start.intro_narrative if story_start else None,
+            messages=messages,
         )
+
+    def build_destination_session(self, request_text: str) -> tuple[DungeonSession, TravelDestination]:
+        """Create a dungeon session for a requested travel destination."""
+        destination = self.game_engine.resolve_travel_destination(request_text)
+        existing_story_id = None
+        if self.dungeon_session is not None:
+            existing_story_id = self.dungeon_session.story_id
+        if existing_story_id is None:
+            existing_story_id = self._story_start.id if self._story_start else None
+
+        level_id = f"travel:{destination.environment}:{zlib.adler32(request_text.encode('utf-8'))}"
+        seed = zlib.adler32(f"{destination.environment}:{request_text}".encode("utf-8"))
+        floor = generate_dungeon_floor(
+            level_id=level_id,
+            depth=1,
+            environment=destination.environment,
+            name=destination.display_name,
+            seed=seed,
+        )
+        session = self._build_session_from_floor(
+            floor,
+            story_id=existing_story_id,
+            location=destination.display_name,
+            destination_query=request_text,
+            destination_environment=destination.environment,
+            destination_label=destination.display_name,
+        )
+        self.dungeon_session = session
+        return session, destination
+
+    def travel_to_destination(self, request_text: str) -> TravelDestination:
+        """Resolve a travel request and mount a matching dungeon session."""
+        session, destination = self.build_destination_session(request_text)
+        self.dungeon_session = session
+        return destination
 
     def open_dungeon_view(self, *, seed_story: StoryStart | None = None) -> None:
         """Switch to the dungeon screen, creating a session if needed."""

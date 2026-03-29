@@ -25,10 +25,11 @@ Tab cycles focus between the map, field log, and side panels so the non-map pane
 ### Text View (narrative + dialogue + travel)
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.
 When the player is directly speaking to or closely examining a specific character, the scene art can center that character instead of only showing the broader surroundings.
+Travel requests entered in text view are resolved to the closest supported dungeon environment, then a matching dungeon session is generated and mounted on arrival.
 
 ### Transitions Between Views
 - **Map → Text**: Bump a friendly NPC (conversation), interact with a special object (spaceship, terminal), or look/examine something in detail
-- **Text → Map**: `/explore` returns to the live dungeon session, and narrative responses can also hint that play should resume on the map. New games begin in text view and transition into exploration when the player is ready.
+- **Text → Map**: `/explore` returns to the live dungeon session, travel requests can resolve to a new destination dungeon, and narrative responses can also hint that play should resume on the map. New games begin in text view and transition into exploration when the player is ready.
 
 Zone navigation between different areas (forge worlds, different dungeons) happens via text view — no overworld map in v1.
 The destination vocabulary is built around an expandable environment catalog, so future travel matching can resolve natural-language destinations onto the closest supported dungeon type.

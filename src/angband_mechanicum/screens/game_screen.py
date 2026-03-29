@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -45,10 +46,33 @@ class GameScreen(Screen[None]):
         ("Enter", "Submit command"),
         ("Tab", "Cycle panes"),
         ("/explore", "Return to dungeon exploration"),
+        ("/travel <destination>", "Travel to a new location"),
         ("c", "Begin combat (when prompted)"),
         ("/combat", "Enter combat mode (manual)"),
         ("h", "This help"),
     ]
+
+    _TRAVEL_REQUEST_PHRASES: tuple[str, ...] = (
+        "/travel",
+        "/go",
+        "travel to",
+        "go to",
+        "head to",
+        "journey to",
+        "take me to",
+        "make for",
+        "move to",
+        "seek out",
+        "venture to",
+        "return to",
+        "fly to",
+        "sail to",
+        "board",
+        "descend to",
+        "ascend to",
+        "go toward",
+        "go towards",
+    )
 
     def __init__(
         self,
@@ -74,7 +98,10 @@ class GameScreen(Screen[None]):
         yield NarrativePane(id="narrative")
         yield Vertical(
             InfoPanel(id="info"),
-            Static("Type /explore to return to dungeon exploration.", id="prompt-hint"),
+            Static(
+                "Type /explore to return to dungeon exploration. Try /travel <destination> for new coordinates.",
+                id="prompt-hint",
+            ),
             PromptInput(id="prompt"),
             id="right-panel",
         )
@@ -183,6 +210,42 @@ class GameScreen(Screen[None]):
             engine.clear_active_interaction_context()
             return
         engine.set_active_interaction_context(interaction_context)
+
+    @classmethod
+    def _looks_like_travel_request(cls, text: str) -> bool:
+        """Heuristically detect a natural-language travel request."""
+        normalized = f" {text.strip().lower()} "
+        return any(phrase in normalized for phrase in cls._TRAVEL_REQUEST_PHRASES)
+
+    def _build_travel_transition_text(self, destination: Any) -> str:
+        """Build the narrative text shown when the player travels elsewhere."""
+        return (
+            "\n[bold]++ TRANSIT ROUTE LOCKED ++[/bold]\n"
+            f"The noosphere plots a passage toward [bold]{destination.display_name}[/bold].\n"
+            f"[dim]The machine spirit accepts the route and shunts the expedition into {destination.environment} depths.[/dim]\n"
+        )
+
+    def _enter_travel_mode(self, text: str) -> None:
+        """Resolve a travel request and switch into the matching dungeon."""
+        narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
+        prompt: PromptInput = self.query_one("#prompt", PromptInput)
+
+        narrative.append_narrative(f"\n[bold]> {text}[/bold]\n")
+        self._narrative_log.append(f"\n[bold]> {text}[/bold]\n")
+        prompt.set_processing(True)
+        try:
+            destination = self.app.travel_to_destination(text)  # type: ignore[attr-defined]
+        finally:
+            prompt.set_processing(False)
+
+        travel_text = self._build_travel_transition_text(destination)
+        narrative.append_narrative(travel_text)
+        self._narrative_log.append(travel_text)
+        self.return_to_dungeon(
+            [travel_text],
+            scene_art=None,
+            info_update=None,
+        )
 
     def action_show_help(self) -> None:
         """Push the help overlay with story-mode hotkeys."""
@@ -340,6 +403,10 @@ class GameScreen(Screen[None]):
             return
         if normalized == "/explore":
             self._enter_explore_mode()
+            return
+        if self._looks_like_travel_request(text):
+            self._enter_travel_mode(text)
+            self._autosave()
             return
 
         narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
