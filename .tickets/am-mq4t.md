@@ -1,6 +1,6 @@
 ---
 id: am-mq4t
-status: open
+status: closed
 deps: [am-6448]
 links: []
 created: 2026-03-29T02:49:16Z
@@ -13,3 +13,9 @@ tags: [engine, dungeon]
 
 System for placing and managing NPCs/creatures on dungeon maps. Each entity has: position, disposition (friendly/hostile/neutral), movement AI (patrol, wander, stationary, aggressive), dialogue capability flag, portrait, stats. Friendly NPCs can be talked to (bump interaction). Hostile creatures can be fought. Neutral creatures ignore the player unless provoked. Integrates with the existing entity tracking system (engine/history.py). Party members (Alpha-7, Volta) become NPCs that follow the player on the dungeon map.
 
+
+## Notes
+
+**2026-03-29T03:33:39Z**
+
+Implemented dungeon NPC/creature engine layer with disposition and movement AI enums, roster placement/movement helpers, party follower factories, and GameHistory registration. Verified with: uv run pytest tests/test_dungeon_entities.py and uv run pytest tests/test_combat_engine.py tests/test_game_engine.py tests/test_dungeon_entities.py
