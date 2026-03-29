@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -179,9 +180,10 @@ class TestApiKeyArrowNav:
 
     @pytest.mark.asyncio
     async def test_default_focus_and_enter_submission(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
     ) -> None:
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.chdir(tmp_path)
         app = AngbandMechanicumApp()
         async with app.run_test(size=APP_SIZE) as pilot:
             assert isinstance(app.screen, ApiKeyScreen)
