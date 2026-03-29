@@ -41,6 +41,7 @@ from angband_mechanicum.engine.dungeon_gen import (
     _scatter_features,
     _themed_room_templates_for_environment,
 )
+from angband_mechanicum.engine.dungeon_profiles import DungeonGenerationProfile
 
 
 def _reachable_tiles(level: DungeonLevel, start: tuple[int, int]) -> set[tuple[int, int]]:
@@ -310,6 +311,48 @@ class TestFeatureScattering:
         """Unknown feature names should not cause errors."""
         gm = generate_map(room_type="open_room", features=["unknown_stuff"], seed=99)
         assert isinstance(gm.grid, Grid)
+
+
+class TestStoryProfiles:
+    def test_titan_recovery_profile_filters_contacts_and_landmarks(self) -> None:
+        profile = DungeonGenerationProfile(
+            environment="ash_dune_outpost",
+            profile_id="story:titan-recovery",
+            hostile_tags=("ork", "loota"),
+            preferred_themed_room_tags=("titan", "wreck", "ork"),
+            required_themed_room_names=("Titan Hull Breach",),
+            excluded_contact_tags=("clerk", "scribe"),
+        )
+
+        floor = generate_dungeon_floor(
+            level_id="titan-test",
+            depth=1,
+            environment="ash_dune_outpost",
+            seed=42,
+            profile=profile,
+        )
+
+        hostile_names = [
+            entity.name
+            for entity in floor.entity_roster.values()
+            if entity.disposition == DungeonDisposition.HOSTILE
+        ]
+        assert hostile_names
+        assert all(name in {"Ork Loota", "Scrap Grot"} for name in hostile_names)
+        assert any(instance.template_name == "Titan Hull Breach" for instance in floor.themed_rooms)
+        assert all("Clerk" not in name for name in hostile_names)
+
+    def test_profile_filtered_templates_exclude_unwanted_tags(self) -> None:
+        profile = DungeonGenerationProfile(
+            environment="ash_dune_outpost",
+            excluded_themed_room_tags=("chapel", "vault"),
+        )
+
+        templates = _themed_room_templates_for_environment("ash_dune_outpost", profile)
+
+        assert templates
+        assert all("chapel" not in template.tags for template in templates)
+        assert all("vault" not in template.tags for template in templates)
 
 
 # ---------------------------------------------------------------------------

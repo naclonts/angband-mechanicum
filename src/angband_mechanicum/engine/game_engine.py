@@ -353,6 +353,9 @@ class GameEngine:
         self._party_hp: dict[str, tuple[int, int]] = self._init_party_hp()
         self._story_suffix: str = _DEFAULT_STORY_SUFFIX
         self._story_start_id: str | None = None
+        self._current_environment_id: str = "forge"
+        self._current_location_profile_id: str | None = None
+        self._current_location_label: str | None = None
         self._active_interaction_context: dict[str, Any] | None = None
 
     def set_scene_pane_size(self, width: int, height: int) -> None:
@@ -409,6 +412,21 @@ class GameEngine:
         )
         if story.info_overrides:
             self._info_panel = dict(story.info_overrides)
+            self._current_location_label = story.info_overrides.get("LOCATION")
+
+    def set_environment_context(
+        self,
+        *,
+        environment_id: str,
+        profile_id: str | None = None,
+        location_name: str | None = None,
+    ) -> None:
+        """Persist the canonical world environment shared by text and map views."""
+        self._current_environment_id = environment_id
+        self._current_location_profile_id = profile_id
+        self._current_location_label = location_name
+        if location_name:
+            self._info_panel["LOCATION"] = location_name
 
     def resolve_travel_destination(self, request_text: str) -> TravelDestination:
         """Resolve a natural-language travel request to the closest environment."""
@@ -557,7 +575,22 @@ class GameEngine:
         companion_context = self._build_companion_status_context()
         if companion_context:
             prompt += "\n\n" + companion_context
+        environment_context = self._build_environment_prompt_context()
+        if environment_context:
+            prompt += "\n\n" + environment_context
         return prompt
+
+    def _build_environment_prompt_context(self) -> str:
+        """Describe the canonical environment shared by travel and dungeon play."""
+        lines = [
+            "## Canonical Environment State",
+            f"- Environment id: {self._current_environment_id}",
+        ]
+        if self._current_location_profile_id:
+            lines.append(f"- Location profile id: {self._current_location_profile_id}")
+        if self._current_location_label:
+            lines.append(f"- Current location label: {self._current_location_label}")
+        return "\n".join(lines)
 
     def _build_active_interaction_prompt_context(self) -> str:
         """Describe the currently addressed dungeon target for the next replies."""
@@ -1155,6 +1188,9 @@ You MUST respond with ONLY a valid JSON object, no other text:
             "party_hp": {k: list(v) for k, v in self._party_hp.items()},
             "story_start_id": self._story_start_id,
             "story_suffix": self._story_suffix,
+            "current_environment_id": self._current_environment_id,
+            "current_location_profile_id": self._current_location_profile_id,
+            "current_location_label": self._current_location_label,
             "active_interaction_context": (
                 dict(self._active_interaction_context)
                 if self._active_interaction_context is not None
@@ -1183,6 +1219,9 @@ You MUST respond with ONLY a valid JSON object, no other text:
         engine._integrity = data.get("integrity", engine._max_integrity)
         engine._story_start_id = data.get("story_start_id")
         engine._story_suffix = data.get("story_suffix", _DEFAULT_STORY_SUFFIX)
+        engine._current_environment_id = data.get("current_environment_id", "forge")
+        engine._current_location_profile_id = data.get("current_location_profile_id")
+        engine._current_location_label = data.get("current_location_label")
         interaction_context = data.get("active_interaction_context")
         engine._active_interaction_context = (
             dict(interaction_context) if isinstance(interaction_context, dict) else None
