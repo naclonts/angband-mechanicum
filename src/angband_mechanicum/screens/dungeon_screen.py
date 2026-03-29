@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import enum
 import logging
 from dataclasses import dataclass, field
@@ -385,6 +386,84 @@ class DungeonMapState:
             moved_to=(nx, ny),
         )
 
+    def visible_entity_positions(self) -> set[tuple[int, int]]:
+        """Return positions of all alive entities currently visible."""
+        positions: set[tuple[int, int]] = set()
+        for entity in self.entities:
+            if not entity.alive:
+                continue
+            if self.level.get_tile(entity.x, entity.y).fog == FogState.VISIBLE:
+                positions.add((entity.x, entity.y))
+        return positions
+
+    def visible_item_positions(self) -> set[tuple[int, int]]:
+        """Return positions of tiles with items currently visible."""
+        positions: set[tuple[int, int]] = set()
+        for y in range(self.level.height):
+            for x in range(self.level.width):
+                tile = self.level.get_tile(x, y)
+                if tile.fog == FogState.VISIBLE and tile.items:
+                    positions.add((x, y))
+        return positions
+
+    def _count_open_neighbors(self, x: int, y: int) -> int:
+        """Count passable cardinal+diagonal neighbors around a tile."""
+        count = 0
+        for ddx in (-1, 0, 1):
+            for ddy in (-1, 0, 1):
+                if ddx == 0 and ddy == 0:
+                    continue
+                nx, ny = x + ddx, y + ddy
+                if self.level.in_bounds(nx, ny) and self.level.get_tile(nx, ny).passable:
+                    count += 1
+        return count
+
+    def travel_step(self, dx: int, dy: int) -> tuple[DungeonActionResult, bool]:
+        """Attempt one travel step and report whether travel should continue.
+
+        Travel uses the same action resolution as normal movement, then stops
+        when the new position reveals something worth handing back to the player.
+        """
+        assert self.player_pos is not None
+
+        entities_before = self.visible_entity_positions()
+        items_before = self.visible_item_positions()
+        openness_before = self._count_open_neighbors(*self.player_pos)
+
+        result = self.attempt_step(dx, dy)
+        if result.kind != DungeonInteractionKind.MOVE:
+            return result, False
+
+        assert self.player_pos is not None
+
+        entities_after = self.visible_entity_positions()
+        new_entity_positions = entities_after - entities_before
+        if new_entity_positions:
+            new_entities = [
+                entity
+                for entity in self.entities
+                if entity.alive and (entity.x, entity.y) in new_entity_positions
+            ]
+            if any(entity.entity_type == "object" for entity in new_entities):
+                self.append_message("You notice an interactable ahead.")
+            elif any(entity.disposition == "hostile" for entity in new_entities):
+                self.append_message("You spot movement ahead.")
+            else:
+                self.append_message("Something catches your attention.")
+            return result, False
+
+        items_after = self.visible_item_positions()
+        if items_after - items_before:
+            self.append_message("You notice something on the ground.")
+            return result, False
+
+        openness_after = self._count_open_neighbors(*self.player_pos)
+        if openness_after >= 5 and openness_after > openness_before:
+            self.append_message("You emerge into a more open area.")
+            return result, False
+
+        return result, True
+
     def wait(self) -> None:
         assert self.player_pos is not None
         self.recompute_fov()
@@ -421,6 +500,8 @@ class DungeonScreen(Screen[None]):
         "dungeon-inspect",
     )
 
+    TRAVEL_INTERVAL: float = 0.05  # seconds between travel steps
+
     BINDINGS = [
         Binding("up", "move_north", "Move north", show=False),
         Binding("down", "move_south", "Move south", show=False),
@@ -441,6 +522,17 @@ class DungeonScreen(Screen[None]):
         Binding("pageup", "move_northeast", "Move northeast", show=False),
         Binding("end", "move_southwest", "Move southwest", show=False),
         Binding("pagedown", "move_southeast", "Move southeast", show=False),
+        Binding("ctrl+up", "travel_north", "Travel north", show=False),
+        Binding("ctrl+down", "travel_south", "Travel south", show=False),
+        Binding("ctrl+left", "travel_west", "Travel west", show=False),
+        Binding("ctrl+right", "travel_east", "Travel east", show=False),
+        Binding("ctrl+h", "travel_west", "Travel west", show=False),
+        Binding("ctrl+j", "travel_south", "Travel south", show=False),
+        Binding("ctrl+k", "travel_north", "Travel north", show=False),
+        Binding("ctrl+y", "travel_northwest", "Travel northwest", show=False),
+        Binding("ctrl+u", "travel_northeast", "Travel northeast", show=False),
+        Binding("ctrl+b", "travel_southwest", "Travel southwest", show=False),
+        Binding("ctrl+n", "travel_southeast", "Travel southeast", show=False),
         Binding("tab", "cycle_panel", "Cycle panels", show=True, priority=True),
         Binding("l", "look", "Look", show=True),
         Binding("enter", "confirm_look", "Inspect", show=False),
@@ -459,6 +551,7 @@ class DungeonScreen(Screen[None]):
         ("9 / PgUp", "Move northeast"),
         ("1 / End", "Move southwest"),
         ("3 / PgDn", "Move southeast"),
+        ("Ctrl + arrows / HJKYUBN", "Travel until something interesting happens"),
         ("Enter", "Inspect target"),
         ("Esc", "Cancel look mode"),
         ("Space", "Wait / rescan"),
@@ -740,6 +833,9 @@ class DungeonScreen(Screen[None]):
             self._move_look_cursor(dx, dy)
             return
         result = self._state.attempt_step(dx, dy)
+        self._process_step_result(result)
+
+    def _process_step_result(self, result: DungeonActionResult) -> None:
         if result.kind == DungeonInteractionKind.MOVE:
             self._ambient_action_index += 1
         self._refresh_all()
@@ -757,6 +853,15 @@ class DungeonScreen(Screen[None]):
             self._autosave()
         elif result.kind != DungeonInteractionKind.BLOCKED:
             self._autosave()
+
+    @work(exclusive=True)
+    async def _run_travel(self, dx: int, dy: int) -> None:
+        while True:
+            result, should_continue = self._state.travel_step(dx, dy)
+            self._process_step_result(result)
+            if not should_continue:
+                return
+            await asyncio.sleep(self.TRAVEL_INTERVAL)
 
     def _move_look_cursor(self, dx: int, dy: int) -> None:
         if self._look_cursor_pos is None:
@@ -963,6 +1068,36 @@ class DungeonScreen(Screen[None]):
 
     def action_move_southeast(self) -> None:
         self._step(1, 1)
+
+    def _travel_or_step(self, dx: int, dy: int) -> None:
+        if self._look_mode:
+            self._step(dx, dy)
+            return
+        self._run_travel(dx, dy)
+
+    def action_travel_north(self) -> None:
+        self._travel_or_step(0, -1)
+
+    def action_travel_south(self) -> None:
+        self._travel_or_step(0, 1)
+
+    def action_travel_west(self) -> None:
+        self._travel_or_step(-1, 0)
+
+    def action_travel_east(self) -> None:
+        self._travel_or_step(1, 0)
+
+    def action_travel_northwest(self) -> None:
+        self._travel_or_step(-1, -1)
+
+    def action_travel_northeast(self) -> None:
+        self._travel_or_step(1, -1)
+
+    def action_travel_southwest(self) -> None:
+        self._travel_or_step(-1, 1)
+
+    def action_travel_southeast(self) -> None:
+        self._travel_or_step(1, 1)
 
     def action_look(self) -> None:
         if self._look_mode:

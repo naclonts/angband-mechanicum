@@ -49,6 +49,28 @@ def _make_level() -> DungeonLevel:
     return level
 
 
+def _make_open_area_travel_level() -> DungeonLevel:
+    level = DungeonLevel(
+        level_id="travel-test",
+        name="Travel Test",
+        depth=1,
+        environment="forge",
+        width=8,
+        height=5,
+    )
+    for y in range(level.height):
+        for x in range(level.width):
+            level.set_terrain(x, y, DungeonTerrain.WALL)
+    for x in range(1, 5):
+        level.set_terrain(x, 2, DungeonTerrain.FLOOR)
+    for x in range(4, 7):
+        for y in range(1, 5):
+            level.set_terrain(x, y, DungeonTerrain.FLOOR)
+    level.player_pos = (2, 2)
+    level.compute_fov((2, 2), 1)
+    return level
+
+
 class TestDungeonMapRendering:
     def test_render_includes_player_and_visible_terrain(self) -> None:
         level = _make_level()
@@ -99,6 +121,17 @@ class TestDungeonScreenBindings:
             "pageup",
             "end",
             "pagedown",
+            "ctrl+up",
+            "ctrl+down",
+            "ctrl+left",
+            "ctrl+right",
+            "ctrl+h",
+            "ctrl+j",
+            "ctrl+k",
+            "ctrl+y",
+            "ctrl+u",
+            "ctrl+b",
+            "ctrl+n",
         }
         assert expected <= keys
 
@@ -110,6 +143,7 @@ class TestDungeonScreenBindings:
         assert hotkeys["1 / End"] == "Move southwest"
         assert hotkeys["3 / PgDn"] == "Move southeast"
         assert hotkeys["Tab"] == "Cycle focus between dungeon panels"
+        assert hotkeys["Ctrl + arrows / HJKYUBN"] == "Travel until something interesting happens"
 
     def test_non_map_panels_are_focusable(self) -> None:
         assert DungeonMessageLog.can_focus is True
@@ -347,6 +381,62 @@ class TestDungeonMapState:
         assert result.kind == DungeonInteractionKind.TRANSITION
         assert result.moved_to == (3, 2)
         assert "carry you deeper" in result.message
+
+    def test_travel_step_stops_when_combat_is_triggered(self) -> None:
+        level = _make_level()
+        hostile = DungeonMapEntity(
+            entity_id="rogue-servitor",
+            name="Rogue Servitor",
+            x=3,
+            y=2,
+            disposition="hostile",
+            hp=3,
+            max_hp=3,
+            attack=2,
+            armor=0,
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[hostile])
+
+        result, should_continue = state.travel_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.ATTACK
+        assert should_continue is False
+        assert state.player_pos == (3, 2)
+
+    def test_travel_step_stops_when_object_is_spotted(self) -> None:
+        level = _make_level()
+        terminal = DungeonMapEntity(
+            entity_id="terminal-1",
+            name="Cogitator Terminal",
+            x=4,
+            y=2,
+            disposition="neutral",
+            entity_type="object",
+            description="A humming machine shrine of data.",
+            scene_art="TERMINAL",
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=1, entities=[terminal])
+
+        result, should_continue = state.travel_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.MOVE
+        assert should_continue is False
+        assert state.player_pos == (3, 2)
+        assert state.messages[-1] == "You notice an interactable ahead."
+
+    def test_travel_step_stops_when_entering_an_open_area(self) -> None:
+        level = _make_open_area_travel_level()
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=1)
+
+        first_result, first_continue = state.travel_step(1, 0)
+        second_result, second_continue = state.travel_step(1, 0)
+
+        assert first_result.kind == DungeonInteractionKind.MOVE
+        assert first_continue is True
+        assert second_result.kind == DungeonInteractionKind.MOVE
+        assert second_continue is False
+        assert state.player_pos == (4, 2)
+        assert state.messages[-1] == "You emerge into a more open area."
 
 
 class TestTransitionHelpers:
