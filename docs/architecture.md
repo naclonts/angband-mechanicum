@@ -117,6 +117,7 @@ Primary files:
 
 - `DungeonScreen` owns or receives a `DungeonMapState`.
 - `DungeonMapState` wraps a persistent `DungeonLevel`, player position, FOV radius, messages, and lightweight map entities.
+- `DungeonSession` persists the canonical dungeon-generation profile for the current location, so environment id, faction bias, landmark bias, and content exclusions survive `/explore`, save/load, and floor transitions.
 - `generate_dungeon_floor()` now seeds a small environment-aware roster of hostile and non-hostile contacts alongside the floor geometry.
 - `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
 - Hostile contacts are planned as clustered groups when possible, with room-aware placement so packs and swarms occupy the same encounter space instead of scattering randomly across the floor.
@@ -141,6 +142,7 @@ Primary files:
 - `GameScreen` captures prompt input and submits it to `GameEngine.process_input()`.
 - When `GameScreen` was opened from a dungeon interaction, it also seeds a focused interaction context into `GameEngine` so follow-up dialogue stays grounded in the addressed target and current dungeon location.
 - Travel-style text commands are resolved against the known dungeon environments, then `AngbandMechanicumApp` builds a matching `DungeonSession` and mounts that destination dungeon before the player returns to map view.
+- Curated story starts and text-travel both update the same canonical environment context on `GameEngine`, so text prompts and dungeon generation share one persisted environment/profile identity.
 - `GameEngine` builds a system prompt using:
   - current story context
   - dynamic scene-pane dimensions

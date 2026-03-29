@@ -16,6 +16,7 @@ from angband_mechanicum.engine.dungeon_entities import (
     DungeonMovementAI,
 )
 from angband_mechanicum.engine.dungeon_gen import GeneratedFloor
+from angband_mechanicum.engine.dungeon_profiles import build_story_dungeon_profile
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.engine.save_manager import DeathRecord
@@ -441,3 +442,63 @@ def test_game_screen_recognizes_structured_explore_hints() -> None:
         "Remain in conversation.",
         None,
     ) is False
+
+
+def test_build_dungeon_session_uses_story_generation_profile() -> None:
+    """Curated story starts should seed an explicit dungeon profile immediately."""
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="titan-recovery",
+        title="The Fallen God-Machine",
+        description="Recover the crippled titan before the greenskins strip it bare.",
+        location="Ash Wastes — Titan Graveyard",
+        intro_narrative="The titan waits in agony.",
+        scene_art="ART",
+    )
+
+    session = app.build_dungeon_session(story)
+
+    assert session.generation_profile is not None
+    assert session.generation_profile.environment == "ash_dune_outpost"
+    assert session.generation_profile.profile_id == "story:titan-recovery"
+    assert session.current_environment_id == "ash_dune_outpost"
+    assert app.game_engine.to_dict()["current_environment_id"] == "ash_dune_outpost"
+    assert app.game_engine.to_dict()["current_location_profile_id"] == "story:titan-recovery"
+
+
+def test_dungeon_session_round_trip_preserves_generation_profile() -> None:
+    """Story profile metadata should survive save/load round trips."""
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="titan-recovery",
+        title="The Fallen God-Machine",
+        description="Recover the crippled titan before the greenskins strip it bare.",
+        location="Ash Wastes — Titan Graveyard",
+        intro_narrative="The titan waits in agony.",
+        scene_art="ART",
+    )
+    session = app.build_dungeon_session(story)
+
+    restored = DungeonSession.from_dict(session.to_dict())
+
+    assert restored.generation_profile is not None
+    assert restored.generation_profile.environment == "ash_dune_outpost"
+    assert restored.generation_profile.required_themed_room_names == ("Titan Hull Breach",)
+    assert restored.current_environment_id == "ash_dune_outpost"
+
+
+def test_story_profile_builder_uses_explicit_story_metadata() -> None:
+    """Story profiles should prefer explicit mappings over brittle keyword inference."""
+    story = StoryStart(
+        id="titan-recovery",
+        title="The Fallen God-Machine",
+        description="A titan graveyard mission in the ash wastes.",
+        location="Ash Wastes — Titan Graveyard",
+        intro_narrative="The titan waits in agony.",
+        scene_art="ART",
+    )
+
+    profile = build_story_dungeon_profile(story)
+
+    assert profile.environment == "ash_dune_outpost"
+    assert profile.hostile_tags == ("ork", "loota", "scavenger", "ash")

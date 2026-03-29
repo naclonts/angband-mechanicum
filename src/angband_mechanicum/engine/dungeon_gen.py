@@ -21,6 +21,7 @@ from angband_mechanicum.engine.dungeon_entities import (
     DungeonMovementAI,
     infer_portrait_key,
 )
+from angband_mechanicum.engine.dungeon_profiles import DungeonGenerationProfile
 from angband_mechanicum.engine.dungeon_level import (
     ENVIRONMENTS,
     DungeonLevel,
@@ -1109,6 +1110,7 @@ class ThemedRoomTemplate:
     feature_terrains: tuple[DungeonTerrain, ...] = ()
     props: tuple[ThemedRoomPropSpec, ...] = ()
     encounter_groups: tuple[ThemedRoomEncounterSpec, ...] = ()
+    tags: tuple[str, ...] = ()
 
 
 @dataclass
@@ -2455,6 +2457,36 @@ _ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
     "ash_dune_outpost": {
         "hostile": (
             _ContactArchetype(
+                name="Ork Loota",
+                description="A roaring greenskin scavenger hefting a stolen deffgun.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=9,
+                attack=5,
+                armor=1,
+                movement=3,
+                attack_range=4,
+                portrait_hint="pit_slave",
+                weight=3,
+                tags=("ork", "loota", "ash"),
+            ),
+            _ContactArchetype(
+                name="Scrap Grot",
+                description="A wiry grot darting between wreckage with stolen charges.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=4,
+                attack=2,
+                armor=0,
+                movement=5,
+                attack_range=1,
+                portrait_hint="servitor",
+                weight=2,
+                tags=("ork", "grot", "scavenger"),
+            ),
+            _ContactArchetype(
                 name="Ash Raider",
                 description="A wind-scoured marauder ambushing from the dunes.",
                 disposition=DungeonDisposition.HOSTILE,
@@ -2467,7 +2499,7 @@ _ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
                 attack_range=1,
                 portrait_hint="assassin",
                 weight=3,
-                tags=("raider", "ash"),
+                tags=("raider", "ash", "scavenger"),
             ),
             _ContactArchetype(
                 name="Dune Marauder",
@@ -2482,7 +2514,7 @@ _ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
                 attack_range=1,
                 portrait_hint="assassin",
                 weight=2,
-                tags=("marauder", "dune"),
+                tags=("marauder", "dune", "scavenger"),
             ),
             _ContactArchetype(
                 name="Dust Jackal",
@@ -2497,7 +2529,7 @@ _ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
                 attack_range=1,
                 portrait_hint="servitor",
                 weight=1,
-                tags=("beast", "ash"),
+                tags=("beast", "ash", "scavenger"),
             ),
         ),
         "friendly": (
@@ -2514,7 +2546,22 @@ _ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
                 attack_range=1,
                 portrait_hint="mechanicus",
                 weight=2,
-                tags=("scout", "outpost"),
+                tags=("scout", "outpost", "survivor"),
+            ),
+            _ContactArchetype(
+                name="Titan Secutor",
+                description="A grim survivor from the titan recovery cohort guarding the breach.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=8,
+                attack=3,
+                armor=1,
+                movement=2,
+                attack_range=1,
+                portrait_hint="skitarii",
+                weight=1,
+                tags=("titan", "survivor"),
             ),
         ),
         "neutral": (
@@ -2531,7 +2578,22 @@ _ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
                 attack_range=1,
                 portrait_hint="adept",
                 weight=2,
-                tags=("survey", "outpost"),
+                tags=("survey", "outpost", "surveyor"),
+            ),
+            _ContactArchetype(
+                name="Wreck Reclaimator",
+                description="A soot-caked reclaimator searching the graveyard for salvage and survivors.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=1,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="adept",
+                weight=1,
+                tags=("reclaimator", "scavenger", "titan"),
             ),
         ),
     },
@@ -2847,6 +2909,7 @@ def _apply_themed_room_template(
     rng: random.Random,
     occupied: set[tuple[int, int]],
     roster: DungeonEntityRoster,
+    profile: DungeonGenerationProfile | None = None,
 ) -> tuple[ThemedRoomInstance | None, int]:
     room = rooms[room_index]
     room_area = room.width * room.height
@@ -2884,7 +2947,7 @@ def _apply_themed_room_template(
             occupied.add(pos)
             instance.prop_tiles.append((prop_spec.terrain, pos))
 
-    contacts = _contacts_for_environment(environment)
+    contacts = _contacts_for_generation(environment, profile)
     for encounter_spec in template.encounter_groups:
         archetype = _select_themed_archetype(contacts, encounter_spec, rng)
         if archetype is None:
@@ -2912,11 +2975,28 @@ def _apply_themed_room_template(
     return instance, themed_contact_count
 
 
-def _themed_room_templates_for_environment(environment: str) -> tuple[ThemedRoomTemplate, ...]:
-    templates = _THEMED_ROOM_TEMPLATES.get(environment, ())
-    if templates:
+def _themed_room_templates_for_environment(
+    environment: str,
+    profile: DungeonGenerationProfile | None = None,
+) -> tuple[ThemedRoomTemplate, ...]:
+    templates = tuple(
+        template
+        for template_group in _THEMED_ROOM_TEMPLATES.values()
+        for template in template_group
+        if environment in template.environments
+    ) or _THEMED_ROOM_TEMPLATES["default"]
+    if profile is None:
         return templates
-    return _THEMED_ROOM_TEMPLATES["default"]
+
+    excluded_names = {name.lower() for name in profile.excluded_themed_room_names}
+    excluded_tags = {tag.lower() for tag in profile.excluded_themed_room_tags}
+    filtered = tuple(
+        template
+        for template in templates
+        if template.name.lower() not in excluded_names
+        and not any(tag.lower() in excluded_tags for tag in template.tags)
+    )
+    return filtered or templates
 
 
 def _generate_themed_rooms(
@@ -2927,8 +3007,9 @@ def _generate_themed_rooms(
     rng: random.Random,
     entity_roster: DungeonEntityRoster,
     occupied: set[tuple[int, int]],
+    profile: DungeonGenerationProfile | None = None,
 ) -> tuple[list[ThemedRoomInstance], int]:
-    templates = list(_themed_room_templates_for_environment(environment))
+    templates = list(_themed_room_templates_for_environment(environment, profile))
     if not templates or len(rooms) < 2:
         return [], 0
 
@@ -2949,15 +3030,37 @@ def _generate_themed_rooms(
         max_set_pieces = 1
     if depth >= 8 and len(rooms) >= 6 and rng.random() < 0.5:
         max_set_pieces += 1
+    if profile is not None and (
+        profile.required_themed_room_names or profile.preferred_themed_room_tags
+    ):
+        max_set_pieces = max(1, max_set_pieces)
 
     if max_set_pieces <= 0:
         return [], 0
 
     weighted_templates = sorted(eligible, key=lambda template: template.weight, reverse=True)
+    required_names = {
+        name.lower() for name in (profile.required_themed_room_names if profile is not None else ())
+    }
+    preferred_tags = profile.preferred_themed_room_tags if profile is not None else ()
+
+    ordered_templates: list[ThemedRoomTemplate] = []
+    for template in weighted_templates:
+        if template.name.lower() in required_names:
+            ordered_templates.append(template)
+    for template in weighted_templates:
+        if template.name.lower() in required_names:
+            continue
+        if preferred_tags and _matches_any_tag(template.tags, preferred_tags):
+            ordered_templates.append(template)
+    for template in weighted_templates:
+        if template not in ordered_templates:
+            ordered_templates.append(template)
+
     for _ in range(max_set_pieces):
         candidates = [
             template
-            for template in weighted_templates
+            for template in ordered_templates
             if template_usage.get(template.name, 0) < template.max_per_floor
         ]
         if not candidates:
@@ -2997,6 +3100,7 @@ def _generate_themed_rooms(
             rng,
             occupied,
             entity_roster,
+            profile,
         )
         if instance is None:
             continue
@@ -3014,13 +3118,14 @@ def _plan_contact_spawns(
     environment: str,
     depth: int,
     rng: random.Random,
+    profile: DungeonGenerationProfile | None = None,
 ) -> list[_ContactSpawnPlan]:
     """Plan contact groups before actual placement.
 
     This keeps spawn selection separate from geometry so future themed-room
     generation can reuse the same planning seam.
     """
-    contacts = _contacts_for_environment(environment)
+    contacts = _contacts_for_generation(environment, profile)
     hostile_pool = contacts.get("hostile", ())
     friendly_pool = contacts.get("friendly", ())
     neutral_pool = contacts.get("neutral", ())
@@ -3112,6 +3217,65 @@ def _contacts_for_environment(environment: str) -> dict[str, tuple[_ContactArche
     return _ENVIRONMENT_CONTACTS.get(environment, _ENVIRONMENT_CONTACTS["forge"])
 
 
+def _matches_any_tag(tags: tuple[str, ...], expected: tuple[str, ...]) -> bool:
+    if not expected:
+        return True
+    available = {tag.lower() for tag in tags}
+    return any(tag.lower() in available for tag in expected)
+
+
+def _filter_contact_pool(
+    pool: tuple[_ContactArchetype, ...],
+    *,
+    preferred_tags: tuple[str, ...] = (),
+    excluded_tags: tuple[str, ...] = (),
+    excluded_names: tuple[str, ...] = (),
+) -> tuple[_ContactArchetype, ...]:
+    excluded_tag_set = {tag.lower() for tag in excluded_tags}
+    excluded_name_set = {name.lower() for name in excluded_names}
+    filtered = tuple(
+        archetype
+        for archetype in pool
+        if archetype.name.lower() not in excluded_name_set
+        and not any(tag.lower() in excluded_tag_set for tag in archetype.tags)
+    )
+    if not preferred_tags:
+        return filtered
+    preferred = tuple(
+        archetype for archetype in filtered if _matches_any_tag(archetype.tags, preferred_tags)
+    )
+    return preferred or filtered
+
+
+def _contacts_for_generation(
+    environment: str,
+    profile: DungeonGenerationProfile | None = None,
+) -> dict[str, tuple[_ContactArchetype, ...]]:
+    contacts = _contacts_for_environment(environment)
+    if profile is None:
+        return contacts
+    return {
+        "hostile": _filter_contact_pool(
+            contacts.get("hostile", ()),
+            preferred_tags=profile.hostile_tags,
+            excluded_tags=profile.excluded_contact_tags,
+            excluded_names=profile.excluded_contact_names,
+        ),
+        "friendly": _filter_contact_pool(
+            contacts.get("friendly", ()),
+            preferred_tags=profile.friendly_tags,
+            excluded_tags=profile.excluded_contact_tags,
+            excluded_names=profile.excluded_contact_names,
+        ),
+        "neutral": _filter_contact_pool(
+            contacts.get("neutral", ()),
+            preferred_tags=profile.neutral_tags,
+            excluded_tags=profile.excluded_contact_tags,
+            excluded_names=profile.excluded_contact_names,
+        ),
+    }
+
+
 _ENVIRONMENT_CONTACT_RANGES: dict[str, tuple[int, int]] = {
     "forge": (2, 4),
     "cathedral": (1, 4),
@@ -3183,6 +3347,7 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("ritual", "conclave"),
         ),
     ),
     "forge": (
@@ -3211,6 +3376,7 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("machine_cult", "forge"),
         ),
         ThemedRoomTemplate(
             name="Reactor Cult Cell",
@@ -3237,6 +3403,7 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("machine_cult", "reactor"),
         ),
     ),
     "cathedral": (
@@ -3265,6 +3432,7 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("chapel", "ritual", "warp"),
         ),
         ThemedRoomTemplate(
             name="Reliquary Vault",
@@ -3291,6 +3459,7 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("vault", "reliquary"),
         ),
     ),
     "hive": (
@@ -3319,6 +3488,7 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("underhive", "gang"),
         ),
         ThemedRoomTemplate(
             name="Sump Shrine",
@@ -3345,6 +3515,7 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("underhive", "chapel"),
         ),
     ),
     "voidship": (
@@ -3373,6 +3544,7 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("breach", "boarding"),
         ),
     ),
     "radwastes": (
@@ -3401,6 +3573,58 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                     optional=True,
                 ),
             ),
+            tags=("ash", "wastes", "scavenger"),
+        ),
+        ThemedRoomTemplate(
+            name="Titan Hull Breach",
+            description="A breached god-engine compartment littered with wreckage and sacred machinery.",
+            environments=("radwastes", "ash_dune_outpost"),
+            room_types=("open_room", "arena", "cross_room"),
+            min_depth=1,
+            max_depth=999,
+            weight=5,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.RUBBLE, DungeonTerrain.TERMINAL),
+            props=(
+                ThemedRoomPropSpec(DungeonTerrain.COLUMN, (2, 4), room_focus="edge"),
+                ThemedRoomPropSpec(DungeonTerrain.COVER, (1, 2), room_focus="center"),
+            ),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 4),
+                    preferred_tags=("ork", "loota", "scavenger"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("reclaimator", "survivor", "surveyor"),
+                    optional=True,
+                ),
+            ),
+            tags=("titan", "wreck", "breach"),
+        ),
+        ThemedRoomTemplate(
+            name="Ork Scrap Redoubt",
+            description="A looter fortification built from titan plating, barricades, and stolen gear.",
+            environments=("radwastes", "ash_dune_outpost"),
+            room_types=("arena", "maze", "open_room"),
+            min_depth=1,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.COVER, DungeonTerrain.RUBBLE),
+            props=(ThemedRoomPropSpec(DungeonTerrain.COVER, (2, 4), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(3, 6),
+                    preferred_tags=("ork", "loota", "grot"),
+                ),
+            ),
+            tags=("ork", "fortification", "scrap"),
         ),
     ),
 }
@@ -3415,6 +3639,7 @@ def _generate_contacts(
     reserved_positions: set[tuple[int, int]] | None = None,
     budget_offset: int = 0,
     roster: DungeonEntityRoster | None = None,
+    profile: DungeonGenerationProfile | None = None,
 ) -> DungeonEntityRoster:
     roster = roster or DungeonEntityRoster()
     occupied: set[tuple[int, int]] = set(level.stairs_up) | set(level.stairs_down)
@@ -3424,7 +3649,7 @@ def _generate_contacts(
     if not rooms_for_contacts:
         rooms_for_contacts = list(rooms)
 
-    plans = _plan_contact_spawns(level, rooms_for_contacts, environment, depth, rng)
+    plans = _plan_contact_spawns(level, rooms_for_contacts, environment, depth, rng, profile)
     if budget_offset > 0 and plans:
         trimmed: list[_ContactSpawnPlan] = []
         remaining_trim = budget_offset
@@ -3502,6 +3727,7 @@ def generate_dungeon_floor(
     room_count: int | None = None,
     name: str | None = None,
     seed: int | None = None,
+    profile: DungeonGenerationProfile | None = None,
 ) -> GeneratedFloor:
     """Generate an exploration-scale persistent dungeon floor."""
     rng = random.Random(seed)
@@ -3564,6 +3790,7 @@ def generate_dungeon_floor(
         rng,
         entity_roster,
         reserved,
+        profile,
     )
     _scatter_environment_features(level, rooms, env.name, reserved, rng)
     entity_roster = _generate_contacts(
@@ -3575,6 +3802,7 @@ def generate_dungeon_floor(
         reserved_positions=reserved,
         budget_offset=themed_contact_count,
         roster=entity_roster,
+        profile=profile,
     )
 
     # Late carving steps can brush over traversal tiles, so reapply them last.

@@ -11,6 +11,11 @@ from typing import Any
 
 from textual.app import App
 
+from angband_mechanicum.engine.dungeon_profiles import (
+    DungeonGenerationProfile,
+    build_story_dungeon_profile,
+    build_travel_dungeon_profile,
+)
 from angband_mechanicum.engine.game_engine import GameEngine, TravelDestination
 from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager
 from angband_mechanicum.engine.dungeon_level import transition_terrain_label
@@ -61,6 +66,8 @@ class DungeonSession:
     story_id: str | None = None
     location: str | None = None
     intro_narrative: str | None = None
+    generation_profile: DungeonGenerationProfile | None = None
+    current_environment_id: str | None = None
     destination_query: str | None = None
     destination_environment: str | None = None
     destination_label: str | None = None
@@ -70,6 +77,8 @@ class DungeonSession:
 
     def __post_init__(self) -> None:
         self.level_states.setdefault(self.state.level.level_id, self.state)
+        if self.current_environment_id is None:
+            self.current_environment_id = self.state.level.environment
         if self.location is None:
             self.location = self.destination_label or self.state.level.name
 
@@ -85,6 +94,12 @@ class DungeonSession:
             "story_id": self.story_id,
             "location": self.location,
             "intro_narrative": self.intro_narrative,
+            "generation_profile": (
+                self.generation_profile.to_dict()
+                if self.generation_profile is not None
+                else None
+            ),
+            "current_environment_id": self.current_environment_id,
             "destination_query": self.destination_query,
             "destination_environment": self.destination_environment,
             "destination_label": self.destination_label,
@@ -115,6 +130,11 @@ class DungeonSession:
             story_id=data.get("story_id"),
             location=data.get("location") or data.get("destination_label") or state.level.name,
             intro_narrative=data.get("intro_narrative"),
+            generation_profile=DungeonGenerationProfile.from_dict(
+                data.get("generation_profile")
+            ),
+            current_environment_id=data.get("current_environment_id")
+            or state.level.environment,
             destination_query=data.get("destination_query"),
             destination_environment=data.get("destination_environment"),
             destination_label=data.get("destination_label"),
@@ -171,6 +191,7 @@ class AngbandMechanicumApp(App[None]):
         destination_query: str | None = None,
         destination_environment: str | None = None,
         destination_label: str | None = None,
+        generation_profile: DungeonGenerationProfile | None = None,
         messages: list[str] | None = None,
     ) -> DungeonSession:
         """Create a DungeonSession from a generated floor."""
@@ -184,65 +205,64 @@ class AngbandMechanicumApp(App[None]):
             story_id=story_id,
             location=location or floor.level.name,
             intro_narrative=intro_narrative,
+            generation_profile=generation_profile,
+            current_environment_id=floor.level.environment,
             destination_query=destination_query,
             destination_environment=destination_environment,
             destination_label=destination_label,
         )
 
-    @staticmethod
-    def _infer_dungeon_environment(story_start: StoryStart | None) -> str:
-        if story_start is None:
-            return "forge"
-
-        text = " ".join(
-            [
-                story_start.id,
-                story_start.title,
-                story_start.description,
-                story_start.location,
-            ]
-        ).lower()
-        if any(keyword in text for keyword in ("sewer", "drain", "sludge", "filth")):
-            return "sewer"
-        if any(keyword in text for keyword in ("cathedral", "chapel", "shrine", "faith")):
-            return "cathedral"
-        if any(keyword in text for keyword in ("hive", "underhive", "hab", "stacks")):
-            return "hive"
-        if any(keyword in text for keyword in ("warp", "chaos", "corrupt", "daemon")):
-            return "corrupted"
-        if any(keyword in text for keyword in ("overgrow", "fungal", "vine", "jungle")):
-            return "overgrown"
-        if any(keyword in text for keyword in ("tomb", "crypt", "necron", "burial")):
-            return "tomb"
-        if any(keyword in text for keyword in ("manufactorum", "factory", "assembly", "hull", "hulk")):
-            return "manufactorum"
-        return "forge"
+    def _sync_engine_environment_context(
+        self,
+        profile: DungeonGenerationProfile | None,
+        *,
+        fallback_location: str | None = None,
+    ) -> None:
+        """Keep the narrative engine aligned with the canonical session environment."""
+        environment = profile.environment if profile is not None else "forge"
+        profile_id = profile.profile_id if profile is not None else None
+        location_name = (
+            profile.location_name if profile is not None and profile.location_name else fallback_location
+        )
+        self.game_engine.set_environment_context(
+            environment_id=environment,
+            profile_id=profile_id,
+            location_name=location_name,
+        )
 
     def build_dungeon_session(self, story_start: StoryStart | None = None) -> DungeonSession:
         """Create a fresh dungeon session for the active story."""
-        environment = self._infer_dungeon_environment(story_start)
+        profile = build_story_dungeon_profile(story_start)
         source = story_start.id if story_start else "default"
         seed = zlib.adler32(source.encode("utf-8"))
         location = story_start.location if story_start else "Unknown Depths"
         floor = generate_dungeon_floor(
             level_id=source,
             depth=1,
-            environment=environment,
+            environment=profile.environment,
             name=location,
             seed=seed,
+            profile=profile,
         )
         messages = [story_start.intro_narrative] if story_start else []
-        return self._build_session_from_floor(
+        session = self._build_session_from_floor(
             floor,
             story_id=story_start.id if story_start else None,
             location=floor.level.name,
             intro_narrative=story_start.intro_narrative if story_start else None,
+            generation_profile=profile,
             messages=messages,
         )
+        self._sync_engine_environment_context(profile, fallback_location=floor.level.name)
+        return session
 
     def build_destination_session(self, request_text: str) -> tuple[DungeonSession, TravelDestination]:
         """Create a dungeon session for a requested travel destination."""
         destination = self.game_engine.resolve_travel_destination(request_text)
+        profile = build_travel_dungeon_profile(
+            environment=destination.environment,
+            location_name=destination.display_name,
+        )
         existing_story_id = None
         if self.dungeon_session is not None:
             existing_story_id = self.dungeon_session.story_id
@@ -257,16 +277,19 @@ class AngbandMechanicumApp(App[None]):
             environment=destination.environment,
             name=destination.display_name,
             seed=seed,
+            profile=profile,
         )
         session = self._build_session_from_floor(
             floor,
             story_id=existing_story_id,
             location=destination.display_name,
+            generation_profile=profile,
             destination_query=request_text,
             destination_environment=destination.environment,
             destination_label=destination.display_name,
         )
         self.dungeon_session = session
+        self._sync_engine_environment_context(profile, fallback_location=destination.display_name)
         return session, destination
 
     def travel_to_destination(self, request_text: str) -> TravelDestination:
@@ -366,6 +389,7 @@ class AngbandMechanicumApp(App[None]):
             )
             session.state = previous_state
             session.location = previous_state.level.name
+            session.current_environment_id = previous_state.level.environment
             self.open_dungeon_view()
             return
 
@@ -375,12 +399,14 @@ class AngbandMechanicumApp(App[None]):
             next_level_id = f"{current.level.level_id}:depth-{next_depth}"
             next_state = session.level_states.get(next_level_id)
             if next_state is None:
+                profile = session.generation_profile
                 floor = generate_dungeon_floor(
                     level_id=next_level_id,
                     depth=next_depth,
-                    environment=current.level.environment,
+                    environment=session.current_environment_id or current.level.environment,
                     name=f"{session.location or current.level.name} Depth {next_depth}",
                     seed=zlib.adler32(next_level_id.encode("utf-8")),
+                    profile=profile,
                 )
                 next_state = DungeonMapState(
                     level=floor.level,
@@ -397,6 +423,7 @@ class AngbandMechanicumApp(App[None]):
                 )
             session.state = next_state
             session.location = next_state.level.name
+            session.current_environment_id = next_state.level.environment
             self.open_dungeon_view()
             return
 

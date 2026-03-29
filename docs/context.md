@@ -26,6 +26,7 @@ Tab cycles focus between the map, field log, and side panels so the non-map pane
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.
 When the player is directly speaking to or closely examining a specific character, the scene art can center that character instead of only showing the broader surroundings.
 Travel requests entered in text view are resolved to the closest supported dungeon environment, then a matching dungeon session is generated and mounted on arrival.
+Curated story starts now seed explicit dungeon-generation profiles instead of relying on free-text environment inference. Those profiles carry canonical environment identity, faction bias, landmark/set-piece preferences, and content exclusions across story intro, `/explore`, save/load, and later floor transitions.
 
 ### Transitions Between Views
 - **Map → Text**: Bump a friendly NPC (conversation), interact with a special object (spaceship, terminal), or look/examine something in detail
@@ -33,6 +34,7 @@ Travel requests entered in text view are resolved to the closest supported dunge
 
 Zone navigation between different areas (forge worlds, different dungeons) happens via text view — no overworld map in v1.
 The destination vocabulary is built around an expandable environment catalog, so future travel matching can resolve natural-language destinations onto the closest supported dungeon type.
+Story-specific dungeon profiles sit above that coarse environment layer so authored starts like titan recovery, necron tomb delves, or STC vault breaches keep their faction and landmark identity instead of collapsing into generic biome content.
 Dungeon floors can also include reusable themed set-pieces that combine room dressing, grouped hostiles, and optional NPCs to create more memorable encounters than plain procedural geometry alone.
 
 ## UI Layout
