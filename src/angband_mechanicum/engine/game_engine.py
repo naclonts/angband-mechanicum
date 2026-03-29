@@ -742,7 +742,88 @@ You MUST respond with ONLY a valid JSON object, no other text:
                 "Describe what the player learns or notices by looking closely.",
             ]
         )
-        return await self.process_input("\n".join(prompt_lines))
+        return await self._generate_dungeon_target_response(prompt_lines, max_tokens=768)
+
+    async def describe_ambient_dungeon_target(
+        self,
+        target_context: dict[str, Any],
+    ) -> GameResponse:
+        """Ask the LLM to narrate an ambient line-of-sight discovery."""
+        prompt_lines: list[str] = [
+            "Describe a noteworthy dungeon discovery that has entered the player's line of sight.",
+            "This is for a compact ambient inspect panel, not a full examine sequence.",
+            "Return valid JSON with narrative_text, scene_art, info_update, entities, combat_trigger, room_hint, and speaking_npc.",
+            "combat_trigger must be false.",
+            "Keep narrative_text concise: 1-2 short sentences.",
+            "scene_art should be a compact vignette suitable for a small side panel.",
+            "Do not introduce new combat, and do not treat this as a conversation.",
+            "",
+            "Target context:",
+        ]
+        for key in sorted(target_context):
+            value = target_context[key]
+            if isinstance(value, (dict, list)):
+                value_text = json.dumps(value, ensure_ascii=False)
+            else:
+                value_text = str(value)
+            prompt_lines.append(f"- {key}: {value_text}")
+
+        prompt_lines.extend(
+            [
+                "",
+                "Render a brief atmospheric discovery that rewards noticing the target.",
+            ]
+        )
+        return await self._generate_dungeon_target_response(prompt_lines, max_tokens=512)
+
+    async def _generate_dungeon_target_response(
+        self,
+        prompt_lines: list[str],
+        *,
+        max_tokens: int,
+    ) -> GameResponse:
+        """Run a target-focused LLM prompt without mutating turn state."""
+        system_prompt = self._build_system_prompt()
+        raw_text: str = ""
+        try:
+            message = await self._client.messages.create(
+                model=MODEL,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": "\n".join(prompt_lines),
+                    },
+                ],
+            )
+            raw_text = message.content[0].text  # type: ignore[union-attr]
+            response_data = _extract_json(raw_text)
+            narrative_text = str(response_data.get("narrative_text", raw_text)).strip()
+            scene_art = response_data.get("scene_art")
+            info_update = response_data.get("info_update")
+            if not isinstance(info_update, dict):
+                info_update = None
+            combat_trigger = bool(response_data.get("combat_trigger", False))
+            room_hint = response_data.get("room_hint") if combat_trigger else None
+            speaking_npc = response_data.get("speaking_npc") or None
+            return GameResponse(
+                narrative_text=narrative_text,
+                scene_art=scene_art if isinstance(scene_art, str) else None,
+                info_update=info_update,
+                combat_trigger=combat_trigger,
+                room_hint=room_hint if isinstance(room_hint, dict) else None,
+                speaking_npc=speaking_npc if isinstance(speaking_npc, str) else None,
+            )
+        except json.JSONDecodeError:
+            logger.warning("Dungeon target narration returned non-JSON, using raw text")
+            return GameResponse(narrative_text=raw_text.strip())
+        except anthropic.APIError as exc:
+            logger.warning("Dungeon target narration failed (%s)", exc)
+            return GameResponse(narrative_text="")
+        except Exception as exc:
+            logger.warning("Unexpected dungeon target narration error: %s", exc)
+            return GameResponse(narrative_text="")
 
     async def generate_death_narrative(
         self,

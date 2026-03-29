@@ -1,6 +1,6 @@
 ---
 id: am-81se
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-03-29T05:11:02Z
@@ -19,3 +19,7 @@ Keep the bottom-right dungeon inspect panel as an ambient discovery surface. Whe
 **2026-03-29T05:11:42Z**
 
 Related ticket: am-9nq0 covers explicit player examine. Keep the split clear: ambient panel updates are occasional atmospheric discoveries while explicit l + Enter examine should route into full text view.
+
+**2026-03-29T05:26:31Z**
+
+Implemented ambient LOS discoveries for the dungeon inspect panel. Added a no-turn ambient narration helper in GameEngine, cooldown/dedup candidate selection in DungeonScreen, and tests covering candidate prioritization plus panel updates. Verified with uv run pytest tests/test_dungeon_screen.py tests/test_game_engine.py -q and compileall.

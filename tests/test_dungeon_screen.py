@@ -397,6 +397,66 @@ class TestDungeonLookMode:
         assert screen._look_cursor_pos is None
 
 
+class TestAmbientDiscoveries:
+    def test_prefers_visible_character_over_terrain(self) -> None:
+        level = _make_level()
+        npc = DungeonMapEntity(
+            entity_id="relay-priest",
+            name="Relay Priest",
+            x=3,
+            y=2,
+            disposition="friendly",
+            can_talk=True,
+            description="A hooded attendant watching the aisles.",
+        )
+        screen = DungeonScreen(level=level, player_pos=(2, 2), entities=[npc])
+
+        context = screen._find_ambient_discovery_context()
+
+        assert context is not None
+        assert context["target_kind"] == "character"
+        assert context["target_label"] == "Relay Priest"
+
+    def test_maybe_trigger_ambient_discovery_updates_panel_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        shrine = DungeonMapEntity(
+            entity_id="data-shrine",
+            name="Data Shrine",
+            x=3,
+            y=2,
+            disposition="neutral",
+            entity_type="object",
+            description="A cogitator altar flickering with faint binaric runes.",
+        )
+        screen = DungeonScreen(level=level, player_pos=(2, 2), entities=[shrine])
+        screen._ambient_action_index = 3
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        seen_contexts: list[dict[str, object]] = []
+
+        def fake_run(context: dict[str, object]) -> None:
+            try:
+                seen_contexts.append(context)
+                screen._set_ambient_discovery(
+                    f"⛨ AMBIENT: {str(context.get('target_label', 'Discovery')).upper()}",
+                    ["A brief machine-spirit whisper settles over the panel."],
+                )
+            finally:
+                screen._ambient_discovery_busy = False
+
+        monkeypatch.setattr(screen, "_run_ambient_discovery", fake_run)
+
+        screen._maybe_trigger_ambient_discovery()
+        first_title = screen._ambient_discovery_title
+        first_lines = list(screen._ambient_discovery_lines)
+
+        screen._maybe_trigger_ambient_discovery()
+
+        assert len(seen_contexts) == 1
+        assert first_title == "⛨ AMBIENT: DATA SHRINE"
+        assert first_lines == ["A brief machine-spirit whisper settles over the panel."]
+
+
 class TestDungeonExamineIntegration:
     @pytest.mark.asyncio
     async def test_game_engine_examine_prompt_includes_target_context(self, engine_with_mock_client: GameEngine) -> None:
@@ -417,5 +477,7 @@ class TestDungeonExamineIntegration:
         response = await engine.examine_dungeon_target(context)
 
         assert response.narrative_text == "A terminal hums."
-        assert engine.turn_count == 1
-        assert "Cogitator Terminal" in str(engine._conversation_history[0]["content"])
+        assert engine.turn_count == 0
+        assert engine._conversation_history == []
+        prompt = engine._client.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "Cogitator Terminal" in prompt
