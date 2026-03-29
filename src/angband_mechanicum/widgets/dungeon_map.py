@@ -193,7 +193,7 @@ def render_dungeon_map(
 def render_dungeon_status(
     level: DungeonLevel,
     player_pos: tuple[int, int],
-    message_count: int,
+    integrity: tuple[int, int] | None,
     entities: Sequence[DungeonMapEntity] = (),
     look_cursor: tuple[int, int] | None = None,
     look_summary: str | None = None,
@@ -215,8 +215,17 @@ def render_dungeon_status(
         f"POS:   ({px},{py})",
         f"TILE:  {tile.terrain.value}",
         f"FOV:   {visible} visible / {explored} seen",
-        f"LOG:   {message_count} entries",
     ]
+    if integrity is not None:
+        hp, max_hp = integrity
+        hp_bar_width = 8
+        filled = 0 if max_hp <= 0 else round(hp_bar_width * hp / max_hp)
+        empty = hp_bar_width - filled
+        lines.extend(
+            [
+                f"HP:    [{'═' * filled}{'─' * empty}] {hp}/{max_hp}",
+            ]
+        )
     if look_cursor is not None:
         lx, ly = look_cursor
         lines.extend(
@@ -350,7 +359,7 @@ class DungeonStatusPane(RichLog):
         level: DungeonLevel,
         get_player_pos: Callable[[], tuple[int, int]],
         get_entities: Callable[[], Sequence[DungeonMapEntity]],
-        get_message_count: Callable[[], int],
+        get_integrity: Callable[[], tuple[int, int] | None],
         get_look_cursor: Callable[[], tuple[int, int] | None] | None = None,
         get_look_summary: Callable[[], str | None] | None = None,
         **kwargs: object,
@@ -359,7 +368,7 @@ class DungeonStatusPane(RichLog):
         self._level = level
         self._get_player_pos = get_player_pos
         self._get_entities = get_entities
-        self._get_message_count = get_message_count
+        self._get_integrity = get_integrity
         self._get_look_cursor = get_look_cursor
         self._get_look_summary = get_look_summary
 
@@ -373,7 +382,7 @@ class DungeonStatusPane(RichLog):
             render_dungeon_status(
                 self._level,
                 self._get_player_pos(),
-                self._get_message_count(),
+                self._get_integrity(),
                 self._get_entities(),
                 look_cursor=look_cursor,
                 look_summary=look_summary,

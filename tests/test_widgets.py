@@ -132,3 +132,4 @@ class TestInfoPanelFormatting:
         assert "++ COMPANIONS ++" in rendered
         assert "Alpha-7" in rendered
         assert "Volta" in rendered
+        assert "INTEGRITY" in rendered

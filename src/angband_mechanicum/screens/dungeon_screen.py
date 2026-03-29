@@ -678,7 +678,7 @@ class DungeonScreen(Screen[None]):
                     self._state.level,
                     self._get_player_pos,
                     self._get_entities,
-                    self._get_message_count,
+                    self._get_integrity,
                     self._get_look_cursor,
                     self._get_look_summary,
                     id="dungeon-status",
@@ -710,8 +710,11 @@ class DungeonScreen(Screen[None]):
     def _get_messages(self) -> Sequence[str]:
         return list(self._state.messages)
 
-    def _get_message_count(self) -> int:
-        return len(self._state.messages)
+    def _get_integrity(self) -> tuple[int, int] | None:
+        engine = getattr(self.app, "game_engine", None)
+        if engine is None:
+            return None
+        return (engine.integrity, engine.max_integrity)
 
     def _get_look_cursor(self) -> tuple[int, int] | None:
         return self._look_cursor_pos
