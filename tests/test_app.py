@@ -313,6 +313,52 @@ def test_open_text_view_keeps_live_dungeon_location_on_bridge(
     assert "OBJECTIVE" not in screen._restored_state.get("info_update", {})
     assert app.dungeon_session.pending_text_context == {}
 
+
+def test_open_text_view_prefers_target_art_when_bridge_scene_is_blank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit examine bridges should not fall back to stale story art."""
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="bridge-art-test",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="STORY ART",
+    )
+    app.dungeon_session = app.build_dungeon_session(story)
+    assert app.dungeon_session is not None
+    app.dungeon_session.pending_text_context.update(
+        {
+            "scene_art": "PENDING ART",
+            "LOCATION": "Forge-Cathedra Alpha",
+        }
+    )
+
+    captured: dict[str, object] = {}
+
+    def _capture_switch_screen(screen: object) -> None:
+        captured["screen"] = screen
+
+    monkeypatch.setattr(app, "switch_screen", _capture_switch_screen)
+
+    app.open_text_view(
+        restored_state={
+            "narrative_log": ["You study the relic closely."],
+            "current_scene_art": "",
+            "target_scene_art": "TARGET ART",
+        },
+        story_start=story,
+    )
+
+    screen = captured["screen"]
+    assert isinstance(screen, GameScreen)
+    assert screen._restored_state is not None
+    assert screen._restored_state["current_scene_art"] == "TARGET ART"
+    assert app.dungeon_session.pending_text_context == {}
+
+
 def test_open_text_view_keeps_live_dungeon_location_on_bridge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

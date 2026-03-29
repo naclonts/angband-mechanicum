@@ -383,9 +383,18 @@ class AngbandMechanicumApp(App[None]):
         """Switch to the narrative screen with optional restored UI state."""
         if restored_state is not None and self.dungeon_session is not None:
             merged_state = dict(restored_state)
+            current_scene_art = merged_state.get("current_scene_art")
+            has_scene_art = isinstance(current_scene_art, str) and bool(current_scene_art.strip())
+            if not has_scene_art:
+                for fallback_key in ("interaction_scene_art", "target_scene_art"):
+                    fallback_art = merged_state.get(fallback_key)
+                    if isinstance(fallback_art, str) and fallback_art.strip():
+                        merged_state["current_scene_art"] = fallback_art
+                        has_scene_art = True
+                        break
             pending_context = self.dungeon_session.pending_text_context
             scene_art = pending_context.get("scene_art")
-            if scene_art is not None and not merged_state.get("current_scene_art"):
+            if isinstance(scene_art, str) and scene_art.strip() and not has_scene_art:
                 merged_state["current_scene_art"] = scene_art
             pending_info_update = {
                 key: value
