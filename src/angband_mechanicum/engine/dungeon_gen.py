@@ -14,6 +14,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from angband_mechanicum.engine.combat_engine import Grid, Terrain
+from angband_mechanicum.engine.dungeon_level import (
+    ENVIRONMENTS,
+    DungeonLevel,
+    DungeonTerrain,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -670,4 +675,416 @@ def generate_map_from_hint(hint: RoomHint | dict[str, Any] | None = None, seed: 
         theme=hint.theme,
         name=hint.name,
         seed=seed,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Exploration-scale dungeon floor generation
+# ---------------------------------------------------------------------------
+
+FLOOR_DEFAULT_WIDTH: int = 80
+FLOOR_DEFAULT_HEIGHT: int = 50
+FLOOR_MIN_WIDTH: int = 40
+FLOOR_MIN_HEIGHT: int = 25
+FLOOR_MAX_WIDTH: int = 160
+FLOOR_MAX_HEIGHT: int = 100
+
+
+@dataclass(frozen=True)
+class DungeonRoom:
+    """A placed room footprint on an exploration-scale dungeon floor."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+    room_type: str
+
+    @property
+    def center(self) -> tuple[int, int]:
+        return (self.x + self.width // 2, self.y + self.height // 2)
+
+    def intersects(self, other: "DungeonRoom", padding: int = 1) -> bool:
+        return not (
+            self.x + self.width + padding <= other.x
+            or other.x + other.width + padding <= self.x
+            or self.y + self.height + padding <= other.y
+            or other.y + other.height + padding <= self.y
+        )
+
+    def contains(self, x: int, y: int) -> bool:
+        return self.x <= x < self.x + self.width and self.y <= y < self.y + self.height
+
+
+@dataclass
+class GeneratedFloor:
+    """Result of exploration-scale dungeon floor generation."""
+
+    level: DungeonLevel
+    rooms: list[DungeonRoom]
+    environment: str
+    entry_room_index: int
+    exit_room_index: int
+    secret_passages: list[tuple[tuple[int, int], tuple[int, int]]] = field(default_factory=list)
+
+
+def _fill_level(level: DungeonLevel, terrain: DungeonTerrain) -> None:
+    for y in range(level.height):
+        for x in range(level.width):
+            level.set_terrain(x, y, terrain)
+
+
+def _carve_level_rect(
+    level: DungeonLevel,
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    terrain: DungeonTerrain = DungeonTerrain.FLOOR,
+) -> None:
+    for y in range(max(1, y1), min(level.height - 1, y2 + 1)):
+        for x in range(max(1, x1), min(level.width - 1, x2 + 1)):
+            level.set_terrain(x, y, terrain)
+
+
+def _set_feature_tile(
+    level: DungeonLevel,
+    x: int,
+    y: int,
+    terrain: DungeonTerrain,
+) -> None:
+    if not level.in_bounds(x, y):
+        return
+    if terrain in (DungeonTerrain.STAIRS_UP, DungeonTerrain.STAIRS_DOWN):
+        return
+    current = level.get_terrain(x, y)
+    if current == DungeonTerrain.FLOOR:
+        level.set_terrain(x, y, terrain)
+
+
+def _build_room_on_level(level: DungeonLevel, room: DungeonRoom, rng: random.Random) -> None:
+    """Carve a room footprint into a DungeonLevel."""
+    x1 = room.x
+    y1 = room.y
+    x2 = room.x + room.width - 1
+    y2 = room.y + room.height - 1
+
+    if room.room_type in {"open_room", "small_chamber", "corridor"}:
+        _carve_level_rect(level, x1, y1, x2, y2)
+        return
+
+    if room.room_type == "pillared_hall":
+        _carve_level_rect(level, x1, y1, x2, y2)
+        for y in range(y1 + 2, y2, 3):
+            for x in range(x1 + 2, x2, 4):
+                level.set_terrain(x, y, DungeonTerrain.COLUMN)
+        return
+
+    if room.room_type == "l_shaped":
+        _carve_level_rect(level, x1, y1, x1 + room.width // 2, y2)
+        _carve_level_rect(level, x1, y1 + room.height // 2, x2, y2)
+        return
+
+    if room.room_type == "cross_room":
+        mid_x = x1 + room.width // 2
+        mid_y = y1 + room.height // 2
+        _carve_level_rect(level, x1, mid_y - 1, x2, mid_y + 1)
+        _carve_level_rect(level, mid_x - 1, y1, mid_x + 1, y2)
+        return
+
+    if room.room_type == "maze":
+        _carve_level_rect(level, x1, y1, x2, y2)
+        for y in range(y1 + 1, y2):
+            for x in range(x1 + 1, x2):
+                if (x + y) % 2 == 0 and rng.random() < 0.55:
+                    level.set_terrain(x, y, DungeonTerrain.WALL)
+        for _ in range(max(4, (room.width * room.height) // 16)):
+            carve_x = rng.randint(x1 + 1, x2 - 1)
+            carve_y = rng.randint(y1 + 1, y2 - 1)
+            level.set_terrain(carve_x, carve_y, DungeonTerrain.FLOOR)
+        return
+
+    if room.room_type == "arena":
+        _carve_level_rect(level, x1, y1, x2, y2)
+        scatter_count = max(3, (room.width * room.height) // 18)
+        for _ in range(scatter_count):
+            fx = rng.randint(x1 + 1, x2 - 1)
+            fy = rng.randint(y1 + 1, y2 - 1)
+            level.set_terrain(
+                fx,
+                fy,
+                rng.choice((DungeonTerrain.COVER, DungeonTerrain.RUBBLE)),
+            )
+        return
+
+    _carve_level_rect(level, x1, y1, x2, y2)
+
+
+def _random_room(
+    level_width: int,
+    level_height: int,
+    room_type: str,
+    rng: random.Random,
+) -> DungeonRoom:
+    if room_type == "corridor":
+        horizontal = rng.random() < 0.6
+        if horizontal:
+            width = rng.randint(10, 18)
+            height = rng.randint(4, 6)
+        else:
+            width = rng.randint(4, 6)
+            height = rng.randint(10, 16)
+    else:
+        width = rng.randint(7, 15)
+        height = rng.randint(6, 12)
+        if room_type == "small_chamber":
+            width = rng.randint(6, 10)
+            height = rng.randint(5, 8)
+        elif room_type == "arena":
+            width = rng.randint(10, 18)
+            height = rng.randint(8, 14)
+        elif room_type == "pillared_hall":
+            width = rng.randint(10, 16)
+            height = rng.randint(8, 12)
+        elif room_type == "maze":
+            width = rng.randint(9, 15)
+            height = rng.randint(8, 12)
+
+    width = min(width, max(6, level_width - 4))
+    height = min(height, max(5, level_height - 4))
+    x = rng.randint(1, max(1, level_width - width - 2))
+    y = rng.randint(1, max(1, level_height - height - 2))
+    return DungeonRoom(x=x, y=y, width=width, height=height, room_type=room_type)
+
+
+def _place_rooms(
+    level_width: int,
+    level_height: int,
+    room_types: tuple[str, ...],
+    room_count: int,
+    rng: random.Random,
+) -> list[DungeonRoom]:
+    rooms: list[DungeonRoom] = []
+    attempts = max(80, room_count * 12)
+    for _ in range(attempts):
+        if len(rooms) >= room_count:
+            break
+        room_type = rng.choice(room_types)
+        candidate = _random_room(level_width, level_height, room_type, rng)
+        if any(candidate.intersects(existing) for existing in rooms):
+            continue
+        rooms.append(candidate)
+
+    if not rooms:
+        fallback = DungeonRoom(
+            x=2,
+            y=2,
+            width=max(8, level_width - 4),
+            height=max(6, level_height - 4),
+            room_type="open_room",
+        )
+        rooms.append(fallback)
+
+    rooms.sort(key=lambda room: (room.center[0], room.center[1]))
+    return rooms
+
+
+def _carve_h_tunnel(level: DungeonLevel, x1: int, x2: int, y: int) -> None:
+    for x in range(min(x1, x2), max(x1, x2) + 1):
+        level.set_terrain(x, y, DungeonTerrain.FLOOR)
+
+
+def _carve_v_tunnel(level: DungeonLevel, y1: int, y2: int, x: int) -> None:
+    for y in range(min(y1, y2), max(y1, y2) + 1):
+        level.set_terrain(x, y, DungeonTerrain.FLOOR)
+
+
+def _carve_connection(
+    level: DungeonLevel,
+    a: tuple[int, int],
+    b: tuple[int, int],
+    rng: random.Random,
+) -> None:
+    ax, ay = a
+    bx, by = b
+    if rng.random() < 0.5:
+        _carve_h_tunnel(level, ax, bx, ay)
+        _carve_v_tunnel(level, ay, by, bx)
+    else:
+        _carve_v_tunnel(level, ay, by, ax)
+        _carve_h_tunnel(level, ax, bx, by)
+
+
+def _add_doors(level: DungeonLevel, rng: random.Random) -> None:
+    candidates: list[tuple[int, int]] = []
+    for y in range(1, level.height - 1):
+        for x in range(1, level.width - 1):
+            if level.get_terrain(x, y) != DungeonTerrain.FLOOR:
+                continue
+            north = level.get_tile(x, y - 1).passable
+            south = level.get_tile(x, y + 1).passable
+            east = level.get_tile(x + 1, y).passable
+            west = level.get_tile(x - 1, y).passable
+            if north and south and not east and not west:
+                candidates.append((x, y))
+            elif east and west and not north and not south:
+                candidates.append((x, y))
+
+    rng.shuffle(candidates)
+    door_target = max(2, len(candidates) // 12)
+    for x, y in candidates[:door_target]:
+        level.set_terrain(x, y, DungeonTerrain.DOOR_OPEN)
+
+
+def _scatter_environment_features(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    environment: str,
+    reserved: set[tuple[int, int]],
+    rng: random.Random,
+) -> None:
+    env = ENVIRONMENTS.get(environment)
+    if env is None:
+        return
+
+    feature_pool = [
+        terrain
+        for terrain in env.feature_terrains
+        if terrain not in (DungeonTerrain.COLUMN, DungeonTerrain.TERMINAL)
+    ]
+
+    for room in rooms:
+        if room.room_type == "corridor" or not feature_pool:
+            continue
+        placements = max(1, (room.width * room.height) // 30)
+        for _ in range(placements):
+            x = rng.randint(room.x + 1, room.x + room.width - 2)
+            y = rng.randint(room.y + 1, room.y + room.height - 2)
+            if (x, y) in reserved:
+                continue
+            terrain = rng.choice(feature_pool)
+            _set_feature_tile(level, x, y, terrain)
+
+    if DungeonTerrain.TERMINAL in env.feature_terrains:
+        for room in rooms[: max(1, len(rooms) // 4)]:
+            x = room.center[0]
+            y = room.center[1]
+            if (x, y) not in reserved:
+                _set_feature_tile(level, x, y, DungeonTerrain.TERMINAL)
+
+
+def _find_room_index(rooms: list[DungeonRoom], position: tuple[int, int]) -> int:
+    x, y = position
+    for index, room in enumerate(rooms):
+        if room.contains(x, y):
+            return index
+    return 0
+
+
+def _add_secret_passage(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    reserved: set[tuple[int, int]],
+    rng: random.Random,
+) -> list[tuple[tuple[int, int], tuple[int, int]]]:
+    if len(rooms) < 3:
+        return []
+
+    candidates = [
+        (rooms[index], rooms[index + 2])
+        for index in range(len(rooms) - 2)
+    ]
+    start_room, end_room = rng.choice(candidates)
+    start = start_room.center
+    end = end_room.center
+    _carve_connection(level, start, end, rng)
+
+    for position in (start, end):
+        if position not in reserved:
+            level.set_terrain(position[0], position[1], DungeonTerrain.DOOR_CLOSED)
+
+    return [(start, end)]
+
+
+def _find_nearest_floor(level: DungeonLevel, origin: tuple[int, int]) -> tuple[int, int]:
+    ox, oy = origin
+    best = origin
+    best_distance = 10**9
+    for y in range(max(1, oy - 2), min(level.height - 1, oy + 3)):
+        for x in range(max(1, ox - 2), min(level.width - 1, ox + 3)):
+            if not level.get_tile(x, y).passable:
+                continue
+            distance = abs(x - ox) + abs(y - oy)
+            if distance < best_distance:
+                best = (x, y)
+                best_distance = distance
+    return best
+
+
+def generate_dungeon_floor(
+    *,
+    level_id: str,
+    depth: int,
+    environment: str = "forge",
+    width: int = FLOOR_DEFAULT_WIDTH,
+    height: int = FLOOR_DEFAULT_HEIGHT,
+    room_count: int | None = None,
+    name: str | None = None,
+    seed: int | None = None,
+) -> GeneratedFloor:
+    """Generate an exploration-scale persistent dungeon floor."""
+    rng = random.Random(seed)
+    env = ENVIRONMENTS.get(environment, ENVIRONMENTS["forge"])
+    width = max(FLOOR_MIN_WIDTH, min(FLOOR_MAX_WIDTH, width))
+    height = max(FLOOR_MIN_HEIGHT, min(FLOOR_MAX_HEIGHT, height))
+    resolved_room_count = room_count if room_count is not None else max(6, (width * height) // 260)
+    resolved_room_count = max(4, min(18, resolved_room_count))
+
+    level = DungeonLevel(
+        level_id=level_id,
+        name=name or f"{env.name.title()} Depth {depth}",
+        depth=depth,
+        environment=env.name,
+        width=width,
+        height=height,
+    )
+    _fill_level(level, DungeonTerrain.WALL)
+
+    rooms = _place_rooms(width, height, env.room_types, resolved_room_count, rng)
+    for room in rooms:
+        _build_room_on_level(level, room, rng)
+
+    for room_a, room_b in zip(rooms, rooms[1:]):
+        _carve_connection(level, room_a.center, room_b.center, rng)
+
+    extra_connections = min(3, max(1, len(rooms) // 3))
+    for _ in range(extra_connections):
+        room_a, room_b = rng.sample(rooms, 2)
+        _carve_connection(level, room_a.center, room_b.center, rng)
+
+    entry_room = rooms[0]
+    exit_room = max(rooms, key=lambda room: abs(room.center[0] - entry_room.center[0]) + abs(room.center[1] - entry_room.center[1]))
+    stairs_up = _find_nearest_floor(level, entry_room.center)
+    stairs_down = _find_nearest_floor(level, exit_room.center)
+    if stairs_down == stairs_up and len(rooms) > 1:
+        stairs_down = _find_nearest_floor(level, rooms[-1].center)
+
+    level.set_terrain(stairs_up[0], stairs_up[1], DungeonTerrain.STAIRS_UP)
+    level.set_terrain(stairs_down[0], stairs_down[1], DungeonTerrain.STAIRS_DOWN)
+    level.stairs_up = [stairs_up]
+    level.stairs_down = [stairs_down]
+    level.player_pos = stairs_up
+
+    reserved = {stairs_up, stairs_down}
+    _scatter_environment_features(level, rooms, env.name, reserved, rng)
+    _add_doors(level, rng)
+    secret_passages = _add_secret_passage(level, rooms, reserved, rng)
+
+    return GeneratedFloor(
+        level=level,
+        rooms=rooms,
+        environment=env.name,
+        entry_room_index=_find_room_index(rooms, stairs_up),
+        exit_room_index=_find_room_index(rooms, stairs_down),
+        secret_passages=secret_passages,
     )

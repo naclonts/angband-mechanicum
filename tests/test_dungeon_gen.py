@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+from collections import deque
+
 import pytest
 
 from angband_mechanicum.engine.combat_engine import Grid, Terrain, Tile, auto_place_enemies
+from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain
 from angband_mechanicum.engine.dungeon_gen import (
     DEFAULT_HEIGHT,
     DEFAULT_WIDTH,
     FEATURE_TYPES,
+    FLOOR_DEFAULT_HEIGHT,
+    FLOOR_DEFAULT_WIDTH,
     MAX_HEIGHT,
     MAX_WIDTH,
     MIN_HEIGHT,
     MIN_WIDTH,
     ROOM_TYPES,
+    DungeonRoom,
+    GeneratedFloor,
     GeneratedMap,
     RoomHint,
     SpawnPoints,
+    generate_dungeon_floor,
     generate_map,
     generate_map_from_hint,
     _BUILDERS,
@@ -24,6 +32,19 @@ from angband_mechanicum.engine.dungeon_gen import (
     _floor_tiles,
     _scatter_features,
 )
+
+
+def _reachable_tiles(level: DungeonLevel, start: tuple[int, int]) -> set[tuple[int, int]]:
+    seen = {start}
+    queue: deque[tuple[int, int]] = deque([start])
+    while queue:
+        x, y = queue.popleft()
+        for nx, ny in level.get_passable_neighbors(x, y):
+            if (nx, ny) in seen:
+                continue
+            seen.add((nx, ny))
+            queue.append((nx, ny))
+    return seen
 
 
 # ---------------------------------------------------------------------------
@@ -472,3 +493,82 @@ class TestEdgeCases:
         for room_type in ROOM_TYPES:
             gm = generate_map(room_type=room_type, seed=85)
             assert gm.spawn.player_start not in gm.spawn.party_starts
+
+
+# ---------------------------------------------------------------------------
+# Exploration-scale dungeon floors
+# ---------------------------------------------------------------------------
+
+
+class TestDungeonFloorGeneration:
+    def test_generate_floor_returns_level_and_rooms(self) -> None:
+        floor = generate_dungeon_floor(level_id="floor-1", depth=1, seed=101)
+        assert isinstance(floor, GeneratedFloor)
+        assert isinstance(floor.level, DungeonLevel)
+        assert floor.level.width == FLOOR_DEFAULT_WIDTH
+        assert floor.level.height == FLOOR_DEFAULT_HEIGHT
+        assert len(floor.rooms) >= 4
+        assert all(isinstance(room, DungeonRoom) for room in floor.rooms)
+
+    def test_floor_has_stairs_and_player_position(self) -> None:
+        floor = generate_dungeon_floor(level_id="floor-2", depth=2, seed=102)
+        assert len(floor.level.stairs_up) == 1
+        assert len(floor.level.stairs_down) == 1
+        assert floor.level.player_pos == floor.level.stairs_up[0]
+        up_x, up_y = floor.level.stairs_up[0]
+        down_x, down_y = floor.level.stairs_down[0]
+        assert floor.level.get_terrain(up_x, up_y) == DungeonTerrain.STAIRS_UP
+        assert floor.level.get_terrain(down_x, down_y) == DungeonTerrain.STAIRS_DOWN
+
+    def test_floor_is_connected_between_stairs(self) -> None:
+        floor = generate_dungeon_floor(level_id="floor-3", depth=3, seed=103)
+        stairs_up = floor.level.stairs_up[0]
+        stairs_down = floor.level.stairs_down[0]
+        reachable = _reachable_tiles(floor.level, stairs_up)
+        assert stairs_down in reachable
+
+    def test_floor_places_doors(self) -> None:
+        floor = generate_dungeon_floor(level_id="floor-4", depth=4, seed=104)
+        door_count = sum(
+            1
+            for y in range(floor.level.height)
+            for x in range(floor.level.width)
+            if floor.level.get_terrain(x, y)
+            in (DungeonTerrain.DOOR_OPEN, DungeonTerrain.DOOR_CLOSED)
+        )
+        assert door_count >= 2
+
+    def test_floor_uses_environment_features(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-5",
+            depth=5,
+            environment="sewer",
+            seed=105,
+        )
+        terrains = {
+            floor.level.get_terrain(x, y)
+            for y in range(floor.level.height)
+            for x in range(floor.level.width)
+        }
+        assert DungeonTerrain.WATER in terrains or DungeonTerrain.ACID_POOL in terrains
+
+    def test_floor_seed_reproducibility(self) -> None:
+        first = generate_dungeon_floor(level_id="floor-6", depth=6, seed=106)
+        second = generate_dungeon_floor(level_id="floor-6", depth=6, seed=106)
+        assert [(room.x, room.y, room.width, room.height, room.room_type) for room in first.rooms] == [
+            (room.x, room.y, room.width, room.height, room.room_type) for room in second.rooms
+        ]
+        for y in range(first.level.height):
+            for x in range(first.level.width):
+                assert first.level.get_terrain(x, y) == second.level.get_terrain(x, y)
+
+    def test_floor_dimensions_are_clamped(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-7",
+            depth=7,
+            width=999,
+            height=5,
+            seed=107,
+        )
+        assert floor.level.width <= 160
+        assert floor.level.height >= 25
