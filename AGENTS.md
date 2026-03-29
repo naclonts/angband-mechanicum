@@ -4,7 +4,18 @@ Instructions for AI coding agents working on this repository.
 
 ## Project
 
-Angband Mechanicum — a CLI game where the player is a WH40K Adeptus Mechanicus Tech-Priest. Built with Python + Textual TUI framework. See `docs/context.md` for full context.
+Angband Mechanicum — a CLI roguelike where the player is a WH40K Adeptus Mechanicus Tech-Priest exploring persistent dungeons. Built with Python + Textual TUI framework. See `docs/context.md` for full context.
+
+## Architecture: Two-View Model
+
+The game has two views that players transition between:
+
+- **Map view** — Roguelike overhead tile map. Dungeon exploration + combat (bump-to-attack). Single character (@), numpad/vi-key movement, FOV. *Being built — see open tickets.*
+- **Text view** — Existing 4-pane layout (scene art, portrait, narrative, prompt). LLM-powered dialogue, descriptions, and long-range travel narration.
+
+Transitions: map → text (talk to NPC, examine object, board ship), text → map (arrive at location, end conversation). See `docs/context.md` for details.
+
+The current separate `CombatScreen` will be replaced by the unified map view. Zone navigation between areas happens via text view (no overworld map in v1).
 
 ## Stack
 
@@ -18,13 +29,25 @@ Angband Mechanicum — a CLI game where the player is a WH40K Adeptus Mechanicus
 
 ```
 src/angband_mechanicum/
-├── app.py                    # App entry point
-├── theme.py                  # CRT green theme
-├── styles/game.tcss          # Layout CSS
-├── screens/game_screen.py    # Main 4-pane screen
-├── widgets/                  # UI components (scene, portrait, narrative, info, prompt)
-├── engine/game_engine.py     # Game logic — LLM integration seam
-└── assets/placeholder_art.py # ASCII art and placeholder text
+├── app.py                        # App entry point
+├── theme.py                      # CRT green theme
+├── styles/game.tcss              # Layout CSS
+├── screens/
+│   ├── game_screen.py            # Text view — 4-pane narrative/dialogue screen
+│   ├── combat_screen.py          # Tactical combat (to be replaced by unified map view)
+│   ├── menu_screen.py            # Main menu
+│   ├── story_select_screen.py    # Story starting point selection
+│   ├── character_setup_screen.py # Character name setup
+│   └── api_key_screen.py         # API key entry
+├── widgets/                      # UI components (scene, portrait, narrative, info, prompt, combat grid)
+├── engine/
+│   ├── game_engine.py            # LLM narrative engine — processes player input
+│   ├── combat_engine.py          # Turn-based tactical combat (Grid, Units, AI)
+│   ├── dungeon_gen.py            # Procedural room generation (combat maps only, currently)
+│   ├── history.py                # Entity tracking and game history
+│   ├── story_starts.py           # Story starting scenarios
+│   └── save_manager.py           # Save/load persistence
+└── assets/                       # ASCII art, portraits, placeholder text
 ```
 
 ## Task Management
@@ -121,6 +144,8 @@ tk dep <new-id> <combat-system-id>
 - Use `@work(exclusive=True)` for async operations in Textual screens
 - Engine is the LLM seam: `engine/game_engine.py` processes player input. UI code should not call LLM APIs directly.
 - Widgets are dumb: they display data. Game logic lives in `engine/`.
+- New dungeon/map engine code goes in `engine/`. The map view screen goes in `screens/`.
+- The existing `combat_engine.py` Grid/Tile/Terrain types can be reused and extended for dungeon maps — don't duplicate them.
 
 
 ### BENEDICTION

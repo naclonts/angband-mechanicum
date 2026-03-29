@@ -1,6 +1,6 @@
 # Angband Mechanicum
 
-A CLI dungeon-crawling RPG set in the Warhammer 40K universe. You are an Adeptus Mechanicus Tech-Priest exploring the deep strata beneath a forge world. Built with Python, Textual, and Claude.
+Explore a generative world with turn-based combat while interacting with natural language prompts.
 
 ## Requirements
 
@@ -14,3 +14,9 @@ A CLI dungeon-crawling RPG set in the Warhammer 40K universe. You are an Adeptus
 uv sync
 uv run angband-mechanicum
 ```
+
+## Screenshots
+
+![2D Combat view](./docs/AngMech1_Combat.png)
+
+![Text view](./docs/AngMech1_Text.png)
