@@ -23,6 +23,8 @@ Transitions: map → text (talk to NPC, examine object, board ship), text → ma
 
 The current separate `CombatScreen` will be replaced by the unified map view. Zone navigation between areas happens via text view (no overworld map in v1).
 
+See [the architecture doc for details](./docs/architecture.md).
+
 ## Stack
 
 - **Language:** Python 3.11+
@@ -71,6 +73,8 @@ tk create "title" -d "description" -t feature  # Create new ticket
 tk add-note <id> "text"    # Add progress notes
 tk dep <id> <dep-id>       # Declare id depends on dep-id
 ```
+
+When creating tickets, specify the difficulty in terms of ambiguity and scope (small, medium, large, x-large). When creating subagents, medium to x-large tickets should have the most powerful model available. Small tickets may be worked by a slightly smaller model.
 
 ### Agent Workflow
 
