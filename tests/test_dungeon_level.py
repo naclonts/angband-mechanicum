@@ -76,6 +76,17 @@ class TestDungeonLevelFov:
         assert restored.get_tile(2, 3).fog == FogState.EXPLORED
         assert restored.get_tile(0, 0).fog == FogState.HIDDEN
 
+    def test_item_placements_round_trip_through_serialization(self) -> None:
+        level = make_level()
+        level.place_item(2, 2, "data-slate")
+        level.place_item(2, 2, "toolkit")
+        level.place_item(4, 1, "vox-beacon")
+
+        restored = DungeonLevel.from_dict(level.to_dict())
+
+        assert restored.get_items(2, 2) == ["data-slate", "toolkit"]
+        assert restored.get_items(4, 1) == ["vox-beacon"]
+
     def test_negative_radius_is_rejected(self) -> None:
         level = make_level()
 

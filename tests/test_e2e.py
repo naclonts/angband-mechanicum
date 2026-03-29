@@ -431,6 +431,34 @@ class TestPlayTurns:
             rendered = str(info.render())
             assert "Cargo Lift Shaft" in rendered
 
+    @pytest.mark.asyncio
+    async def test_text_response_can_return_to_dungeon_with_pending_context(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A text-view bridge response should keep its pending context on the map."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app)
+
+            response = json.dumps({
+                "narrative_text": "[return-to-dungeon] The lift hums and the route is restored.",
+                "scene_art": "SCENE",
+                "info_update": {"LOCATION": "Cargo Lift Shaft"},
+                "entities": [],
+                "combat_trigger": False,
+                "speaking_npc": None,
+            })
+            _mock_engine_client(app, response)
+
+            await _submit_command(pilot, app, "recalibrate the route")
+
+            assert isinstance(app.screen, DungeonScreen)
+            assert app.game_engine._info_panel["LOCATION"] == "Cargo Lift Shaft"
+            assert app.dungeon_session is not None
+            assert app.dungeon_session.pending_text_context["scene_art"] == "SCENE"
+            assert app.dungeon_session.pending_text_context["LOCATION"] == "Cargo Lift Shaft"
+
 
 # ---------------------------------------------------------------------------
 # Test: error handling

@@ -27,6 +27,7 @@ Creature turns now advance on the map after player actions: hostiles pursue or h
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.
 When the player is directly speaking to or closely examining a specific character, the scene art can center that character instead of only showing the broader surroundings.
 Travel requests entered in text view are resolved to the closest supported dungeon environment, then a matching dungeon session is generated and mounted on arrival.
+Text-view responses that ask the player to resume exploration keep their scene art and info updates in the dungeon session so the next bridge back to text can restore the same context.
 Curated story starts now seed explicit dungeon-generation profiles instead of relying on free-text environment inference. Those profiles carry canonical environment identity, faction bias, landmark/set-piece preferences, and content exclusions across story intro, `/explore`, save/load, and later floor transitions.
 
 ### Transitions Between Views
@@ -37,6 +38,8 @@ Zone navigation between different areas (forge worlds, different dungeons) happe
 The destination vocabulary is built around an expandable environment catalog, so future travel matching can resolve natural-language destinations onto the closest supported dungeon type.
 Story-specific dungeon profiles sit above that coarse environment layer so authored starts like titan recovery, necron tomb delves, or STC vault breaches keep their faction and landmark identity instead of collapsing into generic biome content.
 Dungeon floors can also include reusable themed set-pieces that combine room dressing, grouped hostiles, and optional NPCs to create more memorable encounters than plain procedural geometry alone.
+Those floors now also seed a small number of persistent item objects on safe floor tiles, so generated spaces can contain actual loot/interactables instead of only terrain and contacts.
+Door placement is gated by a valid-chokepoint threshold so tiny or open rooms do not get over-documented with doors that do not read as real passages.
 
 ## UI Layout
 
@@ -74,7 +77,7 @@ Dungeon floors can also include reusable themed set-pieces that combine room dre
 ## What Exists Today
 
 - **Text view** (game_screen.py) — fully functional with LLM narrative, portraits, entity tracking
-- **Legacy tactical combat** (combat_screen.py + combat_engine.py) — separate XCOM-style grid combat screen kept as a deprecated reference; live combat now spawns directly into the unified map view with bump-to-attack
+- **Legacy tactical combat** (combat_screen.py + combat_engine.py) — quarantined compatibility surface; live combat now spawns directly into the unified map view with bump-to-attack
 - **Dungeon generation** (dungeon_gen.py) — procedural multi-room dungeon floors with seeded, environment-specific contact rosters, still expanding toward the full exploration loop
 - **Save/load** (save_manager.py) — game state persistence
 - **Entity/history tracking** (history.py) — structured world memory for LLM context

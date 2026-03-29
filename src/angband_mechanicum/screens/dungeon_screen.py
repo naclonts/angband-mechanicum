@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import enum
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -719,6 +720,7 @@ class DungeonScreen(Screen[None]):
         self._ambient_action_index: int = 0
         self._ambient_last_trigger_index: int = -999
         self._ambient_discovery_busy: bool = False
+        self._death_in_progress: bool = False
         if state is not None:
             self._state = state
             return
@@ -786,6 +788,7 @@ class DungeonScreen(Screen[None]):
         self.title = f"DUNGEON: {self._state.level.name.upper()}"
         self._refresh_all()
         self.query_one("#dungeon-map", DungeonMapPane).focus()
+        self._maybe_start_player_death_sequence()
 
     def action_cycle_panel(self) -> None:
         focused = self.focused
@@ -1023,6 +1026,8 @@ class DungeonScreen(Screen[None]):
     def _autosave(self) -> None:
         """Persist the current dungeon session after a meaningful turn."""
         try:
+            if self._death_in_progress:
+                return
             slot_id: str | None = getattr(self.app, "save_slot", None)  # type: ignore[attr-defined]
             dungeon_session = getattr(self.app, "dungeon_session", None)  # type: ignore[attr-defined]
             if not slot_id or dungeon_session is None:
@@ -1037,7 +1042,85 @@ class DungeonScreen(Screen[None]):
         except Exception as exc:
             logger.error("Dungeon autosave failed: %s", exc)
 
+    def _player_has_fallen(self) -> bool:
+        engine = getattr(self.app, "game_engine", None)
+        return engine is not None and engine.integrity <= 0
+
+    def _summarize_hostile_contacts(self) -> str:
+        hostiles = [
+            entity.name
+            for entity in self._state.entities
+            if entity.disposition == DungeonDisposition.HOSTILE
+        ]
+        if not hostiles:
+            return "unknown hostiles"
+        return ", ".join(hostiles[:4])
+
+    def _summarize_companions(self) -> str:
+        engine = getattr(self.app, "game_engine", None)
+        if engine is None:
+            return "no surviving companions"
+        companions = engine.get_status_data().get("companions", [])
+        alive_companions = [
+            companion
+            for companion in companions
+            if isinstance(companion, dict) and companion.get("alive")
+        ]
+        if not alive_companions:
+            return "no surviving companions"
+        return ", ".join(
+            f"{companion.get('name', 'Unknown')} "
+            f"({companion.get('hp', 0)}/{companion.get('max_hp', 0)})"
+            for companion in alive_companions
+        )
+
+    def _build_death_context(self, reports: Sequence[DungeonTurnResult]) -> dict[str, Any]:
+        session = getattr(self.app, "dungeon_session", None)  # type: ignore[attr-defined]
+        deepest_level = self._state.level.depth
+        if session is not None and session.level_states:
+            deepest_level = max(state.level.depth for state in session.level_states.values())
+        fallen_hostiles = sum(
+            1
+            for entity in self._state.entities
+            if entity.disposition == DungeonDisposition.HOSTILE and not entity.alive
+        )
+        striking_enemies = [
+            report.entity_name
+            for report in reports
+            if report.attacked_player
+        ]
+        enemy_summary = ", ".join(striking_enemies[:4]) or self._summarize_hostile_contacts()
+        location = session.location if session is not None and session.location else self._state.level.name
+        return {
+            "player_name": getattr(self.app.game_engine, "player_name", "Magos Explorator"),  # type: ignore[attr-defined]
+            "location": location,
+            "turns_survived": getattr(self.app.game_engine, "turn_count", 0),  # type: ignore[attr-defined]
+            "enemies_slain": fallen_hostiles,
+            "deepest_level_reached": deepest_level,
+            "enemy_summary": enemy_summary,
+            "companion_summary": self._summarize_companions(),
+            "cause_of_death": f"succumbed to {enemy_summary}",
+            "report_count": len(list(reports)),
+            "timestamp": time.time(),
+        }
+
+    def _maybe_start_player_death_sequence(self) -> None:
+        if self._death_in_progress or not self._player_has_fallen():
+            return
+        self._death_in_progress = True
+        self._handle_player_death([])
+
+    @work(exclusive=True)
+    async def _handle_player_death(self, reports: Sequence[DungeonTurnResult]) -> None:
+        if not self._death_in_progress:
+            self._death_in_progress = True
+        death_context = self._build_death_context(reports)
+        app = self.app
+        await app.handle_player_death(death_context)  # type: ignore[attr-defined]
+
     def _step(self, dx: int, dy: int) -> None:
+        if self._death_in_progress:
+            return
         if self._look_mode:
             self._move_look_cursor(dx, dy)
             return
@@ -1045,6 +1128,8 @@ class DungeonScreen(Screen[None]):
         self._process_step_result(result)
 
     def _process_step_result(self, result: DungeonActionResult) -> None:
+        if self._death_in_progress:
+            return
         if result.kind == DungeonInteractionKind.MOVE:
             self._ambient_action_index += 1
         self._refresh_all()
@@ -1062,22 +1147,28 @@ class DungeonScreen(Screen[None]):
             DungeonInteractionKind.ATTACK,
             DungeonInteractionKind.NEUTRAL,
         }:
-            self._apply_creature_turns()
+            if self._apply_creature_turns():
+                return
             self._maybe_trigger_ambient_discovery()
             self._autosave()
         elif result.kind != DungeonInteractionKind.BLOCKED:
             self._autosave()
 
-    def _apply_creature_turns(self) -> None:
+    def _apply_creature_turns(self) -> bool:
         """Advance the local AI after a player action."""
         reports = self._state.advance_creature_turns()
         if not reports:
-            return
+            return False
         engine = getattr(self.app, "game_engine", None)
         total_damage = sum(report.attack_damage for report in reports if report.attacked_player)
         if engine is not None and total_damage > 0:
             engine.take_damage(total_damage)
         self._refresh_all()
+        if self._player_has_fallen():
+            self._death_in_progress = True
+            self._handle_player_death(reports)
+            return True
+        return False
 
     @work(exclusive=True)
     async def _run_travel(self, dx: int, dy: int) -> None:
@@ -1355,9 +1446,12 @@ class DungeonScreen(Screen[None]):
             return
 
     def action_wait(self) -> None:
+        if self._death_in_progress:
+            return
         self._state.wait()
         self._ambient_action_index += 1
-        self._apply_creature_turns()
+        if self._apply_creature_turns():
+            return
         self._refresh_all()
         self._maybe_trigger_ambient_discovery()
         self._autosave()

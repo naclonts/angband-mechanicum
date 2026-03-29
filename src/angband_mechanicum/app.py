@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,7 +18,11 @@ from angband_mechanicum.engine.dungeon_profiles import (
     build_travel_dungeon_profile,
 )
 from angband_mechanicum.engine.game_engine import GameEngine, TravelDestination
-from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager
+from angband_mechanicum.engine.save_manager import (
+    DeathRecord,
+    SaveManager,
+    generate_death_record_id,
+)
 from angband_mechanicum.engine.dungeon_level import transition_terrain_label
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.screens.api_key_screen import ApiKeyScreen
@@ -376,6 +381,24 @@ class AngbandMechanicumApp(App[None]):
         speaking_npc_id: str | None = None,
     ) -> None:
         """Switch to the narrative screen with optional restored UI state."""
+        if restored_state is not None and self.dungeon_session is not None:
+            merged_state = dict(restored_state)
+            pending_context = self.dungeon_session.pending_text_context
+            scene_art = pending_context.get("scene_art")
+            if scene_art is not None and not merged_state.get("current_scene_art"):
+                merged_state["current_scene_art"] = scene_art
+            pending_info_update = {
+                key: value
+                for key, value in pending_context.items()
+                if key != "scene_art"
+            }
+            if pending_info_update:
+                merged_info_update = dict(merged_state.get("info_update") or {})
+                for key, value in pending_info_update.items():
+                    merged_info_update.setdefault(key, value)
+                if merged_info_update:
+                    merged_state["info_update"] = merged_info_update
+            restored_state = merged_state
         self.switch_screen(
             GameScreen(
                 restored_state=restored_state,
@@ -425,6 +448,7 @@ class AngbandMechanicumApp(App[None]):
         if scene_art:
             self.dungeon_session.pending_text_context["scene_art"] = scene_art
         if info_update:
+            self.game_engine._info_panel.update(dict(info_update))
             self.dungeon_session.pending_text_context.update(info_update)
         self.open_dungeon_view()
 
@@ -494,7 +518,7 @@ class AngbandMechanicumApp(App[None]):
         current.append_message(f"The {transition_label} does not respond.")
 
     def archive_player_death(self, record: DeathRecord) -> None:
-        """Persist a death record, delete the live save, and return to the menu."""
+        """Persist a death record, delete the live save, and open the memorial hall."""
         manager = SaveManager()
         try:
             manager.save_death_record(record)
@@ -506,7 +530,33 @@ class AngbandMechanicumApp(App[None]):
             self.save_slot = None
             self.dungeon_session = None
             self.game_engine = GameEngine()
-            self.return_to_menu_view()
+            self.open_hall_of_dead_view()
+
+    async def handle_player_death(self, death_context: dict[str, Any]) -> DeathRecord:
+        """Generate, archive, and display the memorial for a fallen run."""
+        narrative = await self.game_engine.generate_death_narrative(death_context)
+        location = str(death_context.get("location", "Unknown Depths"))
+        turns_survived = int(death_context.get("turns_survived", self.game_engine.turn_count))
+        enemies_slain = int(death_context.get("enemies_slain", 0))
+        deepest_level_reached = int(death_context.get("deepest_level_reached", 0))
+        cause_of_death = narrative.cause_of_death or str(
+            death_context.get("cause_of_death", "Unknown")
+        )
+        record = DeathRecord(
+            record_id=generate_death_record_id(),
+            timestamp=time.time(),
+            player_name=self.game_engine.player_name,
+            location=location,
+            turns_survived=turns_survived,
+            enemies_slain=enemies_slain,
+            deepest_level_reached=deepest_level_reached,
+            cause_of_death=cause_of_death,
+            summary=narrative.summary,
+            save_slot_id=self.save_slot,
+            story_start_id=self._story_start.id if self._story_start else None,
+        )
+        self.archive_player_death(record)
+        return record
 
     def on_mount(self) -> None:
         self.register_theme(CRT_GREEN)

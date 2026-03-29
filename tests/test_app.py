@@ -18,6 +18,7 @@ from angband_mechanicum.engine.dungeon_entities import (
 from angband_mechanicum.engine.dungeon_gen import GeneratedFloor
 from angband_mechanicum.engine.dungeon_profiles import build_story_dungeon_profile
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain
+from angband_mechanicum.engine.game_engine import DeathNarrative
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.engine.save_manager import DeathRecord
 from angband_mechanicum.screens.game_screen import GameScreen
@@ -151,7 +152,7 @@ def test_archive_player_death_saves_record_and_clears_live_state(
     app.save_slot = "slot-1"
     app.dungeon_session = object()
     returned: list[bool] = []
-    app.return_to_menu_view = lambda: returned.append(True)  # type: ignore[assignment]
+    app.open_hall_of_dead_view = lambda: returned.append(True)  # type: ignore[assignment]
 
     record = DeathRecord(
         record_id="death-1",
@@ -175,6 +176,93 @@ def test_archive_player_death_saves_record_and_clears_live_state(
     assert app.dungeon_session is None
     assert returned == [True]
 
+
+@pytest.mark.asyncio
+async def test_handle_player_death_generates_and_archives_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Death orchestration should build a record, archive it, and show the hall."""
+    fake_manager = _FakeSaveManager()
+    monkeypatch.setattr(app_module, "SaveManager", lambda: fake_manager)
+    monkeypatch.setattr(app_module, "GameEngine", lambda: object())
+
+    class _FakeEngine:
+        player_name = "Magos Explorator"
+        turn_count = 17
+
+        async def generate_death_narrative(
+            self, death_context: dict[str, object]
+        ) -> DeathNarrative:
+            return DeathNarrative(
+                summary=f"{death_context['location']} remembers the final stand.",
+                cause_of_death="crushed by a daemon engine",
+            )
+
+    app = AngbandMechanicumApp()
+    app.game_engine = _FakeEngine()  # type: ignore[assignment]
+    app.save_slot = "slot-2"
+    app._story_start = StoryStart(  # type: ignore[attr-defined]
+        id="forge-escape",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="ART",
+    )
+    hall_opened: list[bool] = []
+    app.open_hall_of_dead_view = lambda: hall_opened.append(True)  # type: ignore[assignment]
+
+    record = await app.handle_player_death(
+        {
+            "location": "Lower Forge",
+            "turns_survived": 17,
+            "enemies_slain": 3,
+            "deepest_level_reached": 4,
+            "enemy_summary": "rogue servitors",
+        }
+    )
+
+    assert fake_manager.saved_record == record
+    assert record.player_name == "Magos Explorator"
+    assert record.location == "Lower Forge"
+    assert record.turns_survived == 17
+    assert record.enemies_slain == 3
+    assert record.deepest_level_reached == 4
+    assert record.cause_of_death == "crushed by a daemon engine"
+    assert "Lower Forge remembers" in record.summary
+    assert hall_opened == [True]
+
+
+def test_return_to_dungeon_view_keeps_pending_text_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Text-view bridge data should survive the round-trip back to dungeon mode."""
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="bridge-test",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="ART",
+    )
+    app.dungeon_session = app.build_dungeon_session(story)
+
+    opened: list[bool] = []
+    monkeypatch.setattr(app, "open_dungeon_view", lambda **kwargs: opened.append(True))
+
+    app.return_to_dungeon_view(
+        narrative_lines=["The machine spirit points the way."],
+        scene_art="BRIDGE ART",
+        info_update={"LOCATION": "Cargo Lift Shaft", "OBJECTIVE": "Proceed below"},
+    )
+
+    assert opened == [True]
+    assert app.game_engine._info_panel["LOCATION"] == "Cargo Lift Shaft"
+    assert app.dungeon_session is not None
+    assert app.dungeon_session.pending_text_context["scene_art"] == "BRIDGE ART"
+    assert app.dungeon_session.pending_text_context["LOCATION"] == "Cargo Lift Shaft"
+    assert app.dungeon_session.pending_text_context["OBJECTIVE"] == "Proceed below"
 
 def test_travel_dungeon_transition_descends_and_returns(
     monkeypatch: pytest.MonkeyPatch,

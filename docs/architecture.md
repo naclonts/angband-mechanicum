@@ -5,7 +5,7 @@ Angband Mechanicum is a Textual-based terminal game with two primary interaction
 - `DungeonScreen` for exploration on a persistent tile map
 - `GameScreen` for narrative, dialogue, and other LLM-driven text interactions
 
-The codebase still contains a separate `CombatScreen` and `CombatEngine` as legacy tactical artifacts, but live combat now stays in the unified dungeon path.
+The codebase still contains a separate `CombatScreen` and `CombatEngine` as legacy tactical artifacts, but live combat now stays in the unified dungeon path and the old screen is quarantined as a compatibility shell.
 
 ## Goals Of This Document
 
@@ -52,7 +52,7 @@ flowchart LR
     A["App<br/>AngbandMechanicumApp"] --> B["Menu / Setup Screens"]
     A --> C["DungeonScreen<br/>map exploration"]
     A --> D["GameScreen<br/>text narrative"]
-    A --> E["CombatScreen<br/>legacy tactical artifact"]
+    A --> E["CombatScreen<br/>deprecated compatibility shell"]
 
     D --> F["GameEngine<br/>LLM + history + status"]
     C --> G["DungeonMapState<br/>live exploration state"]
@@ -91,8 +91,8 @@ flowchart TD
     O -->|return_to_dungeon_view()| M
     O -->|combat trigger or /combat| P["Dungeon encounter mode<br/>spawn hostiles on the map"]
     P --> O
-    O -->|death| Q["archive_player_death()"]
-    Q --> R["MenuScreen"]
+    O -->|death| Q["handle_player_death()"]
+    Q --> R["HallOfDeadScreen"]
 ```
 
 ## Primary Code Flows
@@ -120,7 +120,9 @@ Primary files:
 - `DungeonSession` persists the canonical dungeon-generation profile for the current location, so environment id, faction bias, landmark bias, and content exclusions survive `/explore`, save/load, and floor transitions.
 - `generate_dungeon_floor()` now seeds a small environment-aware roster of hostile and non-hostile contacts alongside the floor geometry.
 - `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
+- `generate_dungeon_floor()` also seeds a small number of persistent item objects on safe floor tiles and records those placements on `GeneratedFloor`.
 - Hostile contacts are planned as clustered groups when possible, with room-aware placement so packs and swarms occupy the same encounter space instead of scattering randomly across the floor.
+- Door placement only promotes tiles that still read as genuine chokepoints, and it skips sparse candidate sets so small rooms do not get forced doors.
 - Fresh sessions and descended floors convert `entity_roster` entries into live map contacts, so generated NPCs persist through movement and save/load.
 - Creature turns now advance from the dungeon map itself, with hostile pursuit, ranged engagement, and idle/search transitions driven by the live map state instead of the legacy combat screen.
 - Movement and bump interactions are resolved by `DungeonMapState.attempt_step()`.
@@ -143,6 +145,7 @@ Primary files:
 - `GameScreen` captures prompt input and submits it to `GameEngine.process_input()`.
 - When `GameScreen` was opened from a dungeon interaction, it also seeds a focused interaction context into `GameEngine` so follow-up dialogue stays grounded in the addressed target and current dungeon location.
 - Travel-style text commands are resolved against the known dungeon environments, then `AngbandMechanicumApp` builds a matching `DungeonSession` and mounts that destination dungeon before the player returns to map view.
+- When text responses request a return to the dungeon, their scene art and info updates are kept in the session's pending bridge context so the next text-view restore can reuse them.
 - Curated story starts and text-travel both update the same canonical environment context on `GameEngine`, so text prompts and dungeon generation share one persisted environment/profile identity.
 - `GameEngine` builds a system prompt using:
   - current story context
@@ -169,7 +172,7 @@ Primary files:
 
 - `GameScreen` can enter dungeon combat either explicitly (`/combat`) or from an LLM `combat_trigger`.
 - The app bridges that request into a generated dungeon encounter floor with hostile contacts already present on the map.
-- `CombatScreen` and `CombatEngine` remain only as legacy tactical references; they are no longer part of the live combat flow.
+- `CombatScreen` and `CombatEngine` remain only as legacy tactical references; the screen is quarantined and no longer part of the live combat flow.
 - The dungeon screen resolves combat through bump-to-attack and its local creature-turn loop.
 - `GameScreen` writes the transition narrative back into dungeon state and lets the map view take over.
 
@@ -183,9 +186,9 @@ Primary files:
 
 ### 5. Permadeath And Hall Flow
 
-- On defeat, `GameScreen` asks `GameEngine` for a memorial summary, creates a `DeathRecord`, and hands it to `AngbandMechanicumApp.archive_player_death()`.
-- `archive_player_death()` persists the memorial, deletes the live save, resets transient dungeon state, and returns to the main menu.
-- `MenuScreen` now exposes `HallOfDeadScreen`, which reads persisted memorials from `SaveManager`.
+- On defeat, the dungeon view asks `GameEngine` for a memorial summary and hands it to `AngbandMechanicumApp.handle_player_death()`.
+- `archive_player_death()` persists the memorial, deletes the live save, resets transient dungeon state, and opens the Hall of the Dead so the new record is visible immediately.
+- `HallOfDeadScreen` reads persisted memorials from `SaveManager` and now serves as the post-death landing screen.
 
 Primary files:
 
@@ -351,7 +354,7 @@ The repository currently has two map/combat representations:
 And two related play loops:
 
 - The newer unified dungeon path in `DungeonScreen`
-- The older tactical combat path in `CombatScreen`
+- The older tactical combat path in `CombatScreen` is retained only as a quarantined compatibility shell
 
 This is the main transitional seam future agents should understand. If implementing new exploration or combat features, prefer the dungeon stack unless the work is explicitly about the legacy tactical subsystem.
 
@@ -415,7 +418,7 @@ The tree below focuses on tracked, architecture-relevant files. Generated caches
 |       |   |-- __init__.py             - Screens package marker.
 |       |   |-- api_key_screen.py       - API-key bootstrap screen for Anthropic authentication.
 |       |   |-- character_setup_screen.py - New-game naming flow for the player Tech-Priest.
-|       |   |-- combat_screen.py        - Full-screen legacy tactical combat shell over `CombatEngine`.
+|       |   |-- combat_screen.py        - Deprecated compatibility shell for the retired tactical combat surface.
 |       |   |-- dungeon_screen.py       - Unified exploration screen and `DungeonMapState` action loop.
 |       |   |-- game_screen.py          - Four-pane text-view shell and text/combat integration layer.
 |       |   |-- menu_screen.py          - Main menu and save-loading entrypoint.
@@ -467,7 +470,7 @@ Start here when changing architecture-sensitive code:
 
 - Treat `GameEngine` as the only LLM integration seam.
 - Prefer `DungeonLevel` and `DungeonScreen` for new exploration work.
-- Assume `CombatScreen` is legacy unless the ticket explicitly targets it.
+- Assume `CombatScreen` is legacy unless the ticket explicitly targets it, and treat it as quarantined by default.
 - Keep widgets display-focused and push rules into `engine/`.
 - Preserve the CRT-green presentation language unless intentionally revising the theme.
 - If changing save schema, review both `GameEngine.to_dict()/from_dict()` and `DungeonMapState.to_dict()/from_dict()`.

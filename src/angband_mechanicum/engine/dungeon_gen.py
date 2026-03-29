@@ -748,6 +748,7 @@ class GeneratedFloor:
     entry_room_index: int
     exit_room_index: int
     secret_passages: list[tuple[tuple[int, int], tuple[int, int]]] = field(default_factory=list)
+    placed_items: list[tuple[str, tuple[int, int]]] = field(default_factory=list)
     entity_roster: DungeonEntityRoster = field(default_factory=DungeonEntityRoster)
     themed_rooms: list["ThemedRoomInstance"] = field(default_factory=list)
 
@@ -949,15 +950,78 @@ def _add_doors(level: DungeonLevel, rng: random.Random) -> None:
             south = level.get_tile(x, y + 1).passable
             east = level.get_tile(x + 1, y).passable
             west = level.get_tile(x - 1, y).passable
-            if north and south and not east and not west:
-                candidates.append((x, y))
-            elif east and west and not north and not south:
+            is_vertical_doorway = north and south and not east and not west
+            is_horizontal_doorway = east and west and not north and not south
+            if is_vertical_doorway or is_horizontal_doorway:
                 candidates.append((x, y))
 
+    if len(candidates) < 4:
+        return
+
     rng.shuffle(candidates)
-    door_target = max(2, len(candidates) // 12)
+    door_target = max(1, len(candidates) // 10)
+    if len(candidates) >= 12:
+        door_target = max(door_target, 2)
     for x, y in candidates[:door_target]:
         level.set_terrain(x, y, DungeonTerrain.DOOR_OPEN)
+
+
+_FLOOR_OBJECTS: dict[str, tuple[str, ...]] = {
+    "forge": ("data-slate", "toolkit", "power-cell", "oil-canister"),
+    "manufactorum": ("toolkit", "machine-spare", "cogitator-node", "power-cell"),
+    "voidship": ("breach-kit", "vox-beacon", "ammo-crate", "sealant-foam"),
+    "cathedral": ("prayer-scroll", "candela", "reliquary-key", "votive"),
+    "reliquary": ("reliquary-key", "prayer-scroll", "sealed-lamp"),
+    "hive": ("scrap-cache", "lockpick", "stimm-pack", "ration-crate"),
+    "sewer": ("filter-pack", "drain-key", "scrap-cache", "anti-toxin"),
+    "corrupted": ("sanctioned-ward", "warp-sample", "purity-seal", "scrap-cache"),
+    "overgrown": ("field-knife", "seed-bundle", "water-canteen", "rations"),
+    "tomb": ("funerary-token", "seal-stone", "prayer-scroll", "relic"),
+    "radwastes": ("survey-beacon", "rad-shield", "scrap-cache", "water-flask"),
+    "ash_dune_outpost": ("beacon", "ration-crate", "survey-map", "repair-kit"),
+    "default": ("supply-crate", "cogitator-slate", "field-kit"),
+}
+
+
+def _scatter_environment_objects(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    environment: str,
+    depth: int,
+    reserved: set[tuple[int, int]],
+    rng: random.Random,
+) -> list[tuple[str, tuple[int, int]]]:
+    item_pool = _FLOOR_OBJECTS.get(environment, _FLOOR_OBJECTS["default"])
+    if not item_pool or not rooms:
+        return []
+
+    candidate_rooms = [
+        (index, room)
+        for index, room in enumerate(rooms)
+        if index not in {0, len(rooms) - 1} and room.room_type != "corridor"
+    ]
+    if not candidate_rooms:
+        candidate_rooms = list(enumerate(rooms))
+    if not candidate_rooms:
+        return []
+
+    rng.shuffle(candidate_rooms)
+    target_count = max(1, min(3, len(candidate_rooms) // 3 + (1 if depth >= 6 else 0)))
+
+    placements: list[tuple[str, tuple[int, int]]] = []
+    for _, room in candidate_rooms:
+        if len(placements) >= target_count:
+            break
+        room_tiles = _room_tiles_by_focus(level, room, reserved, focus="center")
+        if not room_tiles:
+            continue
+        item_id = rng.choice(item_pool)
+        position = room_tiles[0]
+        level.place_item(position[0], position[1], item_id)
+        reserved.add(position)
+        placements.append((item_id, position))
+
+    return placements
 
 
 def _scatter_environment_features(
@@ -3793,6 +3857,7 @@ def generate_dungeon_floor(
         profile,
     )
     _scatter_environment_features(level, rooms, env.name, reserved, rng)
+    placed_items = _scatter_environment_objects(level, rooms, env.name, depth, reserved, rng)
     entity_roster = _generate_contacts(
         level,
         rooms,
@@ -3812,7 +3877,7 @@ def generate_dungeon_floor(
     else:
         level.set_terrain(stairs_up[0], stairs_up[1], transition_terrain)
         level.set_terrain(stairs_down[0], stairs_down[1], transition_terrain)
-    level.player_pos = stairs_up
+        level.player_pos = stairs_up
 
     return GeneratedFloor(
         level=level,
@@ -3821,6 +3886,7 @@ def generate_dungeon_floor(
         entry_room_index=_find_room_index(rooms, stairs_up),
         exit_room_index=_find_room_index(rooms, stairs_down),
         secret_passages=secret_passages,
+        placed_items=placed_items,
         entity_roster=entity_roster,
         themed_rooms=themed_rooms,
     )

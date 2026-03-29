@@ -77,12 +77,12 @@ class TestCombatGridSelectedIndicator:
         assert any(f"[bold red]{e.symbol}[/bold red]" in output for e in enemies)
 
 
-class TestCombatScreenBindings:
-    """Legacy tactical screen bindings are kept only as a deprecated reference."""
+class TestCombatScreenQuarantine:
+    """The retired tactical screen should no longer expose combat controls."""
 
-    def test_no_party_cycle_binding(self) -> None:
+    def test_only_exit_bindings_remain(self) -> None:
         keys = [binding.key for binding in CombatScreen.BINDINGS]
-        assert "tab" not in keys
+        assert keys == ["escape", "h"]
 
 
 class TestStripMarkup:

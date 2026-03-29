@@ -31,6 +31,7 @@ from angband_mechanicum.engine.dungeon_gen import (
     generate_dungeon_floor,
     generate_map,
     generate_map_from_hint,
+    _add_doors,
     _BUILDERS,
     _compute_spawns,
     _floor_tiles,
@@ -702,6 +703,45 @@ class TestDungeonFloorGeneration:
         )
         assert door_count >= 2
 
+    def test_floor_records_object_placements(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-4-objects",
+            depth=4,
+            environment="forge",
+            seed=104,
+        )
+
+        assert floor.placed_items
+        for item_id, position in floor.placed_items:
+            x, y = position
+            assert item_id in floor.level.get_items(x, y)
+            assert floor.level.get_tile(x, y).passable
+
+    def test_valid_door_threshold_skips_sparse_candidates(self) -> None:
+        level = DungeonLevel(
+            level_id="door-threshold-test",
+            name="Door Threshold Test",
+            depth=1,
+            environment="forge",
+            width=7,
+            height=5,
+        )
+        for y in range(level.height):
+            for x in range(level.width):
+                level.set_terrain(x, y, DungeonTerrain.WALL)
+        for x in range(1, 6):
+            level.set_terrain(x, 2, DungeonTerrain.FLOOR)
+
+        _add_doors(level, random.Random(123))
+
+        door_count = sum(
+            1
+            for y in range(level.height)
+            for x in range(level.width)
+            if level.get_terrain(x, y) in {DungeonTerrain.DOOR_OPEN, DungeonTerrain.DOOR_CLOSED}
+        )
+        assert door_count == 0
+
     def test_floor_uses_environment_features(self) -> None:
         floor = generate_dungeon_floor(
             level_id="floor-5",
@@ -816,6 +856,22 @@ class TestDungeonFloorGeneration:
         assert themed.template_name in {template.name for template in _themed_room_templates_for_environment("forge")}
         assert themed.feature_tiles or themed.prop_tiles or themed.encounter_ids
         assert len(themed.encounter_ids) >= 1
+
+    def test_floor_object_placements_are_seed_reproducible(self) -> None:
+        first = generate_dungeon_floor(
+            level_id="floor-objects-seeded",
+            depth=4,
+            environment="forge",
+            seed=111,
+        )
+        second = generate_dungeon_floor(
+            level_id="floor-objects-seeded",
+            depth=4,
+            environment="forge",
+            seed=111,
+        )
+
+        assert first.placed_items == second.placed_items
 
 
 class TestThemedRoomComposition:

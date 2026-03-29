@@ -1,6 +1,6 @@
 ---
 id: am-glv3
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-03-29T20:10:05Z
@@ -13,3 +13,9 @@ tags: [cleanup, combat, architecture]
 
 Live combat now routes into dungeon encounters and no longer uses CombatScreen or CombatEngine, but the legacy tactical modules, styles, and tests still remain as deprecated reference surface. Decide whether to remove them entirely or quarantine them behind explicit non-live references only. Update docs, tests, and code comments so the repository no longer presents the tactical path as an active subsystem.
 
+
+## Notes
+
+**2026-03-29T20:37:48Z**
+
+Quarantined the retired tactical combat surface on main. CombatScreen is now a compatibility shell that returns to menu, old combat TCSS was removed, and docs/tests now describe the tactical path as non-live.
