@@ -20,8 +20,14 @@ from angband_mechanicum.screens.hall_of_dead_screen import HallOfDeadScreen
 from angband_mechanicum.screens.dungeon_screen import DungeonScreen
 from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.menu_screen import MenuScreen
-from angband_mechanicum.widgets.dungeon_map import DungeonMapPane, DungeonMessageLog
+from angband_mechanicum.widgets.dungeon_map import (
+    DungeonMapPane,
+    DungeonMessageLog,
+    DungeonTransitionPane,
+)
 from angband_mechanicum.widgets.info_panel import InfoPanel
+from angband_mechanicum.widgets.narrative_pane import NarrativePane
+from angband_mechanicum.widgets.scene_pane import ScenePane
 from angband_mechanicum.widgets.prompt_input import PromptInput
 from textual.widgets import Static
 
@@ -209,6 +215,40 @@ class TestNewGame:
             assert isinstance(app.screen, GameScreen)
 
     @pytest.mark.asyncio
+    async def test_look_transition_keeps_live_location_and_structured_rendering(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The first dungeon-to-text transition should render structured fields, not raw state."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app, enter_explore_view=True)
+            expected_location = app.dungeon_session.location
+            response = json.dumps({
+                "narrative_text": "The signal scout awaits beneath the ash.",
+                "scene_art": "SIGNAL ART",
+                "info_update": None,
+                "entities": [],
+                "combat_trigger": False,
+                "speaking_npc": None,
+            })
+            _mock_engine_client(app, response)
+
+            await pilot.press("l")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert isinstance(app.screen, GameScreen)
+            narrative = app.screen.query_one("#narrative", NarrativePane)
+            scene = app.screen.query_one("#scene", ScenePane)
+            info = app.screen.query_one("#info", InfoPanel)
+
+            assert narrative.lines[-1].text == "The signal scout awaits beneath the ash."
+            assert str(scene.render()) == "SIGNAL ART"
+            assert expected_location is not None
+            assert expected_location in str(info.render())
+
+    @pytest.mark.asyncio
     async def test_look_mode_enter_still_confirms_after_focus_change(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -236,6 +276,40 @@ class TestNewGame:
             assert isinstance(app.screen, GameScreen)
 
     @pytest.mark.asyncio
+    async def test_look_transition_keeps_live_location_and_structured_rendering(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The first dungeon-to-text transition should render structured fields, not raw state."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app, enter_explore_view=True)
+            expected_location = app.dungeon_session.location
+            response = json.dumps({
+                "narrative_text": "The signal scout awaits beneath the ash.",
+                "scene_art": "SIGNAL ART",
+                "info_update": None,
+                "entities": [],
+                "combat_trigger": False,
+                "speaking_npc": None,
+            })
+            _mock_engine_client(app, response)
+
+            await pilot.press("l")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert isinstance(app.screen, GameScreen)
+            narrative = app.screen.query_one("#narrative", NarrativePane)
+            scene = app.screen.query_one("#scene", ScenePane)
+            info = app.screen.query_one("#info", InfoPanel)
+
+            assert narrative.lines[-1].text == "The signal scout awaits beneath the ash."
+            assert str(scene.render()) == "SIGNAL ART"
+            assert expected_location is not None
+            assert expected_location in str(info.render())
+
+    @pytest.mark.asyncio
     async def test_prompt_is_focused(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -258,6 +332,56 @@ class TestNewGame:
             await _start_new_game(pilot, app)
             hint = app.screen.query_one("#prompt-hint", Static)
             assert "/explore" in str(hint.render())
+
+    @pytest.mark.asyncio
+    async def test_ambient_panel_wraps_prose_without_touching_scene_art(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ambient inspect text should wrap to the panel width while preserving line art."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app, enter_explore_view=True)
+
+            pane = app.screen.query_one("#dungeon-inspect", DungeonTransitionPane)
+            long_line = (
+                "The machine-spirit murmurs an extended warning about the chamber, "
+                "and the inspect pane should wrap this prose cleanly instead of "
+                "running it past the visible boundary."
+            )
+
+            pane.show_context("⛨ AMBIENT: SHRINE", [long_line])
+            await pilot.pause()
+
+            rendered_lines = [strip.text for strip in pane.lines]
+            assert pane.content_region.width > 0
+            assert len(rendered_lines) > 1
+            assert max(len(line) for line in rendered_lines) <= pane.content_region.width
+
+    @pytest.mark.asyncio
+    async def test_ambient_panel_wraps_prose_without_touching_scene_art(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ambient inspect text should wrap to the panel width while preserving line art."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app, enter_explore_view=True)
+
+            pane = app.screen.query_one("#dungeon-inspect", DungeonTransitionPane)
+            long_line = (
+                "The machine-spirit murmurs an extended warning about the chamber, "
+                "and the inspect pane should wrap this prose cleanly instead of "
+                "running it past the visible boundary."
+            )
+
+            pane.show_context("⛨ AMBIENT: SHRINE", [long_line])
+            await pilot.pause()
+
+            rendered_lines = [strip.text for strip in pane.lines]
+            assert pane.content_region.width > 0
+            assert len(rendered_lines) > 1
+            assert max(len(line) for line in rendered_lines) <= pane.content_region.width
 
     @pytest.mark.asyncio
     async def test_info_panel_has_defaults(

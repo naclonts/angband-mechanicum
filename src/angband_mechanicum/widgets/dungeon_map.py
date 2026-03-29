@@ -378,9 +378,10 @@ class DungeonTransitionPane(RichLog):
         super().__init__(markup=True, wrap=True, auto_scroll=False, **kwargs)  # type: ignore[arg-type]
 
     def show_context(self, title: str, lines: Sequence[str]) -> None:
-        body = "\n".join(lines)
         self.clear()
-        self.write(f"[bold]{title}[/bold]\n{body}")
+        self.write(Text.from_markup(f"[bold]{title}[/bold]"))
+        for line in lines:
+            self.write(Text.from_markup(line))
         self.scroll_home()
 
     def show_inspect(

@@ -392,13 +392,14 @@ class AngbandMechanicumApp(App[None]):
                 for key, value in pending_context.items()
                 if key != "scene_art"
             }
-            if pending_info_update:
+            if pending_info_update and "info_panel" not in merged_state:
                 merged_info_update = dict(merged_state.get("info_update") or {})
                 for key, value in pending_info_update.items():
                     merged_info_update.setdefault(key, value)
                 if merged_info_update:
                     merged_state["info_update"] = merged_info_update
             restored_state = merged_state
+            self.dungeon_session.pending_text_context.clear()
         self.switch_screen(
             GameScreen(
                 restored_state=restored_state,

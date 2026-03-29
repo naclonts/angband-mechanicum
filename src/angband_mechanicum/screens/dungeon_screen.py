@@ -761,6 +761,30 @@ class DungeonScreen(Screen[None]):
             payload["map_return_pos"] = list(self._state.player_pos)
         return payload
 
+    def _build_text_bridge_state(
+        self,
+        narrative_text: str,
+        *,
+        scene_art: str | None = None,
+        info_update: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Build a restore payload that preserves the active dungeon location."""
+        session = getattr(self.app, "dungeon_session", None)
+        if session is not None:
+            restored_state = session.to_text_restore_state(
+                [narrative_text],
+                scene_art=scene_art,
+                info_update=info_update,
+            )
+        else:
+            restored_state = self.build_text_view_context(
+                narrative_text,
+                scene_art=scene_art,
+            )
+            if info_update:
+                restored_state["info_update"] = dict(info_update)
+        return restored_state
+
     def compose(self) -> ComposeResult:
         with Horizontal(id="dungeon-layout"):
             with Vertical(id="dungeon-left"):
@@ -1211,7 +1235,7 @@ class DungeonScreen(Screen[None]):
             }
         if result.scene_art is not None:
             target_context["interaction_scene_art"] = result.scene_art
-        restored_state = self.build_text_view_context(
+        restored_state = self._build_text_bridge_state(
             result.message,
             scene_art=result.scene_art,
         )
@@ -1321,12 +1345,11 @@ class DungeonScreen(Screen[None]):
         engine = self.app.game_engine  # type: ignore[attr-defined]
         response = await engine.examine_dungeon_target(context)
         interaction_target, speaking_npc_id = self._register_examine_history(context)
-        restored_state = self.build_text_view_context(
+        restored_state = self._build_text_bridge_state(
             response.narrative_text,
             scene_art=response.scene_art,
+            info_update=response.info_update,
         )
-        if response.info_update:
-            restored_state["info_update"] = dict(response.info_update)
         restored_state.update(context)
         restored_state["interaction_kind"] = "examine"
         if interaction_target is not None:

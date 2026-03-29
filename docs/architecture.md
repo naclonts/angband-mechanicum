@@ -131,6 +131,7 @@ Primary files:
 - `DungeonTransitionPane.show_inspect()` renders ambient discoveries by keeping `scene_art` on unwrapped lines while allowing `narrative_text` to wrap to the pane width.
 - `DungeonStatusPane` now renders player HP/integrity and other gameplay-relevant status instead of a log-entry count.
 - The screen refreshes the render widgets after each action.
+- Dungeon-to-text bridges use the active dungeon session location for the text status panel, and stale pending text-bridge context is not allowed to override that fresh location state.
 - Conversations or object interactions transition to `GameScreen` through app-level bridging.
 
 Primary files:
