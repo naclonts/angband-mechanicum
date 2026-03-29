@@ -33,6 +33,7 @@ Travel requests entered in text view are resolved to the closest supported dunge
 
 Zone navigation between different areas (forge worlds, different dungeons) happens via text view — no overworld map in v1.
 The destination vocabulary is built around an expandable environment catalog, so future travel matching can resolve natural-language destinations onto the closest supported dungeon type.
+Dungeon floors can also include reusable themed set-pieces that combine room dressing, grouped hostiles, and optional NPCs to create more memorable encounters than plain procedural geometry alone.
 
 ## UI Layout
 

@@ -748,6 +748,7 @@ class GeneratedFloor:
     exit_room_index: int
     secret_passages: list[tuple[tuple[int, int], tuple[int, int]]] = field(default_factory=list)
     entity_roster: DungeonEntityRoster = field(default_factory=DungeonEntityRoster)
+    themed_rooms: list["ThemedRoomInstance"] = field(default_factory=list)
 
 
 def _fill_level(level: DungeonLevel, terrain: DungeonTerrain) -> None:
@@ -1069,6 +1070,57 @@ class _ContactSpawnPlan:
     count: int
     room_index: int | None
     group_kind: str
+
+
+@dataclass(frozen=True)
+class ThemedRoomPropSpec:
+    """Terrain dressing that should be placed inside a themed room."""
+
+    terrain: DungeonTerrain
+    count_range: tuple[int, int] = (1, 1)
+    room_focus: str = "center"
+
+
+@dataclass(frozen=True)
+class ThemedRoomEncounterSpec:
+    """A grouped encounter or NPC placement within a themed room."""
+
+    category: str
+    count_range: tuple[int, int] = (1, 1)
+    preferred_tags: tuple[str, ...] = ()
+    preferred_names: tuple[str, ...] = ()
+    optional: bool = False
+    group_kind: str | None = None
+
+
+@dataclass(frozen=True)
+class ThemedRoomTemplate:
+    """Reusable composition template for a set-piece room."""
+
+    name: str
+    description: str
+    environments: tuple[str, ...]
+    room_types: tuple[str, ...] = ()
+    min_depth: int = 1
+    max_depth: int = 999
+    weight: int = 1
+    max_per_floor: int = 1
+    requires_spacious_room: bool = False
+    feature_terrains: tuple[DungeonTerrain, ...] = ()
+    props: tuple[ThemedRoomPropSpec, ...] = ()
+    encounter_groups: tuple[ThemedRoomEncounterSpec, ...] = ()
+
+
+@dataclass
+class ThemedRoomInstance:
+    """A themed room that has been materialized on a generated floor."""
+
+    template_name: str
+    room_index: int
+    room_type: str
+    feature_tiles: list[tuple[int, int]] = field(default_factory=list)
+    prop_tiles: list[tuple[DungeonTerrain, tuple[int, int]]] = field(default_factory=list)
+    encounter_ids: list[str] = field(default_factory=list)
 
 
 def _weighted_choice(options: tuple[_ContactArchetype, ...], rng: random.Random) -> _ContactArchetype:
@@ -2625,6 +2677,337 @@ def _select_contact_room(
     return -neg_index, room
 
 
+def _room_tiles_by_focus(
+    level: DungeonLevel,
+    room: DungeonRoom,
+    occupied: set[tuple[int, int]],
+    focus: str = "center",
+) -> list[tuple[int, int]]:
+    """Return room tiles ordered by a placement focus."""
+    room_tiles = [pos for pos in _room_floor_tiles(level, room) if pos not in occupied]
+    if focus == "edge":
+        room_tiles.sort(
+            key=lambda pos: (
+                min(
+                    abs(pos[0] - room.x),
+                    abs(pos[0] - (room.x + room.width - 1)),
+                    abs(pos[1] - room.y),
+                    abs(pos[1] - (room.y + room.height - 1)),
+                ),
+                abs(pos[0] - room.center[0]) + abs(pos[1] - room.center[1]),
+            )
+        )
+    elif focus == "corner":
+        corners = (
+            (room.x + 1, room.y + 1),
+            (room.x + room.width - 2, room.y + 1),
+            (room.x + 1, room.y + room.height - 2),
+            (room.x + room.width - 2, room.y + room.height - 2),
+        )
+        room_tiles.sort(
+            key=lambda pos: (
+                min(abs(pos[0] - cx) + abs(pos[1] - cy) for cx, cy in corners),
+                abs(pos[0] - room.center[0]) + abs(pos[1] - room.center[1]),
+            )
+        )
+    else:
+        room_tiles.sort(
+            key=lambda pos: (
+                abs(pos[0] - room.center[0]) + abs(pos[1] - room.center[1]),
+                abs(pos[0] - level.player_pos[0]) + abs(pos[1] - level.player_pos[1]) if level.player_pos else 0,
+            )
+        )
+    return room_tiles
+
+
+def _pick_room_tiles(
+    level: DungeonLevel,
+    room: DungeonRoom,
+    count: int,
+    occupied: set[tuple[int, int]],
+    rng: random.Random,
+    focus: str = "center",
+) -> list[tuple[int, int]]:
+    room_tiles = _room_tiles_by_focus(level, room, occupied, focus=focus)
+    if not room_tiles or count <= 0:
+        return []
+    anchor = room_tiles[0]
+    positions = [anchor]
+    remaining = [pos for pos in room_tiles if pos != anchor]
+    rng.shuffle(remaining)
+    remaining.sort(
+        key=lambda pos: (
+            abs(pos[0] - anchor[0]) + abs(pos[1] - anchor[1]),
+            abs(pos[0] - room.center[0]) + abs(pos[1] - room.center[1]),
+        )
+    )
+    for pos in remaining:
+        if len(positions) >= count:
+            break
+        if abs(pos[0] - anchor[0]) + abs(pos[1] - anchor[1]) <= 3 or len(room_tiles) <= count + 1:
+            positions.append(pos)
+    if len(positions) < count:
+        for pos in remaining:
+            if len(positions) >= count:
+                break
+            if pos not in positions:
+                positions.append(pos)
+    return positions[:count]
+
+
+def _match_theme_archetypes(
+    category_pool: tuple[_ContactArchetype, ...],
+    spec: ThemedRoomEncounterSpec,
+) -> tuple[_ContactArchetype, ...]:
+    if not category_pool:
+        return ()
+    if not spec.preferred_tags and not spec.preferred_names:
+        return category_pool
+
+    preferred_tags = {tag.lower() for tag in spec.preferred_tags}
+    preferred_names = {name.lower() for name in spec.preferred_names}
+    scored: list[tuple[int, _ContactArchetype]] = []
+    for archetype in category_pool:
+        score = 0
+        name = archetype.name.lower()
+        description = archetype.description.lower()
+        text = f"{name} {description} {' '.join(archetype.tags)}"
+        if name in preferred_names:
+            score += 8
+        if any(tag in text for tag in preferred_tags):
+            score += 4
+        if score > 0:
+            scored.append((score, archetype))
+    if not scored:
+        return category_pool
+    scored.sort(key=lambda item: (item[0], item[1].weight), reverse=True)
+    return tuple(archetype for _, archetype in scored)
+
+
+def _select_template_room_index(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    template: ThemedRoomTemplate,
+    occupied: set[tuple[int, int]],
+    required_tiles: int,
+    rng: random.Random,
+) -> int | None:
+    if not rooms:
+        return None
+
+    scored: list[tuple[int, int, int, int]] = []
+    for index, room in enumerate(rooms):
+        if len(rooms) > 1 and index in {0, len(rooms) - 1}:
+            continue
+        if template.room_types and room.room_type not in template.room_types:
+            continue
+        available = len([pos for pos in _room_floor_tiles(level, room) if pos not in occupied])
+        if available <= 0:
+            continue
+        if template.requires_spacious_room and available < required_tiles + 2:
+            continue
+        center_distance = abs(room.center[0] - level.width // 2) + abs(room.center[1] - level.height // 2)
+        scored.append((available, -center_distance, -index, index))
+
+    if not scored:
+        for index, room in enumerate(rooms):
+            if len(rooms) > 1 and index in {0, len(rooms) - 1}:
+                continue
+            available = len([pos for pos in _room_floor_tiles(level, room) if pos not in occupied])
+            if available <= 0:
+                continue
+            center_distance = abs(room.center[0] - level.width // 2) + abs(room.center[1] - level.height // 2)
+            scored.append((available, -center_distance, -index, index))
+    if not scored:
+        return None
+    scored.sort(reverse=True)
+    shortlist = scored[: min(3, len(scored))]
+    return rng.choice(shortlist)[-1]
+
+
+def _select_themed_archetype(
+    contacts: dict[str, tuple[_ContactArchetype, ...]],
+    spec: ThemedRoomEncounterSpec,
+    rng: random.Random,
+) -> _ContactArchetype | None:
+    pool = contacts.get(spec.category, ())
+    if not pool:
+        return None
+    filtered = _match_theme_archetypes(pool, spec)
+    return _weighted_choice(filtered, rng)
+
+
+def _apply_themed_room_template(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    room_index: int,
+    template: ThemedRoomTemplate,
+    environment: str,
+    depth: int,
+    rng: random.Random,
+    occupied: set[tuple[int, int]],
+    roster: DungeonEntityRoster,
+) -> tuple[ThemedRoomInstance | None, int]:
+    room = rooms[room_index]
+    room_area = room.width * room.height
+    required_tiles = max(
+        len(template.feature_terrains),
+        sum(max(1, spec.count_range[0]) for spec in template.props),
+        sum(max(1, spec.count_range[0]) for spec in template.encounter_groups),
+    )
+    room_tiles = _room_tiles_by_focus(level, room, occupied, focus="center")
+    if len(room_tiles) < max(4, required_tiles):
+        return None, 0
+
+    instance = ThemedRoomInstance(
+        template_name=template.name,
+        room_index=room_index,
+        room_type=room.room_type,
+    )
+    themed_contact_count = 0
+
+    for terrain in template.feature_terrains:
+        feature_count = max(1, min(3, room_area // 40))
+        if terrain in (DungeonTerrain.SHRINE, DungeonTerrain.TERMINAL) and room_area >= 40:
+            feature_count = max(feature_count, 2)
+        positions = _pick_room_tiles(level, room, feature_count, occupied, rng, focus="center")
+        for pos in positions:
+            level.set_terrain(pos[0], pos[1], terrain)
+            occupied.add(pos)
+            instance.feature_tiles.append(pos)
+
+    for prop_spec in template.props:
+        count = rng.randint(prop_spec.count_range[0], prop_spec.count_range[1])
+        positions = _pick_room_tiles(level, room, count, occupied, rng, focus=prop_spec.room_focus)
+        for pos in positions:
+            level.set_terrain(pos[0], pos[1], prop_spec.terrain)
+            occupied.add(pos)
+            instance.prop_tiles.append((prop_spec.terrain, pos))
+
+    contacts = _contacts_for_environment(environment)
+    for encounter_spec in template.encounter_groups:
+        archetype = _select_themed_archetype(contacts, encounter_spec, rng)
+        if archetype is None:
+            continue
+        count = rng.randint(encounter_spec.count_range[0], encounter_spec.count_range[1])
+        if encounter_spec.optional and count <= 1 and rng.random() < 0.35:
+            continue
+        count = max(1, count)
+        positions = _pick_group_positions(level, room, count, occupied, rng)
+        if len(positions) < count:
+            positions = _pick_room_tiles(level, room, count, occupied, rng)
+        if not positions:
+            continue
+        for member_index, position in enumerate(positions[:count]):
+            entity_id = f"{environment}-theme-{depth}-{room_index}-{len(instance.encounter_ids)}-{member_index}"
+            entity = _build_contact_entity(archetype, entity_id)
+            roster.add(entity)
+            entity.place(level, position[0], position[1])
+            occupied.add(position)
+            instance.encounter_ids.append(entity_id)
+        themed_contact_count += count
+
+    if not instance.feature_tiles and not instance.prop_tiles and not instance.encounter_ids:
+        return None, 0
+    return instance, themed_contact_count
+
+
+def _themed_room_templates_for_environment(environment: str) -> tuple[ThemedRoomTemplate, ...]:
+    templates = _THEMED_ROOM_TEMPLATES.get(environment, ())
+    if templates:
+        return templates
+    return _THEMED_ROOM_TEMPLATES["default"]
+
+
+def _generate_themed_rooms(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    environment: str,
+    depth: int,
+    rng: random.Random,
+    entity_roster: DungeonEntityRoster,
+    occupied: set[tuple[int, int]],
+) -> tuple[list[ThemedRoomInstance], int]:
+    templates = list(_themed_room_templates_for_environment(environment))
+    if not templates or len(rooms) < 2:
+        return [], 0
+
+    eligible = [
+        template
+        for template in templates
+        if template.min_depth <= depth <= template.max_depth
+    ]
+    if not eligible:
+        return [], 0
+
+    themed_instances: list[ThemedRoomInstance] = []
+    themed_contact_count = 0
+    room_indices_used: set[int] = set()
+    template_usage: dict[str, int] = {}
+    max_set_pieces = 0
+    if depth >= 3 and len(rooms) >= 4:
+        max_set_pieces = 1
+    if depth >= 8 and len(rooms) >= 6 and rng.random() < 0.5:
+        max_set_pieces += 1
+
+    if max_set_pieces <= 0:
+        return [], 0
+
+    weighted_templates = sorted(eligible, key=lambda template: template.weight, reverse=True)
+    for _ in range(max_set_pieces):
+        candidates = [
+            template
+            for template in weighted_templates
+            if template_usage.get(template.name, 0) < template.max_per_floor
+        ]
+        if not candidates:
+            break
+        total_weight = sum(max(1, template.weight) for template in candidates)
+        roll = rng.randint(1, total_weight)
+        template = candidates[-1]
+        for candidate in candidates:
+            roll -= max(1, candidate.weight)
+            if roll <= 0:
+                template = candidate
+                break
+
+        required_tiles = max(
+            len(template.feature_terrains),
+            sum(max(1, spec.count_range[0]) for spec in template.props),
+            sum(max(1, spec.count_range[0]) for spec in template.encounter_groups),
+        )
+        room_index = _select_template_room_index(
+            level,
+            rooms,
+            template,
+            occupied,
+            required_tiles,
+            rng,
+        )
+        if room_index is None or room_index in room_indices_used:
+            continue
+
+        instance, count = _apply_themed_room_template(
+            level,
+            rooms,
+            room_index,
+            template,
+            environment,
+            depth,
+            rng,
+            occupied,
+            entity_roster,
+        )
+        if instance is None:
+            continue
+        room_indices_used.add(room_index)
+        template_usage[template.name] = template_usage.get(template.name, 0) + 1
+        themed_instances.append(instance)
+        themed_contact_count += count
+
+    return themed_instances, themed_contact_count
+
+
 def _plan_contact_spawns(
     level: DungeonLevel,
     rooms: list[DungeonRoom],
@@ -2772,20 +3155,298 @@ _ENVIRONMENT_CONTACT_WEIGHTS: dict[str, tuple[int, int, int]] = {
 }
 
 
+_THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
+    "default": (
+        ThemedRoomTemplate(
+            name="Sanctified Conclave",
+            description="A generic ritual chamber with a marker, a pair of guards, and a focal feature.",
+            environments=("forge", "cathedral", "hive", "reliquary", "manufactorum", "voidship"),
+            room_types=("open_room", "pillared_hall", "cross_room"),
+            min_depth=3,
+            max_depth=999,
+            weight=2,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.SHRINE, DungeonTerrain.TERMINAL),
+            props=(ThemedRoomPropSpec(DungeonTerrain.COVER, (1, 2), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 4),
+                    preferred_tags=("cult", "heretek", "warden", "board", "guard"),
+                    optional=False,
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("scribe", "attendant", "clerk"),
+                    optional=True,
+                ),
+            ),
+        ),
+    ),
+    "forge": (
+        ThemedRoomTemplate(
+            name="Heretek Workshop",
+            description="A machine cult workshop with chanting operators and a central machine shrine.",
+            environments=("forge", "manufactorum", "data_vault", "plasma_reactorum"),
+            room_types=("pillared_hall", "open_room", "l_shaped"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.TERMINAL, DungeonTerrain.COLUMN),
+            props=(ThemedRoomPropSpec(DungeonTerrain.SHRINE, (1, 1)),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 5),
+                    preferred_tags=("heretek", "reactor", "cult", "machine"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="friendly",
+                    count_range=(0, 1),
+                    preferred_tags=("engineer", "overseer", "clerk", "adept"),
+                    optional=True,
+                ),
+            ),
+        ),
+        ThemedRoomTemplate(
+            name="Reactor Cult Cell",
+            description="A risk-prone shrine where zealots have gathered around dangerous machinery.",
+            environments=("plasma_reactorum", "forge", "manufactorum"),
+            room_types=("arena", "open_room", "cross_room"),
+            min_depth=4,
+            max_depth=999,
+            weight=3,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.SHRINE, DungeonTerrain.COVER),
+            props=(ThemedRoomPropSpec(DungeonTerrain.TERMINAL, (1, 2), room_focus="center"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(3, 6),
+                    preferred_tags=("cult", "reactor", "thrall"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("heat", "clerk", "tech"),
+                    optional=True,
+                ),
+            ),
+        ),
+    ),
+    "cathedral": (
+        ThemedRoomTemplate(
+            name="Blooded Chapel",
+            description="An illicit rite chamber built around a cracked altar and hidden victims.",
+            environments=("cathedral", "reliquary", "corrupted", "tomb"),
+            room_types=("open_room", "pillared_hall", "cross_room"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.SHRINE, DungeonTerrain.COLUMN),
+            props=(ThemedRoomPropSpec(DungeonTerrain.RUBBLE, (1, 2), room_focus="center"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(3, 6),
+                    preferred_tags=("cult", "faith", "heretic", "penitent"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(1, 1),
+                    preferred_tags=("attendant", "scribe", "victim", "lamp"),
+                    optional=True,
+                ),
+            ),
+        ),
+        ThemedRoomTemplate(
+            name="Reliquary Vault",
+            description="A sealed devotional vault with warded displays and a restrained custodian.",
+            environments=("reliquary", "cathedral", "ice_crypt", "tomb"),
+            room_types=("small_chamber", "pillared_hall", "cross_room"),
+            min_depth=1,
+            max_depth=999,
+            weight=3,
+            max_per_floor=1,
+            feature_terrains=(DungeonTerrain.SHRINE, DungeonTerrain.COLUMN),
+            props=(ThemedRoomPropSpec(DungeonTerrain.TERMINAL, (1, 1), room_focus="center"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="friendly",
+                    count_range=(0, 1),
+                    preferred_tags=("custodian", "faith", "guardian"),
+                    optional=True,
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("lamp", "scribe", "attendant"),
+                    optional=True,
+                ),
+            ),
+        ),
+    ),
+    "hive": (
+        ThemedRoomTemplate(
+            name="Underhive Den",
+            description="A cramped gang hideout with a stash pile, lookout post, and ambush points.",
+            environments=("hive", "sewer", "sump_market", "penal_oubliette"),
+            room_types=("small_chamber", "l_shaped", "maze"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=False,
+            feature_terrains=(DungeonTerrain.COVER, DungeonTerrain.RUBBLE),
+            props=(ThemedRoomPropSpec(DungeonTerrain.TERMINAL, (1, 1), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(3, 7),
+                    preferred_tags=("gang", "criminal", "convict", "cutthroat", "rat"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("broker", "warden", "scout"),
+                    optional=True,
+                ),
+            ),
+        ),
+        ThemedRoomTemplate(
+            name="Sump Shrine",
+            description="A filthy altar room where the underhive has built a warped devotional shrine.",
+            environments=("sewer", "hive", "sump_market", "corrupted"),
+            room_types=("open_room", "cross_room", "arena"),
+            min_depth=3,
+            max_depth=999,
+            weight=3,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.WATER, DungeonTerrain.COVER),
+            props=(ThemedRoomPropSpec(DungeonTerrain.SHRINE, (1, 2), room_focus="center"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 6),
+                    preferred_tags=("cult", "criminal", "sump", "rat"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("guide", "broker", "warden"),
+                    optional=True,
+                ),
+            ),
+        ),
+    ),
+    "voidship": (
+        ThemedRoomTemplate(
+            name="Boarding Action",
+            description="A breach-side room where boarders clash with ship crew around a blown-out hatch.",
+            environments=("voidship", "ash_dune_outpost", "data_vault"),
+            room_types=("corridor", "l_shaped", "cross_room", "open_room"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=False,
+            feature_terrains=(DungeonTerrain.TERMINAL, DungeonTerrain.COVER),
+            props=(ThemedRoomPropSpec(DungeonTerrain.DOOR_CLOSED, (1, 2), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(3, 6),
+                    preferred_tags=("boarding", "raider", "mutiny", "intruder"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="friendly",
+                    count_range=(0, 1),
+                    preferred_tags=("crew", "pilot", "boatswain", "scout"),
+                    optional=True,
+                ),
+            ),
+        ),
+    ),
+    "radwastes": (
+        ThemedRoomTemplate(
+            name="Ash Pit",
+            description="A blasted kill-zone where scavengers and mutants circle a toxic hollow.",
+            environments=("radwastes", "ash_dune_outpost", "xenos_ruin"),
+            room_types=("arena", "open_room", "maze"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.RUBBLE, DungeonTerrain.ACID_POOL),
+            props=(ThemedRoomPropSpec(DungeonTerrain.COVER, (1, 2), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(4, 8),
+                    preferred_tags=("mutant", "scavenger", "marauder", "beast"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("survey", "trader", "guide"),
+                    optional=True,
+                ),
+            ),
+        ),
+    ),
+}
+
+
 def _generate_contacts(
     level: DungeonLevel,
     rooms: list[DungeonRoom],
     environment: str,
     depth: int,
     rng: random.Random,
+    reserved_positions: set[tuple[int, int]] | None = None,
+    budget_offset: int = 0,
+    roster: DungeonEntityRoster | None = None,
 ) -> DungeonEntityRoster:
-    roster = DungeonEntityRoster()
+    roster = roster or DungeonEntityRoster()
     occupied: set[tuple[int, int]] = set(level.stairs_up) | set(level.stairs_down)
+    if reserved_positions:
+        occupied.update(reserved_positions)
     rooms_for_contacts = [room for index, room in enumerate(rooms) if index not in {0, len(rooms) - 1}]
     if not rooms_for_contacts:
         rooms_for_contacts = list(rooms)
 
     plans = _plan_contact_spawns(level, rooms_for_contacts, environment, depth, rng)
+    if budget_offset > 0 and plans:
+        trimmed: list[_ContactSpawnPlan] = []
+        remaining_trim = budget_offset
+        for plan in sorted(plans, key=lambda item: (item.category != "hostile", item.count), reverse=True):
+            if remaining_trim <= 0:
+                trimmed.append(plan)
+                continue
+            if plan.category == "hostile" and plan.count > 1:
+                take = min(plan.count - 1, remaining_trim)
+                trimmed.append(
+                    _ContactSpawnPlan(
+                        category=plan.category,
+                        archetype=plan.archetype,
+                        count=plan.count - take,
+                        room_index=plan.room_index,
+                        group_kind=plan.group_kind,
+                    )
+                )
+                remaining_trim -= take
+            else:
+                trimmed.append(plan)
+        plans = trimmed
 
     for index, plan in enumerate(plans):
         room_index = plan.room_index
@@ -2891,10 +3552,30 @@ def generate_dungeon_floor(
     level.player_pos = stairs_up
 
     reserved = {stairs_up, stairs_down}
-    _scatter_environment_features(level, rooms, env.name, reserved, rng)
     _add_doors(level, rng)
     secret_passages = _add_secret_passage(level, rooms, reserved, rng)
-    entity_roster = _generate_contacts(level, rooms, env.name, depth, rng)
+    reserved.update(pos for passage in secret_passages for pos in passage)
+    entity_roster = DungeonEntityRoster()
+    themed_rooms, themed_contact_count = _generate_themed_rooms(
+        level,
+        rooms,
+        env.name,
+        depth,
+        rng,
+        entity_roster,
+        reserved,
+    )
+    _scatter_environment_features(level, rooms, env.name, reserved, rng)
+    entity_roster = _generate_contacts(
+        level,
+        rooms,
+        env.name,
+        depth,
+        rng,
+        reserved_positions=reserved,
+        budget_offset=themed_contact_count,
+        roster=entity_roster,
+    )
 
     # Late carving steps can brush over traversal tiles, so reapply them last.
     if transition_terrain is None:
@@ -2913,4 +3594,5 @@ def generate_dungeon_floor(
         exit_room_index=_find_room_index(rooms, stairs_down),
         secret_passages=secret_passages,
         entity_roster=entity_roster,
+        themed_rooms=themed_rooms,
     )

@@ -1,6 +1,6 @@
 ---
 id: am-t9yt
-status: open
+status: in_progress
 deps: [am-5vkd, am-g908]
 links: []
 created: 2026-03-29T18:05:16Z
@@ -13,3 +13,9 @@ tags: [dungeon, engine, encounters, content, rooms]
 
 Add a system for themed rooms or set-piece encounter spaces that combine environment, room dressing, and grouped enemy populations into recognizable scenarios. Example: a chaos cult chamber with clustered cultists, a sorcerer, an altar, and a sacrificial victim. This should not be hardcoded to one example; design it as a reusable template/composition system that can produce many combinations across environments and factions. Room themes should be able to request terrain/features, encounter groups, optional NPCs or props, and rarity/placement rules so the game can grow a large library of possible set pieces over time.
 
+
+## Notes
+
+**2026-03-29T18:22:27Z**
+
+Implemented reusable themed-room composition for dungeon floors: added themed room templates, set-piece materialization, reserved-tile handling, and floor metadata via GeneratedFloor.themed_rooms. Verified with python -m py_compile src/angband_mechanicum/engine/dungeon_gen.py tests/test_dungeon_gen.py and uv run pytest tests/test_dungeon_gen.py tests/test_app.py tests/test_dungeon_screen.py -q (176 passed).

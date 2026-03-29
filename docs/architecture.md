@@ -117,6 +117,7 @@ Primary files:
 - `DungeonScreen` owns or receives a `DungeonMapState`.
 - `DungeonMapState` wraps a persistent `DungeonLevel`, player position, FOV radius, messages, and lightweight map entities.
 - `generate_dungeon_floor()` now seeds a small environment-aware roster of hostile and non-hostile contacts alongside the floor geometry.
+- `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
 - Hostile contacts are planned as clustered groups when possible, with room-aware placement so packs and swarms occupy the same encounter space instead of scattering randomly across the floor.
 - Fresh sessions and descended floors convert `entity_roster` entries into live map contacts, so generated NPCs persist through movement and save/load.
 - Movement and bump interactions are resolved by `DungeonMapState.attempt_step()`.
