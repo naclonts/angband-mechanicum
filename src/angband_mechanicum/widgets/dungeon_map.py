@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from rich.text import Text
 from textual.widgets import RichLog, Static
@@ -27,14 +27,30 @@ class DungeonMapEntity:
     hp: int = 1
     max_hp: int = 1
     attack: int = 1
+    movement: int = 1
+    attack_range: int = 1
     armor: int = 0
     description: str = ""
     scene_art: str | None = None
     history_entity_id: str | None = None
+    movement_ai: str = "stationary"
+    home_position: tuple[int, int] | None = None
+    alert_state: str = "idle"
+    alert_turns: int = 0
+    last_seen_player_position: tuple[int, int] | None = None
+    preferred_range: int | None = None
+    patrol_route: list[tuple[int, int]] = field(default_factory=list)
+    patrol_index: int = 0
+    sight_radius: int = 6
+    leash_distance: int = 8
 
     @property
     def alive(self) -> bool:
         return self.hp > 0
+
+    @property
+    def position(self) -> tuple[int, int] | None:
+        return (self.x, self.y)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -50,10 +66,26 @@ class DungeonMapEntity:
             "hp": self.hp,
             "max_hp": self.max_hp,
             "attack": self.attack,
+            "movement": self.movement,
+            "attack_range": self.attack_range,
             "armor": self.armor,
             "description": self.description,
             "scene_art": self.scene_art,
             "history_entity_id": self.history_entity_id,
+            "movement_ai": self.movement_ai,
+            "home_position": list(self.home_position) if self.home_position is not None else None,
+            "alert_state": self.alert_state,
+            "alert_turns": self.alert_turns,
+            "last_seen_player_position": (
+                list(self.last_seen_player_position)
+                if self.last_seen_player_position is not None
+                else None
+            ),
+            "preferred_range": self.preferred_range,
+            "patrol_route": [list(pos) for pos in self.patrol_route],
+            "patrol_index": self.patrol_index,
+            "sight_radius": self.sight_radius,
+            "leash_distance": self.leash_distance,
         }
 
     @classmethod
@@ -71,6 +103,8 @@ class DungeonMapEntity:
             hp=int(data.get("hp", 1)),
             max_hp=int(data.get("max_hp", 1)),
             attack=int(data.get("attack", 1)),
+            movement=int(data.get("movement", 1)),
+            attack_range=int(data.get("attack_range", 1)),
             armor=int(data.get("armor", 0)),
             description=str(data.get("description", "")),
             scene_art=data.get("scene_art") if data.get("scene_art") is not None else None,
@@ -79,6 +113,28 @@ class DungeonMapEntity:
                 if data.get("history_entity_id") is not None
                 else None
             ),
+            movement_ai=str(data.get("movement_ai", "stationary")),
+            home_position=(
+                tuple(data["home_position"])
+                if data.get("home_position") is not None
+                else None
+            ),
+            alert_state=str(data.get("alert_state", "idle")),
+            alert_turns=int(data.get("alert_turns", 0)),
+            last_seen_player_position=(
+                tuple(data["last_seen_player_position"])
+                if data.get("last_seen_player_position") is not None
+                else None
+            ),
+            preferred_range=(
+                int(data["preferred_range"])
+                if data.get("preferred_range") is not None
+                else None
+            ),
+            patrol_route=[tuple(pos) for pos in data.get("patrol_route", [])],
+            patrol_index=int(data.get("patrol_index", 0)),
+            sight_radius=int(data.get("sight_radius", 6)),
+            leash_distance=int(data.get("leash_distance", 8)),
         )
 
 

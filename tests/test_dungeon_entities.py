@@ -28,7 +28,16 @@ def _make_open_level(width: int = 7, height: int = 7) -> DungeonLevel:
     )
     for y in range(height):
         for x in range(width):
-            level.set_terrain(x, y, DungeonTerrain.FLOOR)
+                level.set_terrain(x, y, DungeonTerrain.FLOOR)
+    return level
+
+
+def _make_bordered_level(width: int = 7, height: int = 7) -> DungeonLevel:
+    level = _make_open_level(width, height)
+    for y in range(height):
+        for x in range(width):
+            if x in (0, width - 1) or y in (0, height - 1):
+                level.set_terrain(x, y, DungeonTerrain.WALL)
     return level
 
 
@@ -105,6 +114,145 @@ def test_step_entity_honors_ai_modes() -> None:
 
     assert stationary.intended_step(level, player_position=(3, 3)) is None
     assert aggressive.intended_step(level, player_position=(3, 3), rng=random.Random(1)) is not None
+
+
+def test_melee_hostile_paths_around_walls() -> None:
+    level = _make_bordered_level(7, 5)
+    for x in range(2, 5):
+        level.set_terrain(x, 1, DungeonTerrain.WALL)
+    level.player_pos = (5, 1)
+    level.compute_fov((5, 1), 5)
+
+    raider = DungeonEntity(
+        entity_id="raider-1",
+        name="Tunnel Raider",
+        disposition=DungeonDisposition.HOSTILE,
+        movement_ai=DungeonMovementAI.AGGRESSIVE,
+        can_talk=False,
+        portrait_key="assassin",
+        stats=CombatStats(max_hp=6, hp=6, attack=3, armor=0, movement=3, attack_range=1),
+        x=1,
+        y=1,
+    )
+
+    plan = raider.turn_action(level, player_position=(5, 1), occupied={(5, 1)})
+
+    assert plan.attacked_player is False
+    assert plan.moved_to in {(2, 1), (1, 2)}
+    assert raider.position == (1, 2)
+
+
+def test_ranged_hostile_attacks_from_line_of_sight() -> None:
+    level = _make_bordered_level(7, 5)
+    level.player_pos = (4, 2)
+    level.compute_fov((4, 2), 5)
+
+    loota = DungeonEntity(
+        entity_id="loota-1",
+        name="Loota",
+        disposition=DungeonDisposition.HOSTILE,
+        movement_ai=DungeonMovementAI.AGGRESSIVE,
+        can_talk=False,
+        portrait_key="assassin",
+        stats=CombatStats(max_hp=9, hp=9, attack=5, armor=1, movement=2, attack_range=6),
+        x=1,
+        y=2,
+    )
+
+    plan = loota.turn_action(level, player_position=(4, 2), occupied={(4, 2)})
+
+    assert plan.attacked_player is True
+    assert plan.attack_damage == 5
+    assert plan.moved_to is None
+    assert loota.position == (1, 2)
+
+
+def test_ranged_hostile_flanks_to_restore_line_of_sight() -> None:
+    level = _make_bordered_level(7, 5)
+    level.set_terrain(2, 2, DungeonTerrain.WALL)
+    level.set_terrain(3, 2, DungeonTerrain.WALL)
+    level.set_terrain(4, 2, DungeonTerrain.WALL)
+    level.set_terrain(1, 3, DungeonTerrain.WALL)
+    level.player_pos = (5, 2)
+    level.compute_fov((5, 2), 5)
+
+    loota = DungeonEntity(
+        entity_id="loota-2",
+        name="Loota",
+        disposition=DungeonDisposition.HOSTILE,
+        movement_ai=DungeonMovementAI.AGGRESSIVE,
+        can_talk=False,
+        portrait_key="assassin",
+        stats=CombatStats(max_hp=9, hp=9, attack=5, armor=1, movement=2, attack_range=6),
+        x=1,
+        y=2,
+    )
+
+    plan = loota.turn_action(level, player_position=(5, 2), occupied={(5, 2)})
+
+    assert plan.attacked_player is False
+    assert plan.moved_to == (1, 1)
+    assert plan.moved_to is not None
+
+
+def test_hostile_state_transitions_from_engaged_to_idle_after_lost_contact() -> None:
+    level = _make_bordered_level(7, 5)
+    level.player_pos = (3, 2)
+    level.compute_fov((3, 2), 5)
+
+    sentry = DungeonEntity(
+        entity_id="sentry-1",
+        name="Sentry",
+        disposition=DungeonDisposition.HOSTILE,
+        movement_ai=DungeonMovementAI.AGGRESSIVE,
+        can_talk=False,
+        portrait_key="servitor",
+        stats=CombatStats(max_hp=8, hp=8, attack=3, armor=1, movement=3, attack_range=1),
+        x=1,
+        y=2,
+    )
+
+    first = sentry.turn_action(level, player_position=(3, 2), occupied={(3, 2)})
+    assert first.moved_to is not None
+    assert sentry.alert_state == "engaged"
+
+    for y in range(0, 5):
+        level.set_terrain(3, y, DungeonTerrain.WALL)
+    level.player_pos = (5, 2)
+    level.compute_fov((5, 2), 5)
+
+    second = sentry.turn_action(level, player_position=(5, 2), occupied={(5, 2)})
+    third = sentry.turn_action(level, player_position=(5, 2), occupied={(5, 2)})
+    fourth = sentry.turn_action(level, player_position=(5, 2), occupied={(5, 2)})
+
+    assert second.attacked_player is False
+    assert sentry.alert_state == "idle"
+    assert third.alert_state in {"searching", "idle"}
+    assert fourth.alert_state == "idle"
+
+
+def test_friendly_followers_keep_pace_with_player() -> None:
+    level = _make_bordered_level(7, 5)
+    level.player_pos = (5, 2)
+    level.compute_fov((5, 2), 5)
+
+    follower = DungeonEntity(
+        entity_id="servo-skull",
+        name="Servo Skull",
+        disposition=DungeonDisposition.FRIENDLY,
+        movement_ai=DungeonMovementAI.FOLLOW_PLAYER,
+        can_talk=False,
+        portrait_key="cyber_cherub",
+        stats=CombatStats(max_hp=6, hp=6, attack=2, armor=0, movement=5, attack_range=6),
+        x=1,
+        y=2,
+    )
+
+    plan = follower.turn_action(level, player_position=(5, 2), occupied={(5, 2)})
+
+    assert plan.attacked_player is False
+    assert plan.moved_to in {(2, 2), (1, 1), (1, 3)}
+    assert follower.position == plan.moved_to
 
 
 def test_patrol_route_advances_toward_next_point() -> None:
