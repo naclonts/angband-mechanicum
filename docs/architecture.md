@@ -134,6 +134,7 @@ Primary files:
 ### 3. Text narrative flow
 
 - `GameScreen` captures prompt input and submits it to `GameEngine.process_input()`.
+- When `GameScreen` was opened from a dungeon interaction, it also seeds a focused interaction context into `GameEngine` so follow-up dialogue stays grounded in the addressed target and current dungeon location.
 - `GameEngine` builds a system prompt using:
   - current story context
   - dynamic scene-pane dimensions

@@ -514,6 +514,26 @@ class TestTransitionHelpers:
         screen = GameScreen(speaking_npc_id="skitarius-alpha-7")
         assert screen._speaking_npc_id == "skitarius-alpha-7"
 
+    def test_game_screen_builds_active_interaction_context_from_restore(self) -> None:
+        screen = GameScreen(
+            restored_state={
+                "conversation_target": "dormant-scribe",
+                "interaction_entity_name": "Dormant Scribe",
+                "interaction_entity_description": "A dust-covered scribe-servitor rousing from standby.",
+                "terrain": "forge",
+            }
+        )
+
+        context = screen._build_active_interaction_context()
+
+        assert context is not None
+        assert context["interaction_entity_name"] == "Dormant Scribe"
+
+    def test_game_screen_builds_no_active_interaction_context_without_restore(self) -> None:
+        screen = GameScreen()
+
+        assert screen._build_active_interaction_context() is None
+
     def test_dungeon_screen_uses_floor_contacts_when_floor_is_provided(self) -> None:
         floor = _make_floor_with_contacts()
         screen = DungeonScreen(floor=floor)

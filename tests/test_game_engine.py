@@ -61,16 +61,16 @@ class TestStatusData:
         status = engine.get_status_data()
         assert "companions" in status
         assert status["companions"] == status["party"]
-        assert any(member["name"] == "Skitarius Alpha-7" for member in status["companions"])
+        assert [member["name"] for member in status["companions"]] == ["Servo-skull"]
         assert all("alive" in member for member in status["companions"])
 
     def test_dead_companion_is_marked_dead(self) -> None:
         engine = GameEngine()
-        engine._party_hp["enginseer-volta"] = (0, 10)
+        engine._party_hp["servo-skull"] = (0, 6)
         status = engine.get_status_data()
-        volta = next(member for member in status["companions"] if member["id"] == "enginseer-volta")
-        assert volta["alive"] is False
-        assert volta["hp"] == 0
+        servo_skull = next(member for member in status["companions"] if member["id"] == "servo-skull")
+        assert servo_skull["alive"] is False
+        assert servo_skull["hp"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +164,7 @@ class TestProcessInput:
         self, engine_with_mock_client: GameEngine
     ) -> None:
         engine = engine_with_mock_client
-        engine._party_hp["enginseer-volta"] = (0, 10)
+        engine._party_hp["servo-skull"] = (0, 6)
         response_json = json.dumps({
             "narrative_text": "The machine spirit hums.",
             "info_update": None,
@@ -175,8 +175,39 @@ class TestProcessInput:
 
         system_prompt = engine._client.messages.create.call_args.kwargs["system"]
         assert "## Companion Status" in system_prompt
-        assert "enginseer-volta (Enginseer Volta): DEAD, HP 0/10" in system_prompt
+        assert "servo-skull (Servo-skull): DEAD, HP 0/6" in system_prompt
         assert "Dead companions must not speak" in system_prompt
+        assert "Enginseer Volta" not in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_process_input_includes_active_interaction_context(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        engine.set_active_interaction_context(
+            {
+                "interaction_kind": "conversation",
+                "interaction_entity_name": "Dormant Scribe",
+                "interaction_entity_type": "character",
+                "interaction_entity_description": "A dust-covered scribe-servitor rousing from standby.",
+                "interaction_entity_disposition": "friendly",
+                "terrain": "forge",
+                "target_position": [12, 4],
+            }
+        )
+        response_json = json.dumps({
+            "narrative_text": "The scribe emits a cautious vox-click.",
+            "info_update": None,
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        await engine.process_input("Hello, what are you doing?")
+
+        system_prompt = engine._client.messages.create.call_args.kwargs["system"]
+        assert "## Current Interaction Focus" in system_prompt
+        assert "Dormant Scribe" in system_prompt
+        assert "A dust-covered scribe-servitor rousing from standby." in system_prompt
+        assert "Do not substitute a different known character" in system_prompt
 
     # -----------------------------------------------------------------------
     # Edge case: non-JSON response from LLM
