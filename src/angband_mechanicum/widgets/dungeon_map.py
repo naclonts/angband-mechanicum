@@ -289,6 +289,7 @@ def render_dungeon_status(
                 "",
                 "LOOK MODE:",
                 f"  TARGET: ({lx},{ly})",
+                "  [dim]o/c: open or close adjacent doors[/dim]",
             ]
         )
         if look_summary:
@@ -298,6 +299,7 @@ def render_dungeon_status(
             [
                 "",
                 "[dim]l: look / Enter: inspect / Esc: cancel[/dim]",
+                "[dim]o/c: open or close adjacent doors[/dim]",
             ]
         )
     if entities_here:

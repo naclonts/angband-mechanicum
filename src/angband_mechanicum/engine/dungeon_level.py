@@ -97,6 +97,20 @@ def hazard_damage_for_terrain(terrain: DungeonTerrain) -> int:
     return _HAZARD_DAMAGE.get(terrain, 0)
 
 
+def is_door_terrain(terrain: DungeonTerrain) -> bool:
+    """Return True if the terrain is one of the door states."""
+    return terrain in {DungeonTerrain.DOOR_OPEN, DungeonTerrain.DOOR_CLOSED}
+
+
+def door_terrain_label(terrain: DungeonTerrain) -> str:
+    """Return a short human-readable label for a door terrain state."""
+    if terrain == DungeonTerrain.DOOR_OPEN:
+        return "open door"
+    if terrain == DungeonTerrain.DOOR_CLOSED:
+        return "closed door"
+    return terrain.value.replace("_", " ")
+
+
 # ---------------------------------------------------------------------------
 # Terrain rendering
 # ---------------------------------------------------------------------------
@@ -580,6 +594,34 @@ class DungeonLevel:
     def set_terrain(self, x: int, y: int, terrain: DungeonTerrain) -> None:
         """Set the terrain type at (x, y)."""
         self.tiles[y][x].terrain = terrain
+
+    def is_open_door(self, x: int, y: int) -> bool:
+        """Return True if the tile at (x, y) is an open door."""
+        return self.in_bounds(x, y) and self.tiles[y][x].terrain == DungeonTerrain.DOOR_OPEN
+
+    def is_closed_door(self, x: int, y: int) -> bool:
+        """Return True if the tile at (x, y) is a closed door."""
+        return self.in_bounds(x, y) and self.tiles[y][x].terrain == DungeonTerrain.DOOR_CLOSED
+
+    def open_door(self, x: int, y: int) -> bool:
+        """Convert a closed door to an open door.
+
+        Returns True if the terrain changed.
+        """
+        if not self.in_bounds(x, y) or self.tiles[y][x].terrain != DungeonTerrain.DOOR_CLOSED:
+            return False
+        self.tiles[y][x].terrain = DungeonTerrain.DOOR_OPEN
+        return True
+
+    def close_door(self, x: int, y: int) -> bool:
+        """Convert an open door to a closed door.
+
+        Returns True if the terrain changed.
+        """
+        if not self.in_bounds(x, y) or self.tiles[y][x].terrain != DungeonTerrain.DOOR_OPEN:
+            return False
+        self.tiles[y][x].terrain = DungeonTerrain.DOOR_CLOSED
+        return True
 
     # -- FOV helpers ---------------------------------------------------------
 

@@ -186,6 +186,8 @@ class TestDungeonScreenBindings:
             "ctrl+end",
             "ctrl+pagedown",
             "5",
+            "o",
+            "c",
         }
         assert expected <= keys
 
@@ -207,6 +209,8 @@ class TestDungeonScreenBindings:
             hotkeys["Ctrl + arrows / HJKYUBN / 7-9-1-3 / Home-PgUp-End-PgDn"]
             == "Travel until something interesting happens"
         )
+        assert hotkeys["O"] == "Open adjacent door"
+        assert hotkeys["C"] == "Close adjacent door"
         assert hotkeys["5 / Space"] == "Wait / rescan"
 
     def test_non_map_panels_are_focusable(self) -> None:
@@ -317,6 +321,51 @@ class TestDungeonMapState:
         assert state.move_player(1, 0) is True
         assert state.move_player(1, 0) is False
         assert state.messages[-1].startswith("Wall")
+
+    def test_bumping_closed_door_opens_it_and_reveals_line_of_sight(self) -> None:
+        level = _make_level()
+        level.set_terrain(3, 2, DungeonTerrain.DOOR_CLOSED)
+        level.set_terrain(4, 2, DungeonTerrain.FLOOR)
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=3)
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.DOOR
+        assert result.door_state == "open"
+        assert state.player_pos == (2, 2)
+        assert level.get_terrain(3, 2) == DungeonTerrain.DOOR_OPEN
+        assert level.get_tile(4, 2).fog == FogState.VISIBLE
+        assert state.messages[-1] == "You open the door."
+
+    def test_open_door_rejects_already_open_target(self) -> None:
+        level = _make_level()
+        level.set_terrain(3, 2, DungeonTerrain.DOOR_OPEN)
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=1)
+
+        result = state.open_door_at((3, 2))
+
+        assert result.kind == DungeonInteractionKind.BLOCKED
+        assert level.get_terrain(3, 2) == DungeonTerrain.DOOR_OPEN
+        assert state.messages[-1] == "The door is already open."
+
+    def test_close_door_rejects_occupied_target(self) -> None:
+        level = _make_level()
+        level.set_terrain(3, 2, DungeonTerrain.DOOR_OPEN)
+        blocker = DungeonMapEntity(
+            entity_id="blocker-1",
+            name="Cogitator Servitor",
+            x=3,
+            y=2,
+            disposition="neutral",
+            can_talk=False,
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=1, entities=[blocker])
+
+        result = state.close_door_at((3, 2))
+
+        assert result.kind == DungeonInteractionKind.BLOCKED
+        assert level.get_terrain(3, 2) == DungeonTerrain.DOOR_OPEN
+        assert state.messages[-1] == "A contact blocks the doorway."
 
     def test_wait_recomputes_visibility_and_logs(self) -> None:
         level = _make_level()

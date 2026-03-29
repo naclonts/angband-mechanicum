@@ -96,6 +96,7 @@ class DungeonInteractionKind(enum.Enum):
     """High-level outcomes of trying to step into a tile."""
 
     MOVE = "move"
+    DOOR = "door"
     ATTACK = "attack"
     CONVERSATION = "conversation"
     OBJECT = "object"
@@ -110,6 +111,8 @@ class DungeonActionResult:
 
     kind: DungeonInteractionKind
     message: str
+    door_position: tuple[int, int] | None = None
+    door_state: str | None = None
     target_entity_id: str | None = None
     target_entity_name: str | None = None
     target_entity_type: str | None = None
@@ -298,6 +301,82 @@ class DungeonMapState:
         self._apply_position()
         self.recompute_fov()
 
+    def _is_adjacent_to_player(self, position: tuple[int, int]) -> bool:
+        assert self.player_pos is not None
+        px, py = self.player_pos
+        return abs(position[0] - px) + abs(position[1] - py) == 1
+
+    def _door_action_result(
+        self,
+        position: tuple[int, int],
+        *,
+        open_door: bool,
+    ) -> DungeonActionResult:
+        assert self.player_pos is not None
+        x, y = position
+        if not self.level.in_bounds(x, y):
+            message = "The doorway is beyond the map edge."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if not self._is_adjacent_to_player(position):
+            message = "That door is out of reach."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if self.entity_at(position) is not None or self.level.get_creature(x, y) is not None:
+            message = "A contact blocks the doorway."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        terrain = self.level.get_terrain(x, y)
+        if open_door:
+            if terrain == DungeonTerrain.DOOR_OPEN:
+                message = "The door is already open."
+                self.append_message(message)
+                return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+            if terrain != DungeonTerrain.DOOR_CLOSED:
+                message = "That is not a closed door."
+                self.append_message(message)
+                return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+            self.level.open_door(x, y)
+            self.recompute_fov()
+            message = "You open the door."
+            self.append_message(message)
+            return DungeonActionResult(
+                kind=DungeonInteractionKind.DOOR,
+                message=message,
+                door_position=position,
+                door_state="open",
+                moved_to=self.player_pos,
+            )
+
+        if terrain == DungeonTerrain.DOOR_CLOSED:
+            message = "The door is already closed."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if terrain != DungeonTerrain.DOOR_OPEN:
+            message = "That is not an open door."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        self.level.close_door(x, y)
+        self.recompute_fov()
+        message = "You close the door."
+        self.append_message(message)
+        return DungeonActionResult(
+            kind=DungeonInteractionKind.DOOR,
+            message=message,
+            door_position=position,
+            door_state="closed",
+            moved_to=self.player_pos,
+        )
+
+    def open_door_at(self, position: tuple[int, int]) -> DungeonActionResult:
+        """Open a closed door adjacent to the player."""
+        return self._door_action_result(position, open_door=True)
+
+    def close_door_at(self, position: tuple[int, int]) -> DungeonActionResult:
+        """Close an open door adjacent to the player."""
+        return self._door_action_result(position, open_door=False)
+
     def move_player(self, dx: int, dy: int) -> bool:
         return self.attempt_step(dx, dy).kind != DungeonInteractionKind.BLOCKED
 
@@ -395,11 +474,6 @@ class DungeonMapState:
             message = "The void lies beyond the map edge."
             self.append_message(message)
             return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
-        if not self.level.get_tile(nx, ny).passable:
-            terrain_name = self.level.get_terrain(nx, ny).value.replace("_", " ").title()
-            message = f"{terrain_name} blocks the route."
-            self.append_message(message)
-            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
         entity = self.entity_at((nx, ny))
         if entity is None and self.level.get_creature(nx, ny) is not None:
             message = "Contact at the destination blocks movement."
@@ -434,8 +508,18 @@ class DungeonMapState:
                 DungeonInteractionKind.NEUTRAL,
             )
             return result
-        self._move_player_to((nx, ny))
         terrain_type = self.level.get_terrain(nx, ny)
+        if terrain_type == DungeonTerrain.DOOR_CLOSED:
+            return self.open_door_at((nx, ny))
+        if not self.level.get_tile(nx, ny).passable:
+            if terrain_type == DungeonTerrain.DOOR_OPEN:
+                terrain_name = "Open door"
+            else:
+                terrain_name = terrain_type.value.replace("_", " ").title()
+            message = f"{terrain_name} blocks the route."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        self._move_player_to((nx, ny))
         if is_transition_terrain(terrain_type):
             direction = "deeper" if (nx, ny) in self.level.stairs_down else "upward"
             message = (
@@ -693,6 +777,8 @@ class DungeonScreen(Screen[None]):
         Binding("ctrl+end", "travel_southwest", "Travel southwest", show=False),
         Binding("ctrl+pagedown", "travel_southeast", "Travel southeast", show=False),
         Binding("tab", "cycle_panel", "Cycle panels", show=True, priority=True),
+        Binding("o", "open_door", "Open door", show=True),
+        Binding("c", "close_door", "Close door", show=True),
         Binding("l", "look", "Look", show=True),
         Binding("enter", "confirm_look", "Inspect", show=False),
         Binding("escape", "cancel_look", "Cancel look", show=False),
@@ -712,6 +798,8 @@ class DungeonScreen(Screen[None]):
         ("1 / End", "Move southwest"),
         ("3 / PgDn", "Move southeast"),
         ("Ctrl + arrows / HJKYUBN / 7-9-1-3 / Home-PgUp-End-PgDn", "Travel until something interesting happens"),
+        ("O", "Open adjacent door"),
+        ("C", "Close adjacent door"),
         ("Enter", "Inspect target"),
         ("Esc", "Cancel look mode"),
         ("5 / Space", "Wait / rescan"),
@@ -1179,7 +1267,7 @@ class DungeonScreen(Screen[None]):
     def _process_step_result(self, result: DungeonActionResult) -> None:
         if self._death_in_progress:
             return
-        if result.kind == DungeonInteractionKind.MOVE:
+        if result.kind in {DungeonInteractionKind.MOVE, DungeonInteractionKind.DOOR}:
             self._ambient_action_index += 1
         engine = getattr(self.app, "game_engine", None)
         if result.player_damage > 0 and engine is not None:
@@ -1200,6 +1288,7 @@ class DungeonScreen(Screen[None]):
             self._autosave()
         elif result.kind in {
             DungeonInteractionKind.MOVE,
+            DungeonInteractionKind.DOOR,
             DungeonInteractionKind.ATTACK,
             DungeonInteractionKind.NEUTRAL,
         }:
@@ -1446,6 +1535,43 @@ class DungeonScreen(Screen[None]):
 
     def action_move_southeast(self) -> None:
         self._step(1, 1)
+
+    def _door_target(self, terrain: DungeonTerrain) -> tuple[int, int] | None:
+        assert self._state.player_pos is not None
+        px, py = self._state.player_pos
+        for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+            nx, ny = px + dx, py + dy
+            if not self._state.level.in_bounds(nx, ny):
+                continue
+            if self._state.level.get_terrain(nx, ny) == terrain:
+                return (nx, ny)
+        return None
+
+    def action_open_door(self) -> None:
+        if self._death_in_progress:
+            return
+        target = self._door_target(DungeonTerrain.DOOR_CLOSED)
+        if target is None:
+            message = "No closed door is adjacent."
+            self._state.append_message(message)
+            self._process_step_result(
+                DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+            )
+            return
+        self._process_step_result(self._state.open_door_at(target))
+
+    def action_close_door(self) -> None:
+        if self._death_in_progress:
+            return
+        target = self._door_target(DungeonTerrain.DOOR_OPEN)
+        if target is None:
+            message = "No open door is adjacent."
+            self._state.append_message(message)
+            self._process_step_result(
+                DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+            )
+            return
+        self._process_step_result(self._state.close_door_at(target))
 
     def _travel_or_step(self, dx: int, dy: int) -> None:
         if self._look_mode:
