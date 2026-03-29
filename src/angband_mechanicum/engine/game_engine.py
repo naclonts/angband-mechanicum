@@ -341,7 +341,7 @@ class GameEngine:
         Returns a dict with:
           - info: dict of key-value info fields (DESIGNATION, LOCATION, etc.)
           - integrity: (current, max) player HP
-          - companions: list of {id, name, hp, max_hp} dicts
+          - companions: list of {id, name, hp, max_hp, alive} dicts
         """
         companions: list[dict[str, Any]] = []
         for pid in self._party_member_ids:
@@ -355,6 +355,7 @@ class GameEngine:
                     "name": tpl["name"],
                     "hp": hp,
                     "max_hp": max_hp,
+                    "alive": hp > 0,
                 })
         return {
             "info": dict(self._info_panel),
@@ -403,7 +404,37 @@ class GameEngine:
         registry_context = self._history.get_registry_context()
         if registry_context:
             prompt += "\n\n" + registry_context
+        companion_context = self._build_companion_status_context()
+        if companion_context:
+            prompt += "\n\n" + companion_context
         return prompt
+
+    def _build_companion_status_context(self) -> str:
+        """Build a compact prompt block describing companion survival state."""
+        lines: list[str] = ["## Companion Status"]
+        companions_added = False
+        for pid in self._party_member_ids:
+            tpl = PARTY_TEMPLATES.get(pid)
+            if tpl is None:
+                continue
+            hp, max_hp = self._party_hp.get(
+                pid, (tpl["stats"]["hp"], tpl["stats"]["max_hp"])
+            )
+            state = "DEAD" if hp <= 0 else "ALIVE"
+            lines.append(
+                f"- {pid} ({tpl['name']}): {state}, HP {hp}/{max_hp}"
+            )
+            companions_added = True
+
+        if not companions_added:
+            return ""
+
+        lines.append("")
+        lines.append(
+            "Dead companions must not speak, act, or be narrated as active unless "
+            "explicitly revived."
+        )
+        return "\n".join(lines)
 
     def _log_turn(
         self,
