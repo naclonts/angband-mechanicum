@@ -9,6 +9,8 @@ from textual.containers import Center, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Input, Label, Static
 
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS
+
 HEADER_ART: str = """\
  +============================================================+
  |     ++ TECH-PRIEST DESIGNATION PROTOCOL ++                  |
@@ -43,6 +45,8 @@ class CharacterSetupScreen(Screen[str]):
 
     Dismissed with the chosen name string.
     """
+
+    BINDINGS = [*ARROW_NAV_BINDINGS]
 
     def compose(self) -> ComposeResult:
         # Pick 3 random suggestions to show

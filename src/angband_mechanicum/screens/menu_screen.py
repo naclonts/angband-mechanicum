@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Center, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label, Static
 
 from angband_mechanicum.engine.save_manager import SaveManager, SaveMetadata
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS
 
 TITLE_ART: str = """\
 ╔═══════════════════════════════════════════════════════╗
@@ -22,6 +24,8 @@ FOOTER_TEXT: str = "[dim]++ THE OMNISSIAH PROTECTS ++ FLESH IS WEAK ++ THE MACHI
 
 class MenuScreen(Screen[None]):
     """Main menu with New Game and Load Game options."""
+
+    BINDINGS = [*ARROW_NAV_BINDINGS]
 
     def compose(self) -> ComposeResult:
         with Center():

@@ -12,6 +12,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Label, Static
 
 from angband_mechanicum.engine.story_starts import STORY_STARTS, StoryStart
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS
 
 
 HEADER_ART: str = """\
@@ -34,6 +35,7 @@ class StorySelectScreen(Screen[StoryStart | None]):
     """
 
     BINDINGS = [
+        *ARROW_NAV_BINDINGS,
         Binding("r", "random_select", "Random", show=True),
         Binding("escape", "back", "Back", show=True),
     ]

@@ -10,6 +10,8 @@ from textual.containers import Center, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS
+
 HEADER_ART: str = """\
  ╔═══════════════════════════════════════════════════════════╗
  ║       ++ AUTHENTICATION RITE REQUIRED ++                 ║
@@ -33,6 +35,8 @@ FOOTER_TEXT: str = (
 
 class ApiKeyScreen(Screen[None]):
     """Prompts the user for an Anthropic API key when one is not set."""
+
+    BINDINGS = [*ARROW_NAV_BINDINGS]
 
     def compose(self) -> ComposeResult:
         with Center():
