@@ -209,6 +209,33 @@ class TestNewGame:
             assert isinstance(app.screen, GameScreen)
 
     @pytest.mark.asyncio
+    async def test_look_mode_enter_still_confirms_after_focus_change(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Look mode should confirm even if focus moves off the map widget."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app, enter_explore_view=True)
+            response = json.dumps({
+                "narrative_text": "The brass plating bears fresh prayer-scratches.",
+                "scene_art": "ART",
+                "info_update": None,
+                "entities": [],
+                "combat_trigger": False,
+                "speaking_npc": None,
+            })
+            _mock_engine_client(app, response)
+
+            await pilot.press("l")
+            await pilot.press("tab")
+            await pilot.press("tab")
+            await pilot.press("enter")
+            await pilot.pause()
+
+            assert isinstance(app.screen, GameScreen)
+
+    @pytest.mark.asyncio
     async def test_prompt_is_focused(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
