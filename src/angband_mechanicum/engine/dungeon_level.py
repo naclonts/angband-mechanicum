@@ -325,6 +325,41 @@ class DungeonTile:
 
 
 # ---------------------------------------------------------------------------
+# FOV helpers
+# ---------------------------------------------------------------------------
+
+
+def _bresenham_line(
+    start: tuple[int, int],
+    end: tuple[int, int],
+) -> list[tuple[int, int]]:
+    """Return the grid cells on a Bresenham line from *start* to *end*."""
+    x0, y0 = start
+    x1, y1 = end
+
+    points: list[tuple[int, int]] = []
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx - dy
+
+    while True:
+        points.append((x0, y0))
+        if x0 == x1 and y0 == y1:
+            break
+        double_err = 2 * err
+        if double_err > -dy:
+            err -= dy
+            x0 += sx
+        if double_err < dx:
+            err += dx
+            y0 += sy
+
+    return points
+
+
+# ---------------------------------------------------------------------------
 # DungeonLevel
 # ---------------------------------------------------------------------------
 
@@ -389,6 +424,86 @@ class DungeonLevel:
         """Mark a tile as currently visible (in the player's FOV)."""
         if self.in_bounds(x, y):
             self.tiles[y][x].fog = FogState.VISIBLE
+
+    def is_visible(self, x: int, y: int) -> bool:
+        """Return True if the tile is currently visible."""
+        return self.in_bounds(x, y) and self.tiles[y][x].fog == FogState.VISIBLE
+
+    def is_explored(self, x: int, y: int) -> bool:
+        """Return True if the tile has been seen before."""
+        return self.in_bounds(x, y) and self.tiles[y][x].fog in {
+            FogState.EXPLORED,
+            FogState.VISIBLE,
+        }
+
+    def is_hidden(self, x: int, y: int) -> bool:
+        """Return True if the tile has never been seen."""
+        return self.in_bounds(x, y) and self.tiles[y][x].fog == FogState.HIDDEN
+
+    def line_of_sight(
+        self,
+        origin: tuple[int, int],
+        target: tuple[int, int],
+    ) -> bool:
+        """Return True if there is unobstructed LOS from origin to target."""
+        ox, oy = origin
+        tx, ty = target
+        if not self.in_bounds(ox, oy) or not self.in_bounds(tx, ty):
+            return False
+        if origin == target:
+            return True
+
+        line = _bresenham_line(origin, target)
+        for x, y in line[1:-1]:
+            if self.tiles[y][x].blocks_sight:
+                return False
+        return True
+
+    def compute_fov(
+        self,
+        origin: tuple[int, int],
+        radius: int,
+    ) -> set[tuple[int, int]]:
+        """Recompute fog-of-war from an origin and radius.
+
+        Previously visible tiles become explored, and tiles in LOS within the
+        radius are marked visible.
+        """
+        if radius < 0:
+            raise ValueError("radius must be non-negative")
+
+        self.reset_visible()
+        ox, oy = origin
+        if not self.in_bounds(ox, oy):
+            return set()
+
+        visible: set[tuple[int, int]] = set()
+        radius_sq = radius * radius
+        x_min = max(0, ox - radius)
+        x_max = min(self.width - 1, ox + radius)
+        y_min = max(0, oy - radius)
+        y_max = min(self.height - 1, oy + radius)
+
+        for y in range(y_min, y_max + 1):
+            for x in range(x_min, x_max + 1):
+                dx = x - ox
+                dy = y - oy
+                if dx * dx + dy * dy > radius_sq:
+                    continue
+                if self.line_of_sight(origin, (x, y)):
+                    self.set_visible(x, y)
+                    visible.add((x, y))
+
+        return visible
+
+    def visible_tiles(self) -> list[tuple[int, int]]:
+        """Return all currently visible tile coordinates."""
+        visible: list[tuple[int, int]] = []
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.tiles[y][x].fog == FogState.VISIBLE:
+                    visible.append((x, y))
+        return visible
 
     # -- creature helpers ----------------------------------------------------
 
