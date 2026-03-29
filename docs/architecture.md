@@ -121,6 +121,7 @@ Primary files:
 - `generate_dungeon_floor()` now seeds a small environment-aware roster of hostile and non-hostile contacts alongside the floor geometry.
 - `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
 - `generate_dungeon_floor()` also seeds a small number of persistent item objects on safe floor tiles and records those placements on `GeneratedFloor`.
+- It additionally places environment-specific dressing objects, including multi-tile blocking footprints, while preserving the remaining traversable floor graph so stairs and connected routes do not get sealed off by decorative set pieces.
 - Hostile contacts are planned as clustered groups when possible, with room-aware placement so packs and swarms occupy the same encounter space instead of scattering randomly across the floor.
 - Door placement only promotes tiles that still read as genuine room-threshold chokepoints, and it skips sparse candidate sets so small rooms do not get forced doors or free-standing floor artifacts.
 - Fresh sessions and descended floors convert `entity_roster` entries into live map contacts, so generated NPCs persist through movement and save/load.

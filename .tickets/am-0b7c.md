@@ -1,6 +1,6 @@
 ---
 id: am-0b7c
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-03-29T20:18:41Z
