@@ -76,11 +76,14 @@ tk dep <id> <dep-id>       # Declare id depends on dep-id
 
 1. Run `tk ready` to see available tickets.
 2. Run `tk start <id>` before working on a ticket.
-3. **Always use a worktree** for implementation work (`isolation: "worktree"` on the Agent tool). Multiple agents may be working on the codebase concurrently in separate worktrees — never assume you have exclusive access to the main working directory.
-4. Do the work. Use `tk add-note <id> "text"` to leave context for other agents.
-5. Run `tk close <id>` when done.
-6. Reference ticket IDs in commit messages (e.g., `am-hsdv: wire up LLM engine`).
-7. Parent agent merges the worktree branch back to main after subagent completes.
+3. **Always use a worktree** for implementation work. Multiple agents may be working on the codebase concurrently in separate worktrees — never assume you have exclusive access to the main working directory.
+4. If your agent platform exposes an explicit worktree/isolation mode, enable it.
+5. If your agent platform does **not** expose a worktree/isolation flag, the parent/orchestration agent must still instruct each implementation subagent to create and use its own git worktree manually. "The tool did not offer isolation" is not a valid reason to skip worktrees.
+6. If you cannot create a worktree for a subagent, do **not** delegate implementation work to that subagent. Keep the edits local or use the subagent only for read-only analysis.
+7. Do the work. Use `tk add-note <id> "text"` to leave context for other agents.
+8. Run `tk close <id>` when done.
+9. Reference ticket IDs in commit messages (e.g., `am-hsdv: wire up LLM engine`).
+10. Parent agent merges the worktree branch back to main after subagent completes.
 
 ### Parallel Work with Worktrees
 
@@ -89,10 +92,18 @@ This project uses **git worktrees** for parallel agent isolation. Each subagent 
 **How it works:**
 
 1. **Parent agent** decomposes work into tickets with dependencies.
-2. **Parent spawns subagents** each in an isolated worktree (Claude Code: `isolation: "worktree"` on the Agent tool).
+2. **Parent spawns subagents** each in an isolated worktree. If the agent platform has an `isolation: "worktree"` option, use it. Otherwise, explicitly instruct the subagent to create a git worktree manually before touching code.
 3. Each subagent gets its own branch and full repo copy. No shared mutable state.
 4. Subagent does `tk start <id>`, works, commits, `tk close <id>`.
 5. Parent merges branches back to main (or opens PRs for review).
+
+**Manual worktree fallback (when the tool has no isolation flag):**
+
+1. Parent creates a branch name and worktree path for the ticket, for example `wt/am-5mdw-look-mode`.
+2. Parent or subagent runs `git worktree add <path> -b <branch-name>`.
+3. Subagent `cd`s into that worktree and does all implementation work there.
+4. Subagent must not edit files from the main checkout while the ticket is in progress.
+5. Parent merges the finished branch and removes the worktree when done.
 
 **Why this works with `tk`:** Each ticket is its own `.md` file in `.tickets/`. Agents working different tickets edit different files, so git merges cleanly. No locking or coordination primitives needed.
 
@@ -116,11 +127,12 @@ git merge scrollable-datalog
 
 **Subagent checklist (run these in your worktree):**
 
-1. `uv sync` — install deps in worktree's venv
-2. `tk start <id>` — claim your ticket
-3. Do the work, commit with ticket ID in message (e.g., `am-pyqp: add mypy strict config`)
-4. `tk close <id>`
-5. Exit — parent agent handles the merge
+1. Create or enter the assigned git worktree first.
+2. `uv sync` — install deps in worktree's venv
+3. `tk start <id>` — claim your ticket
+4. Do the work, commit with ticket ID in message (e.g., `am-pyqp: add mypy strict config`)
+5. `tk close <id>`
+6. Exit — parent agent handles the merge
 
 **Concurrency awareness:** Assume other agents may be active in other worktrees at any time. Do not modify files outside your worktree. The parent agent is responsible for merge coordination.
 
