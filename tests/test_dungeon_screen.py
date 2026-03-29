@@ -325,6 +325,30 @@ class TestDungeonMapState:
         assert state.messages[-1] == "You hold position and scan the chamber."
         assert level.get_tile(2, 2).fog == FogState.VISIBLE
 
+    @pytest.mark.parametrize(
+        ("terrain", "expected_damage", "expected_text"),
+        [
+            (DungeonTerrain.ACID_POOL, 2, "Corrosive acid burns you for 2 damage."),
+            (DungeonTerrain.LAVA, 5, "Molten lava scorches you for 5 damage."),
+        ],
+    )
+    def test_hazardous_move_reports_damage(
+        self,
+        terrain: DungeonTerrain,
+        expected_damage: int,
+        expected_text: str,
+    ) -> None:
+        level = _make_level()
+        level.set_terrain(3, 2, terrain)
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=1)
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.MOVE
+        assert result.player_damage == expected_damage
+        assert state.player_pos == (3, 2)
+        assert state.messages[-1].endswith(expected_text)
+
     def test_build_examine_context_includes_entity_and_surroundings(self) -> None:
         level = _make_level()
         statue = DungeonMapEntity(
@@ -1138,6 +1162,11 @@ class TestShowInspectTextObjects:
 class _FakeEngine:
     def __init__(self) -> None:
         self.turn_count = 7
+        self.integrity = 20
+        self.max_integrity = 20
+
+    def take_damage(self, amount: int) -> None:
+        self.integrity = max(0, self.integrity - amount)
 
     def to_dict(self) -> dict[str, object]:
         return {"turn_count": self.turn_count}
@@ -1220,6 +1249,20 @@ class TestDungeonAutosave:
         assert transition_calls == [True]
         assert len(save_manager.saved) == 1
         assert save_manager.saved[0][1]["dungeon_session"]["state"]["player_pos"] == [3, 2]
+
+    def test_hazardous_move_applies_integrity_loss_and_autosaves(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        level = _make_level()
+        level.set_terrain(3, 2, DungeonTerrain.LAVA)
+        screen, save_manager, app = _build_autosave_screen(level, monkeypatch)
+        monkeypatch.setattr(screen, "_maybe_trigger_ambient_discovery", lambda: None)
+
+        screen._step(1, 0)
+
+        assert app.game_engine.integrity == 15  # type: ignore[union-attr]
+        assert screen.state.messages[-1].endswith("Molten lava scorches you for 5 damage.")
+        assert len(save_manager.saved) == 1
 
 
 class TestDungeonPanelFocus:

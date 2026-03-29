@@ -10,6 +10,7 @@ from angband_mechanicum.engine.dungeon_level import (
     DungeonTerrain,
     FogState,
     DungeonTile,
+    hazard_damage_for_terrain,
 )
 
 
@@ -111,6 +112,31 @@ class TestTransitionTerrains:
         assert restored.terrain == terrain
         assert restored.passable is True
         assert restored.transparent is True
+
+
+class TestHazardTerrains:
+    @pytest.mark.parametrize(
+        ("terrain", "expected_damage"),
+        [
+            (DungeonTerrain.ACID_POOL, 2),
+            (DungeonTerrain.LAVA, 5),
+        ],
+    )
+    def test_hazard_tiles_are_passable_and_damage_on_traversal(
+        self,
+        terrain: DungeonTerrain,
+        expected_damage: int,
+    ) -> None:
+        tile = DungeonTile(terrain=terrain)
+
+        assert tile.passable is True
+        assert tile.movement_cost == 2
+        assert hazard_damage_for_terrain(terrain) == expected_damage
+
+    def test_lava_deals_more_damage_than_acid(self) -> None:
+        assert hazard_damage_for_terrain(DungeonTerrain.LAVA) > hazard_damage_for_terrain(
+            DungeonTerrain.ACID_POOL
+        )
 
 
 class TestEnvironmentCatalog:
