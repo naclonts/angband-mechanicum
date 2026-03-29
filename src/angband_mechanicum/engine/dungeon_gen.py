@@ -1060,6 +1060,17 @@ class _ContactArchetype:
     tags: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class _ContactSpawnPlan:
+    """Internal plan for a group or single contact spawn."""
+
+    category: str
+    archetype: _ContactArchetype
+    count: int
+    room_index: int | None
+    group_kind: str
+
+
 def _weighted_choice(options: tuple[_ContactArchetype, ...], rng: random.Random) -> _ContactArchetype:
     """Choose an archetype using its explicit weight, falling back to uniform choice."""
     if not options:
@@ -1089,6 +1100,51 @@ def _choose_category(
         if roll <= 0:
             return category
     return filtered[-1]
+
+
+def _group_kind_for_archetype(archetype: _ContactArchetype) -> str:
+    """Classify an archetype into a spawn grouping style."""
+    text = f"{archetype.name} {' '.join(archetype.tags)}".lower()
+    if any(keyword in text for keyword in ("rat", "vermin", "swarm")):
+        return "swarm"
+    if any(keyword in text for keyword in ("guardian", "sentinel", "automaton", "drone", "servitor", "custodian")):
+        return "pair"
+    if any(keyword in text for keyword in ("cult", "crew", "criminal", "raider", "boarding", "mutiny", "riot", "thief", "intruder", "marauder", "husk", "predator", "beast")):
+        return "pack"
+    return "cell"
+
+
+def _group_size_for_archetype(
+    archetype: _ContactArchetype,
+    environment: str,
+    depth: int,
+    rng: random.Random,
+) -> int:
+    """Pick a group size for an archetype, biased by its style and environment."""
+    if archetype.disposition != DungeonDisposition.HOSTILE:
+        return 1
+
+    kind = _group_kind_for_archetype(archetype)
+    if kind == "swarm":
+        low = 4
+        high = min(10, 6 + depth // 3)
+    elif kind == "pack":
+        low = 2
+        high = min(8, 4 + depth // 4)
+    elif kind == "pair":
+        low = 1
+        high = min(4, 2 + depth // 6)
+    else:
+        low = 2
+        high = min(5, 2 + depth // 5)
+
+    if environment in {"sewer", "radwastes"} and kind in {"swarm", "pack"}:
+        high = min(10, high + 1)
+    if environment in {"corrupted", "hive", "voidship"} and kind == "pack":
+        high = min(10, high + 1)
+
+    high = max(low, high)
+    return rng.randint(low, high)
 
 
 _ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
@@ -2494,6 +2550,181 @@ def _pick_contact_position(
     return rng.choice(fallback_tiles)
 
 
+def _pick_group_positions(
+    level: DungeonLevel,
+    room: DungeonRoom,
+    count: int,
+    occupied: set[tuple[int, int]],
+    rng: random.Random,
+) -> list[tuple[int, int]]:
+    """Pick clustered spawn positions inside a single room."""
+    room_tiles = [pos for pos in _room_floor_tiles(level, room) if pos not in occupied]
+    if not room_tiles:
+        return []
+
+    room_tiles.sort(
+        key=lambda pos: (
+            abs(pos[0] - room.center[0]) + abs(pos[1] - room.center[1]),
+            abs(pos[0] - level.player_pos[0]) + abs(pos[1] - level.player_pos[1]) if level.player_pos else 0,
+        )
+    )
+    anchor = room_tiles[0]
+    positions = [anchor]
+    remaining = [pos for pos in room_tiles if pos != anchor]
+    rng.shuffle(remaining)
+    remaining.sort(
+        key=lambda pos: (
+            abs(pos[0] - anchor[0]) + abs(pos[1] - anchor[1]),
+            abs(pos[0] - room.center[0]) + abs(pos[1] - room.center[1]),
+        )
+    )
+
+    for pos in remaining:
+        if len(positions) >= count:
+            break
+        distance = abs(pos[0] - anchor[0]) + abs(pos[1] - anchor[1])
+        if distance <= 3 or len(room_tiles) <= count + 1:
+            positions.append(pos)
+
+    if len(positions) < count:
+        for pos in remaining:
+            if len(positions) >= count:
+                break
+            if pos not in positions:
+                positions.append(pos)
+
+    return positions[:count]
+
+
+def _select_contact_room(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    occupied: set[tuple[int, int]],
+    count: int,
+    rng: random.Random,
+) -> tuple[int, DungeonRoom] | None:
+    """Choose a room that can reasonably hold a contact group."""
+    scored_rooms: list[tuple[int, int, int, DungeonRoom]] = []
+    for index, room in enumerate(rooms):
+        if index in {0, len(rooms) - 1} and len(rooms) > 1:
+            continue
+        available = len([pos for pos in _room_floor_tiles(level, room) if pos not in occupied])
+        if available <= 0:
+            continue
+        center_distance = abs(room.center[0] - level.width // 2) + abs(room.center[1] - level.height // 2)
+        scored_rooms.append((available, -center_distance, -index, room))
+
+    if not scored_rooms:
+        return None
+
+    scored_rooms.sort(reverse=True)
+    viable = [entry for entry in scored_rooms if entry[0] >= count]
+    pool = viable or scored_rooms
+    shortlist = pool[: min(3, len(pool))]
+    _, _, neg_index, room = rng.choice(shortlist)
+    return -neg_index, room
+
+
+def _plan_contact_spawns(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    environment: str,
+    depth: int,
+    rng: random.Random,
+) -> list[_ContactSpawnPlan]:
+    """Plan contact groups before actual placement.
+
+    This keeps spawn selection separate from geometry so future themed-room
+    generation can reuse the same planning seam.
+    """
+    contacts = _contacts_for_environment(environment)
+    hostile_pool = contacts.get("hostile", ())
+    friendly_pool = contacts.get("friendly", ())
+    neutral_pool = contacts.get("neutral", ())
+    low, high = _ENVIRONMENT_CONTACT_RANGES.get(environment, (2, 5))
+    total_contacts = max(1, min(high, max(low, 1 + depth // 2 + len(rooms) // 5)))
+    if hostile_pool:
+        total_contacts = max(3, total_contacts)
+
+    category_pools: dict[str, tuple[_ContactArchetype, ...]] = {
+        "hostile": hostile_pool,
+        "friendly": friendly_pool,
+        "neutral": neutral_pool,
+    }
+    available_categories = [name for name, pool in category_pools.items() if pool]
+    if not available_categories:
+        return []
+
+    weights = _ENVIRONMENT_CONTACT_WEIGHTS.get(environment, (60, 20, 20))
+    category_weights = {
+        "hostile": weights[0],
+        "friendly": weights[1],
+        "neutral": weights[2],
+    }
+
+    plans: list[_ContactSpawnPlan] = []
+    support_target = 1 if total_contacts > 1 and (friendly_pool or neutral_pool) else 0
+    hostile_target = max(2, total_contacts - support_target) if hostile_pool else 0
+    hostile_target = min(total_contacts, hostile_target)
+    support_remaining = total_contacts - hostile_target
+    hostile_remaining = hostile_target
+
+    while hostile_remaining > 0 and hostile_pool:
+        archetype = _weighted_choice(hostile_pool, rng)
+        count = min(
+            hostile_remaining,
+            _group_size_for_archetype(archetype, environment, depth, rng),
+        )
+        room_choice = _select_contact_room(level, rooms, set(level.stairs_up) | set(level.stairs_down), count, rng)
+        plans.append(
+            _ContactSpawnPlan(
+                category="hostile",
+                archetype=archetype,
+                count=count,
+                room_index=room_choice[0] if room_choice is not None else None,
+                group_kind=_group_kind_for_archetype(archetype),
+            )
+        )
+        hostile_remaining -= count
+
+    support_categories = [name for name in ("friendly", "neutral") if category_pools[name]]
+    while support_remaining > 0 and support_categories:
+        category = _choose_category(support_categories, category_weights, rng)
+        archetype = _weighted_choice(category_pools[category], rng)
+        room_choice = _select_contact_room(level, rooms, set(level.stairs_up) | set(level.stairs_down), 1, rng)
+        plans.append(
+            _ContactSpawnPlan(
+                category=category,
+                archetype=archetype,
+                count=1,
+                room_index=room_choice[0] if room_choice is not None else None,
+                group_kind="solo",
+            )
+        )
+        support_remaining -= 1
+
+    while len(plans) < total_contacts:
+        category = _choose_category(available_categories, category_weights, rng)
+        archetype = _weighted_choice(category_pools[category], rng)
+        count = 1 if category != "hostile" else min(
+            _group_size_for_archetype(archetype, environment, depth, rng),
+            total_contacts - len(plans),
+        )
+        room_choice = _select_contact_room(level, rooms, set(level.stairs_up) | set(level.stairs_down), count, rng)
+        plans.append(
+            _ContactSpawnPlan(
+                category=category,
+                archetype=archetype,
+                count=count,
+                room_index=room_choice[0] if room_choice is not None else None,
+                group_kind=_group_kind_for_archetype(archetype) if category == "hostile" else "solo",
+            )
+        )
+
+    rng.shuffle(plans)
+    return plans
+
+
 def _contacts_for_environment(environment: str) -> dict[str, tuple[_ContactArchetype, ...]]:
     return _ENVIRONMENT_CONTACTS.get(environment, _ENVIRONMENT_CONTACTS["forge"])
 
@@ -2548,56 +2779,54 @@ def _generate_contacts(
     depth: int,
     rng: random.Random,
 ) -> DungeonEntityRoster:
-    contacts = _contacts_for_environment(environment)
     roster = DungeonEntityRoster()
     occupied: set[tuple[int, int]] = set(level.stairs_up) | set(level.stairs_down)
     rooms_for_contacts = [room for index, room in enumerate(rooms) if index not in {0, len(rooms) - 1}]
     if not rooms_for_contacts:
         rooms_for_contacts = list(rooms)
 
-    low, high = _ENVIRONMENT_CONTACT_RANGES.get(environment, (2, 5))
-    total_contacts = max(1, min(high, max(low, 1 + depth // 2 + len(rooms) // 5)))
-    hostile_pool = contacts.get("hostile", ())
-    friendly_pool = contacts.get("friendly", ())
-    neutral_pool = contacts.get("neutral", ())
+    plans = _plan_contact_spawns(level, rooms_for_contacts, environment, depth, rng)
 
-    category_pools: dict[str, tuple[_ContactArchetype, ...]] = {
-        "hostile": hostile_pool,
-        "friendly": friendly_pool,
-        "neutral": neutral_pool,
-    }
-    available_categories = [name for name, pool in category_pools.items() if pool]
-    if not available_categories:
-        return roster
+    for index, plan in enumerate(plans):
+        room_index = plan.room_index
+        positions: list[tuple[int, int]] = []
+        if room_index is not None and 0 <= room_index < len(rooms_for_contacts):
+            positions = _pick_group_positions(
+                level,
+                rooms_for_contacts[room_index],
+                plan.count,
+                occupied,
+                rng,
+            )
 
-    weights = _ENVIRONMENT_CONTACT_WEIGHTS.get(environment, (60, 20, 20))
-    category_weights = {
-        "hostile": weights[0],
-        "friendly": weights[1],
-        "neutral": weights[2],
-    }
+        if len(positions) < plan.count:
+            fallback_pool = [
+                pos
+                for pos in _floor_tiles(level)
+                if pos not in occupied and pos not in set(level.stairs_up) | set(level.stairs_down)
+            ]
+            if fallback_pool:
+                fallback_pool.sort(
+                    key=lambda pos: (
+                        abs(pos[0] - level.player_pos[0]) + abs(pos[1] - level.player_pos[1]) if level.player_pos else 0,
+                        abs(pos[0] - level.width // 2) + abs(pos[1] - level.height // 2),
+                    )
+                )
+                for pos in fallback_pool:
+                    if len(positions) >= plan.count:
+                        break
+                    if pos not in positions:
+                        positions.append(pos)
 
-    archetype_plan: list[str] = []
-    if hostile_pool:
-        archetype_plan.append("hostile")
-    if total_contacts > 1 and (friendly_pool or neutral_pool):
-        support_categories = [name for name in ("friendly", "neutral") if category_pools[name]]
-        archetype_plan.append(_choose_category(support_categories, category_weights, rng))
-
-    while len(archetype_plan) < total_contacts:
-        archetype_plan.append(_choose_category(available_categories, category_weights, rng))
-
-    rng.shuffle(archetype_plan)
-
-    for index, category in enumerate(archetype_plan):
-        archetype = _weighted_choice(category_pools[category], rng)
-        position = _pick_contact_position(level, rooms_for_contacts, occupied, rng)
-        if position is None:
+        if not positions:
             continue
-        entity = _build_contact_entity(archetype, f"{environment}-contact-{depth}-{index}")
-        roster.add(entity)
-        entity.place(level, position[0], position[1])
-        occupied.add(position)
+
+        for member_index, position in enumerate(positions[:plan.count]):
+            entity_id = f"{environment}-contact-{depth}-{index}-{member_index}"
+            entity = _build_contact_entity(plan.archetype, entity_id)
+            roster.add(entity)
+            entity.place(level, position[0], position[1])
+            occupied.add(position)
 
     return roster
 
