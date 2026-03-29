@@ -283,6 +283,7 @@ def _score_destination_match(
     query_tokens: set[str],
     environment_name: str,
     environment_description: str,
+    environment_aliases: tuple[str, ...] = (),
 ) -> tuple[int, tuple[str, ...]]:
     """Score how well a destination request matches an environment."""
     env_tokens = _tokenize_destination_text(environment_name)
@@ -294,9 +295,21 @@ def _score_destination_match(
         score += 5
         matched_terms.add(environment_name)
     name_phrase = environment_name.replace("_", " ")
-    if name_phrase in query:
+    if name_phrase != environment_name and name_phrase in query:
         score += 4
         matched_terms.add(name_phrase)
+
+    for alias in environment_aliases:
+        alias = alias.strip().lower()
+        if not alias or alias in {environment_name, name_phrase}:
+            continue
+        alias_tokens = _tokenize_destination_text(alias)
+        if alias in query:
+            score += 3
+            matched_terms.add(alias)
+        alias_overlap = query_tokens & alias_tokens
+        score += len(alias_overlap) * 2
+        matched_terms.update(alias_overlap)
 
     env_overlap = query_tokens & env_tokens
     desc_overlap = query_tokens & desc_tokens
@@ -412,6 +425,7 @@ class GameEngine:
                 query_tokens=query_tokens,
                 environment_name=environment_name,
                 environment_description=environment.description,
+                environment_aliases=environment.aliases,
             )
             if score > best_score:
                 best_environment = environment_name

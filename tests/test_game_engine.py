@@ -78,7 +78,8 @@ class TestTravelDestinationResolution:
         ("request_text", "expected_environment", "expected_label"),
         [
             ("Take me to the sewer drains beneath the underhive.", "sewer", "Sub-hive drainage"),
-            ("Lead me to the cathedral reliquary and shrine.", "cathedral", "Imperial cathedral"),
+            ("Lead me to the cathedral reliquary and shrine.", "reliquary", "Sacred reliquary"),
+            ("Lead me into the cathedral nave and pillar hall.", "cathedral", "Imperial cathedral"),
         ],
     )
     def test_resolve_travel_destination_matches_supported_environment(
