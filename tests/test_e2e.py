@@ -20,6 +20,7 @@ from angband_mechanicum.screens.hall_of_dead_screen import HallOfDeadScreen
 from angband_mechanicum.screens.dungeon_screen import DungeonScreen
 from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.menu_screen import MenuScreen
+from angband_mechanicum.widgets.dungeon_map import DungeonMapPane, DungeonMessageLog
 from angband_mechanicum.widgets.info_panel import InfoPanel
 from angband_mechanicum.widgets.prompt_input import PromptInput
 
@@ -242,6 +243,21 @@ class TestNewGame:
             await pilot.pause()
             assert app.save_slot is not None
             assert app.save_slot.startswith("save-")
+
+    @pytest.mark.asyncio
+    async def test_dungeon_map_gets_more_vertical_space_than_log(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The dungeon map should be taller than the message log in explore view."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app, restore_text_view=False)
+
+            map_pane = app.screen.query_one("#dungeon-map", DungeonMapPane)
+            log_pane = app.screen.query_one("#dungeon-log", DungeonMessageLog)
+
+            assert map_pane.region.height > log_pane.region.height
 
 
 # ---------------------------------------------------------------------------
