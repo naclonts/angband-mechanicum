@@ -11,12 +11,14 @@ from textual.screen import Screen
 from textual.widgets import Button, Static
 
 from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS
 
 
 class HallOfDeadScreen(Screen[None]):
     """Display the persistent death records from fallen runs."""
 
     BINDINGS = [
+        *ARROW_NAV_BINDINGS,
         Binding("escape", "back", "Back", show=True),
         Binding("h", "back", "Back", show=False),
     ]
