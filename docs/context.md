@@ -30,6 +30,7 @@ The existing 4-pane layout: scene art, character portrait, narrative log, and co
 - **Text → Map**: `/explore` returns to the live dungeon session, and narrative responses can also hint that play should resume on the map. New games begin in text view and transition into exploration when the player is ready.
 
 Zone navigation between different areas (forge worlds, different dungeons) happens via text view — no overworld map in v1.
+The destination vocabulary is built around an expandable environment catalog, so future travel matching can resolve natural-language destinations onto the closest supported dungeon type.
 
 ## UI Layout
 

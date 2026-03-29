@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from angband_mechanicum.engine.dungeon_level import (
+    ENVIRONMENTS,
     DungeonLevel,
     DungeonTerrain,
     FogState,
@@ -99,3 +100,54 @@ class TestTransitionTerrains:
         assert restored.terrain == terrain
         assert restored.passable is True
         assert restored.transparent is True
+
+
+class TestEnvironmentCatalog:
+    def test_environment_catalog_includes_expanded_set(self) -> None:
+        expected = {
+            "forge",
+            "cathedral",
+            "hive",
+            "sewer",
+            "corrupted",
+            "overgrown",
+            "tomb",
+            "manufactorum",
+            "voidship",
+            "reliquary",
+            "radwastes",
+            "data_vault",
+            "xenos_ruin",
+            "ice_crypt",
+            "sump_market",
+            "plasma_reactorum",
+            "penal_oubliette",
+            "ash_dune_outpost",
+        }
+
+        assert expected.issubset(ENVIRONMENTS.keys())
+        assert len(ENVIRONMENTS) >= len(expected)
+
+    def test_new_environments_have_prompt_matching_metadata(self) -> None:
+        new_names = (
+            "voidship",
+            "reliquary",
+            "radwastes",
+            "data_vault",
+            "xenos_ruin",
+            "ice_crypt",
+            "sump_market",
+            "plasma_reactorum",
+            "penal_oubliette",
+            "ash_dune_outpost",
+        )
+
+        for name in new_names:
+            env = ENVIRONMENTS[name]
+            assert env.description
+            assert env.feature_terrains
+            assert env.room_types
+            assert env.aliases
+            assert all(isinstance(alias, str) and alias for alias in env.aliases)
+            assert all(isinstance(terrain, DungeonTerrain) for terrain in env.feature_terrains)
+            assert all(isinstance(room_type, str) and room_type for room_type in env.room_types)

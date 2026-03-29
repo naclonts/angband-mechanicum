@@ -157,6 +157,7 @@ class Environment:
     description: str
     feature_terrains: tuple[DungeonTerrain, ...]
     room_types: tuple[str, ...]
+    aliases: tuple[str, ...] = field(default_factory=tuple)
     color_overrides: dict[DungeonTerrain, str] = field(default_factory=dict)
 
 
@@ -272,6 +273,156 @@ ENVIRONMENTS: dict[str, Environment] = {
             DungeonTerrain.FLOOR:    "#4a4a50",
             DungeonTerrain.WALL:     "#6a6a70",
             DungeonTerrain.TERMINAL: "#00ccff",
+        },
+    ),
+    "voidship": Environment(
+        name="voidship",
+        description="Voidship interior — sealed bulkheads, machine decks, reactor corridors",
+        feature_terrains=(
+            DungeonTerrain.TERMINAL, DungeonTerrain.COLUMN,
+            DungeonTerrain.COVER, DungeonTerrain.GRATE,
+        ),
+        room_types=("corridor", "l_shaped", "small_chamber", "cross_room"),
+        aliases=("ship", "space hulk", "voidship", "void vessel"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#46505c",
+            DungeonTerrain.WALL:  "#708090",
+            DungeonTerrain.TERMINAL: "#66e0ff",
+        },
+    ),
+    "reliquary": Environment(
+        name="reliquary",
+        description="Sacred reliquary — votive alcoves, sealed vaults, shrine machinery",
+        feature_terrains=(
+            DungeonTerrain.SHRINE, DungeonTerrain.COLUMN,
+            DungeonTerrain.TERMINAL, DungeonTerrain.RUBBLE,
+        ),
+        room_types=("pillared_hall", "small_chamber", "cross_room", "corridor"),
+        aliases=("shrine vault", "reliquary", "saint's vault", "holy archive"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#5c5648",
+            DungeonTerrain.WALL:  "#8b7a56",
+            DungeonTerrain.SHRINE: "#ffdd88",
+        },
+    ),
+    "radwastes": Environment(
+        name="radwastes",
+        description="Radiation-blasted wastes — slag dunes, dead machinery, toxic glare",
+        feature_terrains=(
+            DungeonTerrain.RUBBLE, DungeonTerrain.ACID_POOL,
+            DungeonTerrain.COVER, DungeonTerrain.CHASM,
+        ),
+        room_types=("arena", "open_room", "l_shaped", "maze"),
+        aliases=("rad wasteland", "radiation wastes", "radwastes", "ash wastes"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#665544",
+            DungeonTerrain.WALL:  "#8a6d4a",
+            DungeonTerrain.ACID_POOL: "#b7ff3c",
+        },
+    ),
+    "data_vault": Environment(
+        name="data_vault",
+        description="Data-vault — locked archives, cogitator stacks, logic tombs",
+        feature_terrains=(
+            DungeonTerrain.TERMINAL, DungeonTerrain.COLUMN,
+            DungeonTerrain.COVER, DungeonTerrain.SHRINE,
+        ),
+        room_types=("small_chamber", "corridor", "pillared_hall", "cross_room"),
+        aliases=("datavault", "archive", "cogitator vault", "data vault"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#4c5560",
+            DungeonTerrain.WALL:  "#717b88",
+            DungeonTerrain.TERMINAL: "#66ffcc",
+        },
+    ),
+    "xenos_ruin": Environment(
+        name="xenos_ruin",
+        description="Xenos ruin — alien geometry, broken glyphs, impossible angles",
+        feature_terrains=(
+            DungeonTerrain.GROWTH, DungeonTerrain.COLUMN,
+            DungeonTerrain.CHASM, DungeonTerrain.RUBBLE,
+        ),
+        room_types=("maze", "cross_room", "open_room", "arena"),
+        aliases=("alien ruin", "xenos ruin", "eldar ruin", "xeno vault"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#41505a",
+            DungeonTerrain.WALL:  "#667785",
+            DungeonTerrain.GROWTH: "#55ddaa",
+        },
+    ),
+    "ice_crypt": Environment(
+        name="ice_crypt",
+        description="Frozen crypt — cryo-vaults, ice tunnels, sealed sarcophagi",
+        feature_terrains=(
+            DungeonTerrain.COLUMN, DungeonTerrain.WATER,
+            DungeonTerrain.SHRINE, DungeonTerrain.RUBBLE,
+        ),
+        room_types=("small_chamber", "corridor", "pillared_hall", "cross_room"),
+        aliases=("ice crypt", "frozen tomb", "cryo vault", "glacial vault"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#5a6672",
+            DungeonTerrain.WALL:  "#9aa8b8",
+            DungeonTerrain.WATER: "#7fbfff",
+        },
+    ),
+    "sump_market": Environment(
+        name="sump_market",
+        description="Sump market — fetid stalls, blackwater canals, crooked underhive trade",
+        feature_terrains=(
+            DungeonTerrain.WATER, DungeonTerrain.COVER,
+            DungeonTerrain.GRATE, DungeonTerrain.RUBBLE,
+        ),
+        room_types=("open_room", "l_shaped", "cross_room", "corridor"),
+        aliases=("sump market", "underhive market", "black market", "sump bazaar"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#3f4a40",
+            DungeonTerrain.WALL:  "#5f6d61",
+            DungeonTerrain.WATER: "#2b5d66",
+        },
+    ),
+    "plasma_reactorum": Environment(
+        name="plasma_reactorum",
+        description="Plasma reactorum — searing conduits, shielding gantries, reactor chambers",
+        feature_terrains=(
+            DungeonTerrain.LAVA, DungeonTerrain.TERMINAL,
+            DungeonTerrain.COLUMN, DungeonTerrain.COVER,
+        ),
+        room_types=("open_room", "corridor", "pillared_hall", "arena"),
+        aliases=("reactorum", "plasma reactor", "reactor deck", "plasma core"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#56414a",
+            DungeonTerrain.WALL:  "#7a4c57",
+            DungeonTerrain.LAVA:  "#ff6644",
+        },
+    ),
+    "penal_oubliette": Environment(
+        name="penal_oubliette",
+        description="Penal oubliette — chained cells, execution halls, confession pits",
+        feature_terrains=(
+            DungeonTerrain.COLUMN, DungeonTerrain.COVER,
+            DungeonTerrain.RUBBLE, DungeonTerrain.GRATE,
+        ),
+        room_types=("small_chamber", "corridor", "l_shaped", "cross_room"),
+        aliases=("penal colony", "oubliette", "prison block", "penal cell"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#4a4a44",
+            DungeonTerrain.WALL:  "#6f6b62",
+            DungeonTerrain.COVER: "#8a7f66",
+        },
+    ),
+    "ash_dune_outpost": Environment(
+        name="ash_dune_outpost",
+        description="Ash-dune outpost — windblown bastion, dust-choked bunkers, signal masts",
+        feature_terrains=(
+            DungeonTerrain.COVER, DungeonTerrain.RUBBLE,
+            DungeonTerrain.COLUMN, DungeonTerrain.TERMINAL,
+        ),
+        room_types=("open_room", "l_shaped", "corridor", "arena"),
+        aliases=("ash dunes", "dune outpost", "desert outpost", "ash outpost"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#6b5a44",
+            DungeonTerrain.WALL:  "#8d7454",
+            DungeonTerrain.TERMINAL: "#f0e17a",
         },
     ),
 }
