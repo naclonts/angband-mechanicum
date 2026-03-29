@@ -13,7 +13,14 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
-from angband_mechanicum.engine.combat_engine import Grid, Terrain
+from angband_mechanicum.engine.combat_engine import CombatStats, Grid, Terrain
+from angband_mechanicum.engine.dungeon_entities import (
+    DungeonDisposition,
+    DungeonEntity,
+    DungeonEntityRoster,
+    DungeonMovementAI,
+    infer_portrait_key,
+)
 from angband_mechanicum.engine.dungeon_level import (
     ENVIRONMENTS,
     DungeonLevel,
@@ -740,6 +747,7 @@ class GeneratedFloor:
     entry_room_index: int
     exit_room_index: int
     secret_passages: list[tuple[tuple[int, int], tuple[int, int]]] = field(default_factory=list)
+    entity_roster: DungeonEntityRoster = field(default_factory=DungeonEntityRoster)
 
 
 def _fill_level(level: DungeonLevel, terrain: DungeonTerrain) -> None:
@@ -1035,6 +1043,525 @@ def _find_nearest_floor(level: DungeonLevel, origin: tuple[int, int]) -> tuple[i
     return best
 
 
+@dataclass(frozen=True)
+class _ContactArchetype:
+    name: str
+    description: str
+    disposition: DungeonDisposition
+    movement_ai: DungeonMovementAI
+    can_talk: bool
+    max_hp: int
+    attack: int
+    armor: int
+    movement: int
+    attack_range: int
+    portrait_hint: str = ""
+
+
+_ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
+    "forge": {
+        "hostile": (
+            _ContactArchetype(
+                name="Rogue Servitor",
+                description="A corrupted labor automaton driven by broken directives.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=7,
+                attack=4,
+                armor=1,
+                movement=3,
+                attack_range=1,
+                portrait_hint="servitor",
+            ),
+            _ContactArchetype(
+                name="Rivet Skirmisher",
+                description="A scrap-clad scavenger warding the machine halls.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=6,
+                attack=3,
+                armor=0,
+                movement=4,
+                attack_range=1,
+                portrait_hint="assassin",
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Enginseer Volta",
+                description="An industrious tech-priest maintaining the machine spirit.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=10,
+                attack=3,
+                armor=1,
+                movement=2,
+                attack_range=1,
+                portrait_hint="enginseer",
+            ),
+            _ContactArchetype(
+                name="Maintenance Adept",
+                description="A nervous data-adept keeping the forges in ritual order.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=8,
+                attack=2,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="adept",
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Silent Data-Clerk",
+                description="An augmetic archivist silently recording production rites.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=5,
+                attack=1,
+                armor=0,
+                movement=1,
+                attack_range=1,
+                portrait_hint="mechanicus",
+            ),
+        ),
+    },
+    "cathedral": {
+        "hostile": (
+            _ContactArchetype(
+                name="Heretic Acolyte",
+                description="A zealot twisted by whispered blasphemies.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=6,
+                attack=3,
+                armor=0,
+                movement=3,
+                attack_range=1,
+                portrait_hint="priest",
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Confessor",
+                description="A stern priest offering warning and absolution.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=8,
+                attack=2,
+                armor=1,
+                movement=2,
+                attack_range=1,
+                portrait_hint="priest",
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Reliquary Acolyte",
+                description="A watcher tending sealed relics and sacred lamps.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=1,
+                armor=1,
+                movement=1,
+                attack_range=1,
+                portrait_hint="adept",
+            ),
+        ),
+    },
+    "hive": {
+        "hostile": (
+            _ContactArchetype(
+                name="Hive Ganger",
+                description="A knife-armed ganger defending a scrap-fed claim.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=6,
+                attack=3,
+                armor=0,
+                movement=4,
+                attack_range=1,
+                portrait_hint="assassin",
+            ),
+            _ContactArchetype(
+                name="Rogue Enforcer Drone",
+                description="A security construct gone brutally off-script.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=8,
+                attack=4,
+                armor=1,
+                movement=3,
+                attack_range=1,
+                portrait_hint="servitor",
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Hab Steward",
+                description="A weary quartermaster trying to keep the levels supplied.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=7,
+                attack=1,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="adept",
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Smuggler",
+                description="A watchful trader weighing allies against hazard pay.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=2,
+                armor=0,
+                movement=3,
+                attack_range=1,
+                portrait_hint="assassin",
+            ),
+        ),
+    },
+    "sewer": {
+        "hostile": (
+            _ContactArchetype(
+                name="Sump Mutant",
+                description="A blighted creature lurks in the runoff tunnels.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=5,
+                attack=3,
+                armor=0,
+                movement=3,
+                attack_range=1,
+                portrait_hint="servitor",
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Drain Warden",
+                description="A grim sanitation adept keeping the lower levels clear.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=7,
+                attack=2,
+                armor=1,
+                movement=2,
+                attack_range=1,
+                portrait_hint="enginseer",
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Pipe Hermit",
+                description="A reclusive scavenger who knows the sewer routes.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=1,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="mechanicus",
+            ),
+        ),
+    },
+    "corrupted": {
+        "hostile": (
+            _ContactArchetype(
+                name="Warp Spawn",
+                description="A fractured thing that claws at reality itself.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=9,
+                attack=5,
+                armor=1,
+                movement=4,
+                attack_range=1,
+                portrait_hint="magos",
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Tainted Remnant",
+                description="A lost soul clinging to enough sanity to answer questions.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=4,
+                attack=1,
+                armor=0,
+                movement=1,
+                attack_range=1,
+                portrait_hint="adept",
+            ),
+        ),
+    },
+    "overgrown": {
+        "hostile": (
+            _ContactArchetype(
+                name="Spore-Host",
+                description="A fungi-ridden predator hidden in the growths.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=7,
+                attack=3,
+                armor=0,
+                movement=3,
+                attack_range=1,
+                portrait_hint="servitor",
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Lost Acolyte",
+                description="A survivor tending the living ruins and their hidden paths.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=2,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="priest",
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Feral Scout",
+                description="A wary guide watching from the green shadows.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=5,
+                attack=1,
+                armor=0,
+                movement=3,
+                attack_range=1,
+                portrait_hint="assassin",
+            ),
+        ),
+    },
+    "tomb": {
+        "hostile": (
+            _ContactArchetype(
+                name="Awakened Sentinel",
+                description="An ancient guardian stirred from its sarcophagus vigil.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=8,
+                attack=4,
+                armor=2,
+                movement=2,
+                attack_range=1,
+                portrait_hint="servitor",
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Dormant Scribe",
+                description="A half-awake archivist bound to the crypt's records.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=5,
+                attack=1,
+                armor=1,
+                movement=1,
+                attack_range=1,
+                portrait_hint="mechanicus",
+            ),
+        ),
+    },
+    "manufactorum": {
+        "hostile": (
+            _ContactArchetype(
+                name="Rogue Labor-Automaton",
+                description="A production drone that has learned to kill instead of work.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=8,
+                attack=4,
+                armor=1,
+                movement=3,
+                attack_range=1,
+                portrait_hint="servitor",
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Overseer Servitor",
+                description="An overseer unit still clinging to its maintenance directives.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=7,
+                attack=2,
+                armor=1,
+                movement=2,
+                attack_range=1,
+                portrait_hint="enginseer",
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Maintenance Drone",
+                description="A patient repair drone hovering over broken machinery.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=4,
+                attack=1,
+                armor=0,
+                movement=3,
+                attack_range=1,
+                portrait_hint="mechanicus",
+            ),
+        ),
+    },
+}
+
+
+def _build_contact_entity(
+    archetype: _ContactArchetype,
+    entity_id: str,
+) -> DungeonEntity:
+    return DungeonEntity(
+        entity_id=entity_id,
+        name=archetype.name,
+        disposition=archetype.disposition,
+        movement_ai=archetype.movement_ai,
+        can_talk=archetype.can_talk,
+        portrait_key=archetype.portrait_hint or infer_portrait_key(archetype.name, archetype.description),
+        stats=CombatStats(
+            max_hp=archetype.max_hp,
+            hp=archetype.max_hp,
+            attack=archetype.attack,
+            armor=archetype.armor,
+            movement=archetype.movement,
+            attack_range=archetype.attack_range,
+        ),
+        description=archetype.description,
+    )
+
+
+def _room_floor_tiles(level: DungeonLevel, room: DungeonRoom) -> list[tuple[int, int]]:
+    tiles: list[tuple[int, int]] = []
+    for y in range(room.y + 1, room.y + room.height - 1):
+        for x in range(room.x + 1, room.x + room.width - 1):
+            if level.in_bounds(x, y) and level.get_terrain(x, y) == DungeonTerrain.FLOOR:
+                tiles.append((x, y))
+    return tiles
+
+
+def _pick_contact_position(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    occupied: set[tuple[int, int]],
+    rng: random.Random,
+) -> tuple[int, int] | None:
+    candidate_rooms = [room for room in rooms if room.center not in occupied]
+    rng.shuffle(candidate_rooms)
+    for room in candidate_rooms:
+        room_tiles = [pos for pos in _room_floor_tiles(level, room) if pos not in occupied]
+        if not room_tiles:
+            continue
+        room_tiles.sort(
+            key=lambda pos: (
+                abs(pos[0] - room.center[0]) + abs(pos[1] - room.center[1]),
+                abs(pos[0] - level.player_pos[0]) + abs(pos[1] - level.player_pos[1]) if level.player_pos else 0,
+            )
+        )
+        if room_tiles:
+            return rng.choice(room_tiles[: max(1, min(3, len(room_tiles)))])
+
+    fallback_tiles = [
+        (x, y)
+        for y in range(1, level.height - 1)
+        for x in range(1, level.width - 1)
+        if level.get_terrain(x, y) == DungeonTerrain.FLOOR and (x, y) not in occupied
+    ]
+    if not fallback_tiles:
+        return None
+    return rng.choice(fallback_tiles)
+
+
+def _contacts_for_environment(environment: str) -> dict[str, tuple[_ContactArchetype, ...]]:
+    return _ENVIRONMENT_CONTACTS.get(environment, _ENVIRONMENT_CONTACTS["forge"])
+
+
+def _generate_contacts(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    environment: str,
+    depth: int,
+    rng: random.Random,
+) -> DungeonEntityRoster:
+    contacts = _contacts_for_environment(environment)
+    roster = DungeonEntityRoster()
+    occupied: set[tuple[int, int]] = set(level.stairs_up) | set(level.stairs_down)
+    rooms_for_contacts = [room for index, room in enumerate(rooms) if index not in {0, len(rooms) - 1}]
+    if not rooms_for_contacts:
+        rooms_for_contacts = list(rooms)
+
+    total_contacts = max(2, min(5, 1 + depth // 2 + len(rooms) // 5))
+    hostile_count = max(1, total_contacts - 1)
+    peaceful_count = total_contacts - hostile_count
+
+    archetype_plan: list[_ContactArchetype] = []
+    hostile_pool = contacts.get("hostile", ())
+    friendly_pool = contacts.get("friendly", ())
+    neutral_pool = contacts.get("neutral", ())
+
+    for _ in range(hostile_count):
+        if hostile_pool:
+            archetype_plan.append(rng.choice(hostile_pool))
+
+    peaceful_pool = list(friendly_pool) + list(neutral_pool)
+    for _ in range(peaceful_count):
+        if not peaceful_pool:
+            break
+        archetype_plan.append(rng.choice(peaceful_pool))
+
+    rng.shuffle(archetype_plan)
+
+    for index, archetype in enumerate(archetype_plan):
+        position = _pick_contact_position(level, rooms_for_contacts, occupied, rng)
+        if position is None:
+            continue
+        entity = _build_contact_entity(archetype, f"{environment}-contact-{depth}-{index}")
+        roster.add(entity)
+        entity.place(level, position[0], position[1])
+        occupied.add(position)
+
+    return roster
+
+
 def generate_dungeon_floor(
     *,
     level_id: str,
@@ -1098,6 +1625,7 @@ def generate_dungeon_floor(
     _scatter_environment_features(level, rooms, env.name, reserved, rng)
     _add_doors(level, rng)
     secret_passages = _add_secret_passage(level, rooms, reserved, rng)
+    entity_roster = _generate_contacts(level, rooms, env.name, depth, rng)
 
     # Late carving steps can brush over traversal tiles, so reapply them last.
     if transition_terrain is None:
@@ -1115,4 +1643,5 @@ def generate_dungeon_floor(
         entry_room_index=_find_room_index(rooms, stairs_up),
         exit_room_index=_find_room_index(rooms, stairs_down),
         secret_passages=secret_passages,
+        entity_roster=entity_roster,
     )
