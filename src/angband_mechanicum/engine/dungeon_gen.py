@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Sequence
 
 from angband_mechanicum.engine.combat_engine import CombatStats, Grid, Terrain
 from angband_mechanicum.engine.dungeon_entities import (
@@ -940,7 +940,30 @@ def _carve_connection(
         _carve_h_tunnel(level, ax, bx, by)
 
 
-def _add_doors(level: DungeonLevel, rng: random.Random) -> None:
+def _room_index_at(rooms: Sequence[DungeonRoom], x: int, y: int) -> int | None:
+    for index, room in enumerate(rooms):
+        if room.x <= x < room.x + room.width and room.y <= y < room.y + room.height:
+            return index
+    return None
+
+
+def _is_room_threshold(
+    rooms: Sequence[DungeonRoom],
+    near_side: tuple[int, int],
+    far_side: tuple[int, int],
+) -> bool:
+    near_room = _room_index_at(rooms, *near_side)
+    far_room = _room_index_at(rooms, *far_side)
+    if near_room is None and far_room is None:
+        return False
+    return near_room != far_room
+
+
+def _add_doors(
+    level: DungeonLevel,
+    rng: random.Random,
+    rooms: Sequence[DungeonRoom] | None = None,
+) -> None:
     candidates: list[tuple[int, int]] = []
     for y in range(1, level.height - 1):
         for x in range(1, level.width - 1):
@@ -952,17 +975,33 @@ def _add_doors(level: DungeonLevel, rng: random.Random) -> None:
             west = level.get_tile(x - 1, y).passable
             is_vertical_doorway = north and south and not east and not west
             is_horizontal_doorway = east and west and not north and not south
-            if is_vertical_doorway or is_horizontal_doorway:
+            if is_vertical_doorway:
+                if rooms is not None and not _is_room_threshold(rooms, (x, y - 1), (x, y + 1)):
+                    continue
+                candidates.append((x, y))
+            elif is_horizontal_doorway:
+                if rooms is not None and not _is_room_threshold(rooms, (x - 1, y), (x + 1, y)):
+                    continue
                 candidates.append((x, y))
 
     if len(candidates) < 4:
         return
 
-    rng.shuffle(candidates)
+    door_rng = random.Random(f"{level.level_id}:{level.depth}:doors")
+    door_rng.shuffle(candidates)
     door_target = max(1, len(candidates) // 10)
     if len(candidates) >= 12:
         door_target = max(door_target, 2)
-    for x, y in candidates[:door_target]:
+
+    selected: list[tuple[int, int]] = []
+    for x, y in candidates:
+        if any(abs(existing_x - x) <= 1 and abs(existing_y - y) <= 1 for existing_x, existing_y in selected):
+            continue
+        selected.append((x, y))
+        if len(selected) >= door_target:
+            break
+
+    for x, y in selected:
         level.set_terrain(x, y, DungeonTerrain.DOOR_OPEN)
 
 
@@ -3842,7 +3881,7 @@ def generate_dungeon_floor(
     level.player_pos = stairs_up
 
     reserved = {stairs_up, stairs_down}
-    _add_doors(level, rng)
+    _add_doors(level, rng, rooms)
     secret_passages = _add_secret_passage(level, rooms, reserved, rng)
     reserved.update(pos for passage in secret_passages for pos in passage)
     entity_roster = DungeonEntityRoster()

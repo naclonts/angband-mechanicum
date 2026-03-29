@@ -122,7 +122,7 @@ Primary files:
 - `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
 - `generate_dungeon_floor()` also seeds a small number of persistent item objects on safe floor tiles and records those placements on `GeneratedFloor`.
 - Hostile contacts are planned as clustered groups when possible, with room-aware placement so packs and swarms occupy the same encounter space instead of scattering randomly across the floor.
-- Door placement only promotes tiles that still read as genuine chokepoints, and it skips sparse candidate sets so small rooms do not get forced doors.
+- Door placement only promotes tiles that still read as genuine room-threshold chokepoints, and it skips sparse candidate sets so small rooms do not get forced doors or free-standing floor artifacts.
 - Fresh sessions and descended floors convert `entity_roster` entries into live map contacts, so generated NPCs persist through movement and save/load.
 - Creature turns now advance from the dungeon map itself, with hostile pursuit, ranged engagement, and idle/search transitions driven by the live map state instead of the legacy combat screen.
 - Creature log lines are gated by the player's current LOS/FOV perception so off-screen movement stays quiet while visible attacks and movement still surface in the field log.

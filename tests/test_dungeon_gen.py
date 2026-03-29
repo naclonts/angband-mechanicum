@@ -33,6 +33,8 @@ from angband_mechanicum.engine.dungeon_gen import (
     generate_map_from_hint,
     _add_doors,
     _BUILDERS,
+    _build_room_on_level,
+    _carve_connection,
     _compute_spawns,
     _floor_tiles,
     _contacts_for_environment,
@@ -741,6 +743,101 @@ class TestDungeonFloorGeneration:
             if level.get_terrain(x, y) in {DungeonTerrain.DOOR_OPEN, DungeonTerrain.DOOR_CLOSED}
         )
         assert door_count == 0
+
+    def test_room_threshold_doors_only_land_on_room_boundaries(self) -> None:
+        level = DungeonLevel(
+            level_id="door-room-threshold-test",
+            name="Door Room Threshold Test",
+            depth=1,
+            environment="forge",
+            width=11,
+            height=11,
+        )
+        for y in range(level.height):
+            for x in range(level.width):
+                level.set_terrain(x, y, DungeonTerrain.WALL)
+
+        room = DungeonRoom(x=3, y=3, width=5, height=5, room_type="open_room")
+        for y in range(room.y, room.y + room.height):
+            for x in range(room.x, room.x + room.width):
+                level.set_terrain(x, y, DungeonTerrain.FLOOR)
+
+        for y in range(1, 4):
+            level.set_terrain(5, y, DungeonTerrain.FLOOR)
+        for y in range(7, 10):
+            level.set_terrain(5, y, DungeonTerrain.FLOOR)
+        for x in range(1, 4):
+            level.set_terrain(x, 5, DungeonTerrain.FLOOR)
+        for x in range(7, 10):
+            level.set_terrain(x, 5, DungeonTerrain.FLOOR)
+
+        _add_doors(level, random.Random(7), [room])
+
+        allowed = {(5, 2), (5, 8), (2, 5), (8, 5)}
+        placed = {
+            (x, y)
+            for y in range(level.height)
+            for x in range(level.width)
+            if level.get_terrain(x, y) in {DungeonTerrain.DOOR_OPEN, DungeonTerrain.DOOR_CLOSED}
+        }
+        assert placed
+        assert placed <= allowed
+
+    def test_generated_room_layout_doors_only_appear_at_room_thresholds(self) -> None:
+        level = DungeonLevel(
+            level_id="generated-door-layout-test",
+            name="Generated Door Layout Test",
+            depth=4,
+            environment="forge",
+            width=48,
+            height=24,
+        )
+        for y in range(level.height):
+            for x in range(level.width):
+                level.set_terrain(x, y, DungeonTerrain.WALL)
+
+        rooms = [
+            DungeonRoom(x=3, y=3, width=10, height=7, room_type="open_room"),
+            DungeonRoom(x=19, y=4, width=8, height=8, room_type="small_chamber"),
+            DungeonRoom(x=32, y=12, width=10, height=7, room_type="pillared_hall"),
+        ]
+        build_rng = random.Random(11)
+        for room in rooms:
+            _build_room_on_level(level, room, build_rng)
+        connection_rng = random.Random(12)
+        for room_a, room_b in zip(rooms, rooms[1:]):
+            _carve_connection(level, room_a.center, room_b.center, connection_rng)
+
+        _add_doors(level, random.Random(13), rooms)
+
+        def room_index_at(x: int, y: int) -> int | None:
+            for index, room in enumerate(rooms):
+                if room.x <= x < room.x + room.width and room.y <= y < room.y + room.height:
+                    return index
+            return None
+
+        door_positions = [
+            (x, y)
+            for y in range(level.height)
+            for x in range(level.width)
+            if level.get_terrain(x, y) in {DungeonTerrain.DOOR_OPEN, DungeonTerrain.DOOR_CLOSED}
+        ]
+        assert door_positions
+
+        for x, y in door_positions:
+            north = level.get_tile(x, y - 1).passable
+            south = level.get_tile(x, y + 1).passable
+            east = level.get_tile(x + 1, y).passable
+            west = level.get_tile(x - 1, y).passable
+
+            if north and south and not east and not west:
+                assert room_index_at(x, y - 1) != room_index_at(x, y + 1)
+                assert room_index_at(x, y - 1) is not None or room_index_at(x, y + 1) is not None
+            elif east and west and not north and not south:
+                assert room_index_at(x - 1, y) != room_index_at(x + 1, y)
+                assert room_index_at(x - 1, y) is not None or room_index_at(x + 1, y) is not None
+            else:
+                pytest.fail(f"door at {(x, y)} is not on a cardinal room threshold")
 
     def test_floor_uses_environment_features(self) -> None:
         floor = generate_dungeon_floor(

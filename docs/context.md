@@ -42,7 +42,7 @@ The destination vocabulary is built around an expandable environment catalog, so
 Story-specific dungeon profiles sit above that coarse environment layer so authored starts like titan recovery, necron tomb delves, or STC vault breaches keep their faction and landmark identity instead of collapsing into generic biome content.
 Dungeon floors can also include reusable themed set-pieces that combine room dressing, grouped hostiles, and optional NPCs to create more memorable encounters than plain procedural geometry alone.
 Those floors now also seed a small number of persistent item objects on safe floor tiles, so generated spaces can contain actual loot/interactables instead of only terrain and contacts.
-Door placement is gated by a valid-chokepoint threshold so tiny or open rooms do not get over-documented with doors that do not read as real passages.
+Door placement is gated by a valid room-threshold chokepoint test so tiny or open rooms do not get over-documented with free-standing doors; generated doors only appear where corridors or other passages actually breach a room boundary.
 
 ## UI Layout
 
