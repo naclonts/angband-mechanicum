@@ -155,10 +155,13 @@ class GameScreen(Screen[None]):
 
     def _build_active_interaction_context(self) -> dict[str, Any] | None:
         """Return the focused dungeon interaction payload for the engine, if any."""
-        if not self._restored_state:
+        if not self._restored_state and not self._speaking_npc_id:
             return None
+        context: dict[str, Any] = dict(self._restored_state or {})
+        if self._speaking_npc_id and "speaking_npc_id" not in context:
+            context["speaking_npc_id"] = self._speaking_npc_id
         if not any(
-            key in self._restored_state
+            key in context
             for key in (
                 "interaction_target",
                 "conversation_target",
@@ -167,8 +170,10 @@ class GameScreen(Screen[None]):
                 "target_label",
             )
         ):
+            if "speaking_npc_id" in context:
+                return context
             return None
-        return dict(self._restored_state)
+        return context
 
     def _sync_active_interaction_context(self) -> None:
         """Push any focused dungeon interaction into the engine prompt context."""

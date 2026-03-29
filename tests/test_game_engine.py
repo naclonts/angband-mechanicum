@@ -193,6 +193,7 @@ class TestProcessInput:
                 "interaction_entity_disposition": "friendly",
                 "terrain": "forge",
                 "target_position": [12, 4],
+                "speaking_npc_id": "dormant-scribe",
             }
         )
         response_json = json.dumps({
@@ -208,6 +209,33 @@ class TestProcessInput:
         assert "Dormant Scribe" in system_prompt
         assert "A dust-covered scribe-servitor rousing from standby." in system_prompt
         assert "Do not substitute a different known character" in system_prompt
+        assert "Scene focus: character-centric" in system_prompt
+        assert "Speaking NPC id: dormant-scribe" in system_prompt
+
+    @pytest.mark.asyncio
+    async def test_process_input_with_object_focus_keeps_scene_environmental(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        engine.set_active_interaction_context(
+            {
+                "interaction_kind": "examine",
+                "interaction_entity_name": "Cogitator Terminal",
+                "interaction_entity_type": "object",
+                "interaction_entity_description": "A humming machine shrine of data.",
+                "terrain": "forge",
+            }
+        )
+        response_json = json.dumps({
+            "narrative_text": "The terminal flickers with old data.",
+            "info_update": None,
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        await engine.process_input("inspect terminal")
+
+        system_prompt = engine._client.messages.create.call_args.kwargs["system"]
+        assert "Scene focus: character-centric" not in system_prompt
 
     # -----------------------------------------------------------------------
     # Edge case: non-JSON response from LLM
