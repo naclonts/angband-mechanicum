@@ -139,6 +139,30 @@ class TestHazardTerrains:
         )
 
 
+class TestDoorTerrains:
+    def test_door_tiles_toggle_between_open_and_closed_states(self) -> None:
+        level = make_level()
+        level.set_terrain(2, 2, DungeonTerrain.DOOR_CLOSED)
+
+        assert level.is_closed_door(2, 2) is True
+        assert level.get_tile(2, 2).passable is False
+        assert level.open_door(2, 2) is True
+        assert level.is_open_door(2, 2) is True
+        assert level.get_tile(2, 2).passable is True
+        assert level.close_door(2, 2) is True
+        assert level.is_closed_door(2, 2) is True
+
+    def test_door_tiles_round_trip_through_serialization(self) -> None:
+        level = make_level()
+        level.set_terrain(1, 1, DungeonTerrain.DOOR_OPEN)
+        level.set_terrain(3, 3, DungeonTerrain.DOOR_CLOSED)
+
+        restored = DungeonLevel.from_dict(level.to_dict())
+
+        assert restored.get_terrain(1, 1) == DungeonTerrain.DOOR_OPEN
+        assert restored.get_terrain(3, 3) == DungeonTerrain.DOOR_CLOSED
+
+
 class TestEnvironmentCatalog:
     def test_environment_catalog_includes_expanded_set(self) -> None:
         expected = {
