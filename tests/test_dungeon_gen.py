@@ -11,6 +11,7 @@ import pytest
 from angband_mechanicum.engine.combat_engine import Grid, Terrain, Tile, auto_place_enemies
 from angband_mechanicum.engine.dungeon_level import ENVIRONMENTS, DungeonLevel, DungeonTerrain
 from angband_mechanicum.engine.dungeon_entities import DungeonDisposition, DungeonMovementAI
+from angband_mechanicum.engine.dungeon_entities import DungeonEntityRoster
 from angband_mechanicum.engine.dungeon_gen import (
     DEFAULT_HEIGHT,
     DEFAULT_WIDTH,
@@ -35,8 +36,10 @@ from angband_mechanicum.engine.dungeon_gen import (
     _floor_tiles,
     _contacts_for_environment,
     _group_size_for_archetype,
+    _apply_themed_room_template,
     _pick_group_positions,
     _scatter_features,
+    _themed_room_templates_for_environment,
 )
 
 
@@ -756,3 +759,73 @@ class TestDungeonFloorGeneration:
         ]
 
         assert first_contacts == second_contacts
+
+    def test_floor_records_themed_rooms(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-themed",
+            depth=6,
+            environment="forge",
+            seed=110,
+        )
+
+        assert floor.themed_rooms
+        themed = floor.themed_rooms[0]
+        assert themed.template_name in {template.name for template in _themed_room_templates_for_environment("forge")}
+        assert themed.feature_tiles or themed.prop_tiles or themed.encounter_ids
+        assert len(themed.encounter_ids) >= 1
+
+
+class TestThemedRoomComposition:
+    def test_themed_room_catalog_is_scoped_by_environment(self) -> None:
+        forge_templates = _themed_room_templates_for_environment("forge")
+        fallback_templates = _themed_room_templates_for_environment("unknown")
+
+        assert any(template.name == "Heretek Workshop" for template in forge_templates)
+        assert len(fallback_templates) >= 1
+        assert all("forge" in template.environments or "manufactorum" in template.environments or "data_vault" in template.environments or "plasma_reactorum" in template.environments for template in forge_templates)
+
+    def test_apply_themed_room_template_places_dressing_and_contacts(self) -> None:
+        level = DungeonLevel(
+            level_id="themed-room-test",
+            name="Themed Room Test",
+            depth=6,
+            environment="forge",
+            width=18,
+            height=14,
+        )
+        for y in range(level.height):
+            for x in range(level.width):
+                if x in (0, level.width - 1) or y in (0, level.height - 1):
+                    level.set_terrain(x, y, DungeonTerrain.WALL)
+                else:
+                    level.set_terrain(x, y, DungeonTerrain.FLOOR)
+
+        room = DungeonRoom(x=1, y=1, width=16, height=12, room_type="open_room")
+        rooms = [room]
+        roster = DungeonEntityRoster()
+        template = next(template for template in _themed_room_templates_for_environment("forge") if template.name == "Heretek Workshop")
+        occupied: set[tuple[int, int]] = set()
+
+        instance, themed_contact_count = _apply_themed_room_template(
+            level,
+            rooms,
+            0,
+            template,
+            "forge",
+            6,
+            random.Random(19),
+            occupied,
+            roster,
+        )
+
+        assert instance is not None
+        assert themed_contact_count >= 1
+        assert instance.feature_tiles
+        assert instance.prop_tiles
+        assert instance.encounter_ids
+        assert len(roster.values()) == themed_contact_count
+        assert any(entity.disposition == DungeonDisposition.HOSTILE for entity in roster.values())
+        for terrain, position in instance.prop_tiles:
+            assert level.get_terrain(*position) == terrain
+        for position in instance.feature_tiles:
+            assert level.get_tile(*position).terrain != DungeonTerrain.FLOOR
