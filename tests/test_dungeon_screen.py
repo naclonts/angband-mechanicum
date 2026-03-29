@@ -471,6 +471,148 @@ class TestAmbientDiscoveries:
         assert len(seen_contexts) == 1
         assert first_title == "⛨ AMBIENT: DATA SHRINE"
         assert first_lines == ["A brief machine-spirit whisper settles over the panel."]
+    def test_terrain_type_dedupe_suppresses_second_column(self) -> None:
+        """Two columns at different positions should not both trigger ambient."""
+        level = _make_level()
+        level.set_terrain(3, 2, DungeonTerrain.COLUMN)
+        level.set_terrain(4, 2, DungeonTerrain.COLUMN)
+        level.compute_fov((2, 2), 8)
+
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+
+        first = screen._find_ambient_discovery_context()
+        assert first is not None
+        assert first["terrain"] == "column"
+
+        # Simulate having announced the first column.
+        screen._ambient_seen_keys.add(str(first["ambient_key"]))
+        subject = screen._ambient_subject_key(first)
+        screen._ambient_seen_terrain_types.add(subject)
+        screen._ambient_last_subject = subject
+
+        # The second column at a different position should be suppressed.
+        second = screen._find_ambient_discovery_context()
+        assert second is None
+
+    def test_back_to_back_same_subject_suppressed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """After announcing a shrine, the same terrain type is suppressed next turn."""
+        level = _make_level()
+        level.set_terrain(3, 1, DungeonTerrain.SHRINE)
+        level.set_terrain(4, 1, DungeonTerrain.SHRINE)
+        level.compute_fov((2, 2), 8)
+
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        first = screen._find_ambient_discovery_context()
+        assert first is not None
+        assert first["terrain"] == "shrine"
+
+        # Mark the first as seen and set it as the last subject.
+        screen._ambient_seen_keys.add(str(first["ambient_key"]))
+        subject = screen._ambient_subject_key(first)
+        screen._ambient_seen_terrain_types.add(subject)
+        screen._ambient_last_subject = subject
+
+        # Back-to-back: same terrain type → suppressed
+        second = screen._find_ambient_discovery_context()
+        assert second is None
+
+    def test_entity_bypasses_terrain_type_dedupe(self) -> None:
+        """Characters/objects should still appear even if a terrain type was deduped."""
+        level = _make_level()
+        level.set_terrain(3, 1, DungeonTerrain.COLUMN)
+        level.compute_fov((2, 2), 8)
+
+        npc = DungeonMapEntity(
+            entity_id="enginseer-1",
+            name="Enginseer Primus",
+            x=3,
+            y=2,
+            disposition="friendly",
+            can_talk=True,
+            description="A senior tech-adept.",
+        )
+        screen = DungeonScreen(level=level, player_pos=(2, 2), entities=[npc])
+
+        # Pretend we already announced a column terrain.
+        screen._ambient_seen_terrain_types.add("terrain:column")
+        screen._ambient_last_subject = "terrain:column"
+
+        # The NPC should still come through despite terrain dedupe.
+        context = screen._find_ambient_discovery_context()
+        assert context is not None
+        assert context["target_kind"] == "character"
+        assert context["target_label"] == "Enginseer Primus"
+
+    def test_doubled_cooldown_prevents_rapid_triggers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With cooldown=6, triggers at action_index < 6 after last trigger are blocked."""
+        level = _make_level()
+        level.set_terrain(3, 1, DungeonTerrain.TERMINAL)
+        level.set_terrain(4, 1, DungeonTerrain.SHRINE)
+        level.compute_fov((2, 2), 8)
+
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        triggered: list[dict[str, object]] = []
+
+        def fake_run(context: dict[str, object]) -> None:
+            triggered.append(context)
+            screen._ambient_discovery_busy = False
+
+        monkeypatch.setattr(screen, "_run_ambient_discovery", fake_run)
+
+        # Simulate: last trigger was at action_index=0, current=5 → gap of 5 < 6 → skip
+        screen._ambient_last_trigger_index = 0
+        screen._ambient_action_index = 5
+        screen._maybe_trigger_ambient_discovery()
+        assert len(triggered) == 0
+
+        # Now advance to 6 → gap is exactly 6 → fires
+        screen._ambient_action_index = 6
+        screen._maybe_trigger_ambient_discovery()
+        assert len(triggered) == 1
+
+    def test_cooldown_value_is_six(self) -> None:
+        """Verify the cooldown constant is 6 (double the original 3)."""
+        assert DungeonScreen.AMBIENT_DISCOVERY_COOLDOWN == 6
+
+    def test_look_examine_still_works_after_dedupe(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Explicit look/examine should not be affected by ambient dedupe state."""
+        level = _make_level()
+        level.set_terrain(3, 2, DungeonTerrain.COLUMN)
+        level.compute_fov((2, 2), 8)
+
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        # Poison the dedupe state for columns.
+        screen._ambient_seen_terrain_types.add("terrain:column")
+        screen._ambient_last_subject = "terrain:column"
+
+        # Ambient should be suppressed.
+        assert screen._find_ambient_discovery_context() is None
+
+        # But explicit look/examine context should still build fine.
+        context = screen._state.build_examine_context((3, 2))
+        assert context["terrain"] == "column"
+        assert context["target_visible"] is True
+
+        # And look mode mechanics are unaffected.
+        screen.action_look()
+        assert screen._look_mode is True
+        screen.action_move_east()
+        assert screen._look_cursor_pos == (3, 2)
+
+        # Confirm would trigger _run_examine, which is the explicit path.
+        examine_called: list[tuple[int, int]] = []
+        monkeypatch.setattr(screen, "_run_examine", lambda pos: examine_called.append(pos))
+        screen.action_confirm_look()
+        assert examine_called == [(3, 2)]
+        assert screen._look_mode is False
+
+
 class _FakeEngine:
     def __init__(self) -> None:
         self.turn_count = 7

@@ -394,7 +394,7 @@ class DungeonMapState:
 class DungeonScreen(Screen[None]):
     """Unified dungeon screen shell for exploration and future combat."""
 
-    AMBIENT_DISCOVERY_COOLDOWN = 3
+    AMBIENT_DISCOVERY_COOLDOWN = 6
     AMBIENT_DISCOVERY_TERRAINS = {
         DungeonTerrain.TERMINAL,
         DungeonTerrain.SHRINE,
@@ -485,6 +485,8 @@ class DungeonScreen(Screen[None]):
         self._ambient_discovery_title: str | None = None
         self._ambient_discovery_lines: list[str] = []
         self._ambient_seen_keys: set[str] = set()
+        self._ambient_seen_terrain_types: set[str] = set()
+        self._ambient_last_subject: str | None = None
         self._ambient_action_index: int = 0
         self._ambient_last_trigger_index: int = -999
         self._ambient_discovery_busy: bool = False
@@ -618,6 +620,19 @@ class DungeonScreen(Screen[None]):
         terrain = str(context.get("terrain", "unknown"))
         return f"{target_kind}:{terrain}:{x}:{y}"
 
+    def _ambient_subject_key(self, context: dict[str, Any]) -> str:
+        """Derive a coarse subject key for back-to-back and terrain-type dedupe.
+
+        For entities this is ``"entity_type:name"`` (e.g. ``"character:Relay Priest"``).
+        For terrain discoveries this is ``"terrain:column"`` — intentionally ignoring
+        position so that e.g. two columns in the same room collapse to one subject.
+        """
+        target_kind = str(context.get("target_kind", "terrain"))
+        if target_kind in {"character", "object"} and context.get("target_entity_id"):
+            return f"{target_kind}:{context.get('target_label', 'unknown')}"
+        terrain = str(context.get("terrain", "unknown"))
+        return f"terrain:{terrain}"
+
     def _ambient_candidate_priority(self, context: dict[str, Any]) -> tuple[int, int, str]:
         target_kind = str(context.get("target_kind", "terrain"))
         if target_kind == "character":
@@ -667,10 +682,41 @@ class DungeonScreen(Screen[None]):
                 context["ambient_key"] = self._ambient_candidate_key(context)
                 candidates.append(context)
 
+        # Annotate each candidate with its subject key for dedupe filtering.
+        for ctx in candidates:
+            ctx["ambient_subject"] = self._ambient_subject_key(ctx)
+
+        # Primary filter: exact position/entity key never shown before.
         candidates = [
-            context for context in candidates
-            if str(context.get("ambient_key")) not in self._ambient_seen_keys
+            ctx for ctx in candidates
+            if str(ctx.get("ambient_key")) not in self._ambient_seen_keys
         ]
+
+        # Terrain-type dedupe: suppress terrain discoveries whose type
+        # (e.g. "column") was already announced — prevents column → column
+        # re-announcements even at different positions.
+        candidates = [
+            ctx for ctx in candidates
+            if (
+                str(ctx.get("target_kind")) in {"character", "object"}
+                or str(ctx.get("ambient_subject")) not in self._ambient_seen_terrain_types
+            )
+        ]
+
+        # Back-to-back subject dedupe: never announce the same subject
+        # category (e.g. "terrain:column") twice in a row.
+        if self._ambient_last_subject is not None:
+            non_repeat = [
+                ctx for ctx in candidates
+                if str(ctx.get("ambient_subject")) != self._ambient_last_subject
+            ]
+            # Only apply the filter when there are alternatives; if the
+            # only remaining candidate is a repeat we still prefer silence.
+            if non_repeat:
+                candidates = non_repeat
+            else:
+                candidates = []
+
         if not candidates:
             return None
         candidates.sort(key=self._ambient_candidate_priority)
@@ -694,7 +740,11 @@ class DungeonScreen(Screen[None]):
         if context is None:
             return
         ambient_key = str(context.get("ambient_key"))
+        ambient_subject = str(context.get("ambient_subject", ""))
         self._ambient_seen_keys.add(ambient_key)
+        if ambient_subject.startswith("terrain:"):
+            self._ambient_seen_terrain_types.add(ambient_subject)
+        self._ambient_last_subject = ambient_subject
         self._ambient_last_trigger_index = self._ambient_action_index
         self._ambient_discovery_busy = True
         self._run_ambient_discovery(context)
