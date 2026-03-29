@@ -1,6 +1,6 @@
 ---
 id: am-g2z7
-status: in_progress
+status: closed
 deps: []
 links: []
 created: 2026-03-29T04:38:55Z
