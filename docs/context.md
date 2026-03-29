@@ -16,6 +16,7 @@ Roguelike overhead tile map. The player (@) moves through persistent dungeon lev
 The dungeon viewport follows the player so large levels stay centered in the terminal instead of rendering from a fixed top-left corner.
 Transition tiles are part of the dungeon itself: stairs, lifts, elevators, gates, and portals move the player between persistent levels or themed areas while preserving the session stack.
 The bottom-right inspect panel now also surfaces occasional ambient line-of-sight discoveries for nearby characters, objects, and notable features while explicit look/examine still routes into text view.
+Tab cycles focus between the map, field log, and side panels so the non-map panes can be scrolled without losing movement controls.
 
 ### Text View (narrative + dialogue + travel)
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.
