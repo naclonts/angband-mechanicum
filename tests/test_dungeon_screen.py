@@ -140,7 +140,7 @@ class TestDungeonMapRendering:
 
     def test_status_panel_reports_fov_and_tile(self) -> None:
         level = _make_level()
-        status = render_dungeon_status(level, (2, 2), message_count=3)
+        status = render_dungeon_status(level, (2, 2), 3)
         assert "LEVEL: Test Floor" in status
         assert "FOV:" in status
         assert "TILE:  floor" in status
@@ -173,6 +173,14 @@ class TestDungeonScreenBindings:
             "ctrl+u",
             "ctrl+b",
             "ctrl+n",
+            "ctrl+7",
+            "ctrl+9",
+            "ctrl+1",
+            "ctrl+3",
+            "ctrl+home",
+            "ctrl+pageup",
+            "ctrl+end",
+            "ctrl+pagedown",
         }
         assert expected <= keys
 
@@ -184,12 +192,27 @@ class TestDungeonScreenBindings:
         assert hotkeys["1 / End"] == "Move southwest"
         assert hotkeys["3 / PgDn"] == "Move southeast"
         assert hotkeys["Tab"] == "Cycle focus between dungeon panels"
-        assert hotkeys["Ctrl + arrows / HJKYUBN"] == "Travel until something interesting happens"
+        assert (
+            hotkeys["Ctrl + arrows / HJKYUBN / 7-9-1-3 / Home-PgUp-End-PgDn"]
+            == "Travel until something interesting happens"
+        )
 
     def test_non_map_panels_are_focusable(self) -> None:
         assert DungeonMessageLog.can_focus is True
         assert DungeonStatusPane.can_focus is True
         assert DungeonTransitionPane.can_focus is True
+
+    def test_diagonal_travel_actions_dispatch_correct_vectors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        screen = DungeonScreen(level=_make_level(), player_pos=(2, 2))
+        travel_calls: list[tuple[int, int]] = []
+        monkeypatch.setattr(screen, "_run_travel", lambda dx, dy: travel_calls.append((dx, dy)))
+
+        screen.action_travel_northwest()
+        screen.action_travel_northeast()
+        screen.action_travel_southwest()
+        screen.action_travel_southeast()
+
+        assert travel_calls == [(-1, -1), (1, -1), (-1, 1), (1, 1)]
 
 
 class TestDungeonMapCamera:
