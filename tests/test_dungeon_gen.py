@@ -8,6 +8,7 @@ import pytest
 
 from angband_mechanicum.engine.combat_engine import Grid, Terrain, Tile, auto_place_enemies
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain
+from angband_mechanicum.engine.dungeon_entities import DungeonDisposition, DungeonMovementAI
 from angband_mechanicum.engine.dungeon_gen import (
     DEFAULT_HEIGHT,
     DEFAULT_WIDTH,
@@ -609,3 +610,51 @@ class TestDungeonFloorGeneration:
         )
         assert floor.level.width <= 160
         assert floor.level.height >= 25
+
+    def test_floor_populates_environment_contacts(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-8",
+            depth=8,
+            environment="manufactorum",
+            seed=108,
+        )
+
+        contacts = floor.entity_roster.values()
+        assert len(contacts) >= 2
+        assert any(entity.disposition == DungeonDisposition.HOSTILE for entity in contacts)
+        assert any(entity.disposition in {DungeonDisposition.FRIENDLY, DungeonDisposition.NEUTRAL} for entity in contacts)
+        assert any(entity.movement_ai == DungeonMovementAI.AGGRESSIVE for entity in contacts)
+        for entity in contacts:
+            assert entity.position is not None
+            x, y = entity.position
+            assert floor.level.in_bounds(x, y)
+            assert floor.level.get_tile(x, y).passable
+            assert floor.level.get_creature(x, y) == entity.entity_id
+            assert floor.level.get_terrain(x, y) == DungeonTerrain.FLOOR
+
+    def test_floor_contacts_are_seed_reproducible(self) -> None:
+        first = generate_dungeon_floor(level_id="floor-9", depth=9, environment="forge", seed=109)
+        second = generate_dungeon_floor(level_id="floor-9", depth=9, environment="forge", seed=109)
+
+        first_contacts = [
+            (
+                entity.entity_id,
+                entity.name,
+                entity.disposition.value,
+                entity.movement_ai.value,
+                entity.position,
+            )
+            for entity in first.entity_roster.values()
+        ]
+        second_contacts = [
+            (
+                entity.entity_id,
+                entity.name,
+                entity.disposition.value,
+                entity.movement_ai.value,
+                entity.position,
+            )
+            for entity in second.entity_roster.values()
+        ]
+
+        assert first_contacts == second_contacts
