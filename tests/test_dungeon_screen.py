@@ -36,6 +36,7 @@ from angband_mechanicum.widgets.dungeon_map import (
     render_dungeon_map,
     render_dungeon_status,
 )
+from angband_mechanicum.widgets.prompt_input import PromptInput
 
 
 def _make_level() -> DungeonLevel:
@@ -140,10 +141,13 @@ class TestDungeonMapRendering:
 
     def test_status_panel_reports_fov_and_tile(self) -> None:
         level = _make_level()
-        status = render_dungeon_status(level, (2, 2), message_count=3)
+        status = render_dungeon_status(level, (2, 2), integrity=(12, 20))
         assert "LEVEL: Test Floor" in status
         assert "FOV:" in status
         assert "TILE:  floor" in status
+        assert "HP:" in status
+        assert "12/20" in status
+        assert "LOG:" not in status
 
 
 class TestDungeonScreenBindings:
@@ -190,6 +194,29 @@ class TestDungeonScreenBindings:
         assert DungeonMessageLog.can_focus is True
         assert DungeonStatusPane.can_focus is True
         assert DungeonTransitionPane.can_focus is True
+
+    @pytest.mark.asyncio
+    async def test_status_panel_renders_player_hp_in_explore_view(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=(120, 40)) as pilot:
+            await pilot.click("#btn-new")
+            await pilot.pause()
+            await pilot.click("#btn-confirm")
+            await pilot.pause()
+            await pilot.click("#btn-random")
+            await pilot.pause()
+            prompt = app.screen.query_one("#prompt", PromptInput)
+            prompt.value = "/explore"
+            await pilot.press("enter")
+            await pilot.pause()
+
+            status = app.screen.query_one("#dungeon-status", DungeonStatusPane)
+            status.refresh_status()
+            rendered = "\n".join(strip.text for strip in status.lines)
+            assert "HP:" in rendered
+            assert "INTEGRITY" not in rendered
+            assert "LOG:" not in rendered
 
 
 class TestDungeonMapCamera:
