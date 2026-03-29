@@ -478,6 +478,12 @@ DungeonScreen {
     height: 100%;
 }
 
+#dungeon-right {
+    layout: vertical;
+    width: 1fr;
+    height: 100%;
+}
+
 DungeonMapPane {
     border: heavy $crt-dim;
     color: $crt-bright;
@@ -505,9 +511,19 @@ DungeonStatusPane {
     border: heavy $crt-dim;
     color: $crt-medium;
     background: $crt-surface;
-    width: 1fr;
-    height: 100%;
+    height: 1fr;
     padding: 1 1;
+    overflow-y: auto;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+DungeonTransitionPane {
+    border: heavy $crt-dim;
+    color: $crt-bright;
+    background: $crt-surface;
+    height: 1fr;
+    padding: 0 1;
     overflow-y: auto;
     border-title-color: $crt-bright;
     border-title-style: bold;

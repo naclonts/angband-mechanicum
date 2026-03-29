@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from rich.text import Text
+import pytest
 
 from angband_mechanicum.app import AngbandMechanicumApp
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain, FogState
+from angband_mechanicum.engine.game_engine import GameEngine
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.dungeon_screen import (
@@ -55,6 +57,11 @@ class TestDungeonMapRendering:
         rendered = render_dungeon_map(level, (2, 2))
         assert rendered.count(" ") > 0
 
+    def test_render_shows_look_cursor(self) -> None:
+        level = _make_level()
+        rendered = render_dungeon_map(level, (2, 2), cursor_pos=(3, 2))
+        assert "◉" in rendered
+
     def test_status_panel_reports_fov_and_tile(self) -> None:
         level = _make_level()
         status = render_dungeon_status(level, (2, 2), message_count=3)
@@ -89,6 +96,28 @@ class TestDungeonMapState:
         state.wait()
         assert state.messages[-1] == "You hold position and scan the chamber."
         assert level.get_tile(2, 2).fog == FogState.VISIBLE
+
+    def test_build_examine_context_includes_entity_and_surroundings(self) -> None:
+        level = _make_level()
+        statue = DungeonMapEntity(
+            entity_id="statue-1",
+            name="Machine Statue",
+            x=3,
+            y=2,
+            disposition="neutral",
+            can_talk=False,
+            description="An ancient brass icon of the Omnissiah.",
+            scene_art="STATUE",
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[statue])
+
+        context = state.build_examine_context((3, 2))
+
+        assert context["target_kind"] == "character"
+        assert context["target_entity_name"] == "Machine Statue"
+        assert context["target_visible"] is True
+        assert context["surroundings"]["west"] == "floor"
+        assert context["distance_from_player"] == 1
 
     def test_state_round_trips_through_dict(self) -> None:
         level = _make_level()
@@ -248,3 +277,27 @@ class TestTransitionHelpers:
     def test_game_screen_accepts_conversation_focus(self) -> None:
         screen = GameScreen(speaking_npc_id="skitarius-alpha-7")
         assert screen._speaking_npc_id == "skitarius-alpha-7"
+
+
+class TestDungeonExamineIntegration:
+    @pytest.mark.asyncio
+    async def test_game_engine_examine_prompt_includes_target_context(self, engine_with_mock_client: GameEngine) -> None:
+        engine = engine_with_mock_client
+        from tests.conftest import _make_api_response
+
+        engine._client.messages.create.return_value = _make_api_response(
+            '{"narrative_text": "A terminal hums.", "scene_art": "ART", "info_update": null, "entities": [], "combat_trigger": false, "speaking_npc": null}'
+        )
+
+        context = {
+            "target_label": "Cogitator Terminal",
+            "target_kind": "object",
+            "terrain": "terminal",
+            "target_position": [3, 2],
+        }
+
+        response = await engine.examine_dungeon_target(context)
+
+        assert response.narrative_text == "A terminal hums."
+        assert engine.turn_count == 1
+        assert "Cogitator Terminal" in str(engine._conversation_history[0]["content"])
