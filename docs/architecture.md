@@ -132,6 +132,7 @@ Primary files:
 - Ctrl+direction travel reuses the same step resolution and stops when the path opens up, a contact appears, or combat/terrain interrupts control.
 - Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.
 - `DungeonTransitionPane.show_inspect()` renders ambient discoveries by keeping `scene_art` on unwrapped lines while allowing `narrative_text` to wrap to the pane width.
+- The same inspect pane also supports debug overlays. `F3` opens an environment catalog view that lists the preset dungeon environments and shows the generation tables currently wired for each one, including contacts, themed rooms, object templates, and loose item pools.
 - `DungeonStatusPane` now renders player HP/integrity and other gameplay-relevant status instead of a log-entry count.
 - The screen refreshes the render widgets after each action.
 - Dungeon-to-text bridges use the active dungeon session location for the text status panel, and stale pending text-bridge context is not allowed to override that fresh location state.

@@ -194,10 +194,12 @@ class TestDungeonScreenBindings:
 
         assert bindings["5"] == "wait"
         assert bindings["space"] == "wait"
+        assert bindings["f3"] == "show_environment_catalog"
 
     def test_help_text_lists_each_diagonal_direction(self) -> None:
         hotkeys = dict(DungeonScreen.HOTKEYS)
         assert hotkeys["Y / U / B / N"] == "Vi diagonals"
+        assert hotkeys["F3"] == "Debug environment catalog"
         assert hotkeys["7 / Home"] == "Move northwest"
         assert hotkeys["9 / PgUp"] == "Move northeast"
         assert hotkeys["1 / End"] == "Move southwest"
@@ -810,6 +812,36 @@ class TestDungeonLookMode:
 
         assert screen._look_mode is False
         assert screen._look_cursor_pos is None
+
+
+class TestDungeonEnvironmentCatalog:
+    def test_environment_catalog_lists_generator_content(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        screen.action_show_environment_catalog()
+        lines = screen._build_environment_catalog_lines()
+        rendered = "\n".join(lines)
+
+        assert screen._environment_catalog_open is True
+        assert "forge [dim](current)[/dim]" in rendered
+        assert "Rogue Servitor" in rendered
+        assert "cogitator-bank" in rendered
+        assert "Heretek Workshop" in rendered
+
+    def test_environment_catalog_navigation_keeps_player_stationary(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        screen.action_show_environment_catalog()
+        initial_index = screen._environment_catalog_index
+
+        screen.action_move_south()
+
+        assert screen._environment_catalog_index == initial_index + 1
+        assert screen.state.player_pos == (2, 2)
 
 class TestAmbientDiscoveries:
     def test_prefers_visible_character_over_terrain(self) -> None:
