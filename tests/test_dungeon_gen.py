@@ -32,13 +32,16 @@ from angband_mechanicum.engine.dungeon_gen import (
     generate_map,
     generate_map_from_hint,
     _add_doors,
+    _blocking_placement_preserves_routes,
     _BUILDERS,
     _build_room_on_level,
     _carve_connection,
     _compute_spawns,
+    _environment_object_templates,
     _floor_tiles,
     _contacts_for_environment,
     _group_size_for_archetype,
+    _object_footprint_positions,
     _apply_themed_room_template,
     _pick_group_positions,
     _scatter_features,
@@ -718,6 +721,65 @@ class TestDungeonFloorGeneration:
             x, y = position
             assert item_id in floor.level.get_items(x, y)
             assert floor.level.get_tile(x, y).passable
+
+    def test_environment_object_template_pools_are_rich_per_environment(self) -> None:
+        for environment in ENVIRONMENTS:
+            templates = _environment_object_templates(environment)
+            assert len(templates) >= 5, environment
+            assert any(len(template.footprint) > 1 for template in templates), environment
+
+    def test_floor_records_environment_object_footprints(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-4-dressing",
+            depth=7,
+            environment="radwastes",
+            seed=404,
+        )
+
+        assert floor.placed_objects
+        assert any(obj.blocking for obj in floor.placed_objects)
+        for obj in floor.placed_objects:
+            assert obj.footprint
+            assert obj.anchor in obj.footprint
+            for x, y in obj.footprint:
+                assert floor.level.in_bounds(x, y)
+            if obj.blocking:
+                assert all(not floor.level.get_tile(x, y).passable for x, y in obj.footprint)
+
+    def test_blocking_object_preserves_reachability(self) -> None:
+        level = DungeonLevel(
+            level_id="blocking-object-path-test",
+            name="Blocking Object Path Test",
+            depth=1,
+            environment="forge",
+            width=9,
+            height=7,
+        )
+        for y in range(level.height):
+            for x in range(level.width):
+                level.set_terrain(x, y, DungeonTerrain.WALL)
+        for x in range(1, 8):
+            level.set_terrain(x, 3, DungeonTerrain.FLOOR)
+        level.player_pos = (1, 3)
+        level.stairs_down = [(7, 3)]
+
+        assert not _blocking_placement_preserves_routes(
+            level,
+            _object_footprint_positions((3, 3), _environment_object_templates("radwastes")[0]),
+            DungeonTerrain.COLUMN,
+        )
+
+    def test_generated_blocking_objects_keep_floor_traversable(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-4-paths",
+            depth=8,
+            environment="ash_dune_outpost",
+            seed=505,
+        )
+
+        assert floor.level.player_pos is not None
+        reachable = _reachable_tiles(floor.level, floor.level.player_pos)
+        assert floor.level.stairs_down[0] in reachable
 
     def test_valid_door_threshold_skips_sparse_candidates(self) -> None:
         level = DungeonLevel(

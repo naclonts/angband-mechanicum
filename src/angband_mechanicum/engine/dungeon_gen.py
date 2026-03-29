@@ -10,6 +10,7 @@ No LLM calls -- pure deterministic (seeded) generation.
 from __future__ import annotations
 
 import random
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -749,8 +750,31 @@ class GeneratedFloor:
     exit_room_index: int
     secret_passages: list[tuple[tuple[int, int], tuple[int, int]]] = field(default_factory=list)
     placed_items: list[tuple[str, tuple[int, int]]] = field(default_factory=list)
+    placed_objects: list["PlacedEnvironmentObject"] = field(default_factory=list)
     entity_roster: DungeonEntityRoster = field(default_factory=DungeonEntityRoster)
     themed_rooms: list["ThemedRoomInstance"] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EnvironmentObjectTemplate:
+    """A reusable environment dressing template."""
+
+    object_id: str
+    terrain: DungeonTerrain | None = None
+    footprint: tuple[tuple[int, int], ...] = ((0, 0),)
+    blocking: bool = False
+    focus: str = "center"
+    item_id: str | None = None
+
+
+@dataclass(frozen=True)
+class PlacedEnvironmentObject:
+    """A concrete placed environment object on the generated floor."""
+
+    object_id: str
+    anchor: tuple[int, int]
+    footprint: tuple[tuple[int, int], ...]
+    blocking: bool
 
 
 def _fill_level(level: DungeonLevel, terrain: DungeonTerrain) -> None:
@@ -1021,6 +1045,254 @@ _FLOOR_OBJECTS: dict[str, tuple[str, ...]] = {
     "default": ("supply-crate", "cogitator-slate", "field-kit"),
 }
 
+_LINE_2 = ((0, 0), (1, 0))
+_LINE_3 = ((0, 0), (1, 0), (2, 0))
+_BLOCK_2 = ((0, 0), (1, 0), (0, 1), (1, 1))
+_L_SHAPE = ((0, 0), (1, 0), (0, 1))
+_PILLAR_RING = ((0, 0), (1, 0), (0, 1), (1, 1), (2, 1))
+
+_DEFAULT_ENVIRONMENT_OBJECTS: tuple[EnvironmentObjectTemplate, ...] = (
+    EnvironmentObjectTemplate("supply-crate-cluster", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+    EnvironmentObjectTemplate("collapsed-column", DungeonTerrain.COLUMN, _L_SHAPE, blocking=True, focus="edge"),
+    EnvironmentObjectTemplate("machine-bank", DungeonTerrain.TERMINAL, _LINE_2, focus="edge"),
+    EnvironmentObjectTemplate("rubble-drift", DungeonTerrain.RUBBLE, _LINE_3, focus="corner"),
+    EnvironmentObjectTemplate("maintenance-grate", DungeonTerrain.GRATE, _LINE_2, focus="center"),
+)
+
+_ENVIRONMENT_OBJECTS: dict[str, tuple[EnvironmentObjectTemplate, ...]] = {
+    "forge": (
+        EnvironmentObjectTemplate("cogitator-bank", DungeonTerrain.TERMINAL, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("smelter-cradle", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("slag-baffles", DungeonTerrain.COVER, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("anchored-press", DungeonTerrain.COLUMN, _L_SHAPE, blocking=True, focus="edge"),
+        EnvironmentObjectTemplate("tool-rack", DungeonTerrain.TERMINAL, _LINE_2, focus="edge"),
+    ),
+    "manufactorum": (
+        EnvironmentObjectTemplate("assembly-line", DungeonTerrain.GRATE, _LINE_3, focus="center"),
+        EnvironmentObjectTemplate("servo-arm-nest", DungeonTerrain.COLUMN, _L_SHAPE, blocking=True, focus="edge"),
+        EnvironmentObjectTemplate("control-pit", DungeonTerrain.TERMINAL, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("freight-pallets", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("machine-spindle", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="center"),
+    ),
+    "voidship": (
+        EnvironmentObjectTemplate("bulkhead-console", DungeonTerrain.TERMINAL, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("breach-barrier", DungeonTerrain.COVER, _LINE_3, focus="center"),
+        EnvironmentObjectTemplate("hull-fragment", DungeonTerrain.COLUMN, _L_SHAPE, blocking=True, focus="corner"),
+        EnvironmentObjectTemplate("stasis-cradle", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("reactor-plinth", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="edge"),
+    ),
+    "cathedral": (
+        EnvironmentObjectTemplate("choir-stalls", DungeonTerrain.COVER, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("shrine-clutter", DungeonTerrain.SHRINE, _BLOCK_2, focus="center"),
+        EnvironmentObjectTemplate("broken-statue", DungeonTerrain.COLUMN, _L_SHAPE, blocking=True, focus="corner"),
+        EnvironmentObjectTemplate("votive-line", DungeonTerrain.SHRINE, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("censer-rack", DungeonTerrain.COVER, _LINE_2, focus="edge"),
+    ),
+    "reliquary": (
+        EnvironmentObjectTemplate("saint-casket", DungeonTerrain.SHRINE, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("seal-plinths", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="edge"),
+        EnvironmentObjectTemplate("votive-alcove", DungeonTerrain.SHRINE, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("archive-bank", DungeonTerrain.TERMINAL, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("reliquary-cradle", DungeonTerrain.COVER, _L_SHAPE, focus="center"),
+    ),
+    "hive": (
+        EnvironmentObjectTemplate("scrap-barricade", DungeonTerrain.COVER, _LINE_3, focus="center"),
+        EnvironmentObjectTemplate("hab-shrine", DungeonTerrain.SHRINE, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("junk-pile", DungeonTerrain.RUBBLE, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("collapsed-walkway", DungeonTerrain.GRATE, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("stacked-lockers", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="edge"),
+    ),
+    "sewer": (
+        EnvironmentObjectTemplate("pipe-cluster", DungeonTerrain.GRATE, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("corrosion-pit", DungeonTerrain.ACID_POOL, _BLOCK_2, focus="center"),
+        EnvironmentObjectTemplate("service-bridge", DungeonTerrain.GRATE, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("filtration-rack", DungeonTerrain.COVER, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("collapsed-drain", DungeonTerrain.COLUMN, _L_SHAPE, blocking=True, focus="corner"),
+    ),
+    "corrupted": (
+        EnvironmentObjectTemplate("warp-growth", DungeonTerrain.GROWTH, _BLOCK_2, focus="center"),
+        EnvironmentObjectTemplate("rift-scar", DungeonTerrain.CHASM, _LINE_3, focus="center"),
+        EnvironmentObjectTemplate("blasphemous-altar", DungeonTerrain.SHRINE, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("fused-bones", DungeonTerrain.RUBBLE, _LINE_2, focus="corner"),
+        EnvironmentObjectTemplate("daemon-pillar", DungeonTerrain.COLUMN, _L_SHAPE, blocking=True, focus="center"),
+    ),
+    "overgrown": (
+        EnvironmentObjectTemplate("fungal-bloom", DungeonTerrain.GROWTH, _BLOCK_2, focus="center"),
+        EnvironmentObjectTemplate("vine-choked-arch", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="edge"),
+        EnvironmentObjectTemplate("reed-patch", DungeonTerrain.WATER, _LINE_2, focus="corner"),
+        EnvironmentObjectTemplate("fallen-monolith", DungeonTerrain.RUBBLE, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("root-tangle", DungeonTerrain.GROWTH, _L_SHAPE, focus="corner"),
+    ),
+    "tomb": (
+        EnvironmentObjectTemplate("sarcophagus-row", DungeonTerrain.SHRINE, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("canopic-cluster", DungeonTerrain.SHRINE, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("fallen-obelisk", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="center"),
+        EnvironmentObjectTemplate("burial-rubble", DungeonTerrain.RUBBLE, _LINE_2, focus="corner"),
+        EnvironmentObjectTemplate("warding-pillars", DungeonTerrain.COLUMN, _PILLAR_RING, blocking=True, focus="center"),
+    ),
+    "radwastes": (
+        EnvironmentObjectTemplate("rock-formation", DungeonTerrain.COLUMN, _BLOCK_2, blocking=True, focus="corner"),
+        EnvironmentObjectTemplate("wreckage-spine", DungeonTerrain.RUBBLE, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("acid-runoff", DungeonTerrain.ACID_POOL, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("titan-debris", DungeonTerrain.COLUMN, _PILLAR_RING, blocking=True, focus="corner"),
+        EnvironmentObjectTemplate("survey-shelter", DungeonTerrain.COVER, _BLOCK_2, focus="edge"),
+    ),
+    "data_vault": (
+        EnvironmentObjectTemplate("archive-stack", DungeonTerrain.TERMINAL, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("logic-pillar", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="center"),
+        EnvironmentObjectTemplate("cache-rack", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("sealed-terminal", DungeonTerrain.TERMINAL, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("cipher-dais", DungeonTerrain.SHRINE, _LINE_2, focus="edge"),
+    ),
+    "xenos_ruin": (
+        EnvironmentObjectTemplate("alien-monolith", DungeonTerrain.COLUMN, _LINE_3, blocking=True, focus="center"),
+        EnvironmentObjectTemplate("glyph-platform", DungeonTerrain.SHRINE, _BLOCK_2, focus="center"),
+        EnvironmentObjectTemplate("fractured-geometry", DungeonTerrain.CHASM, _LINE_2, focus="corner"),
+        EnvironmentObjectTemplate("spore-cluster", DungeonTerrain.GROWTH, _L_SHAPE, focus="corner"),
+        EnvironmentObjectTemplate("collapsed-arch", DungeonTerrain.RUBBLE, _LINE_2, focus="edge"),
+    ),
+    "ice_crypt": (
+        EnvironmentObjectTemplate("frozen-sarcophagus", DungeonTerrain.SHRINE, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("ice-spires", DungeonTerrain.COLUMN, _L_SHAPE, blocking=True, focus="corner"),
+        EnvironmentObjectTemplate("cryo-pool", DungeonTerrain.WATER, _BLOCK_2, focus="center"),
+        EnvironmentObjectTemplate("shattered-coffin", DungeonTerrain.RUBBLE, _LINE_2, focus="corner"),
+        EnvironmentObjectTemplate("ward-pylons", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="center"),
+    ),
+    "sump_market": (
+        EnvironmentObjectTemplate("crooked-stalls", DungeonTerrain.COVER, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("blackwater-trench", DungeonTerrain.WATER, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("crate-heaps", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("collapsed-awning", DungeonTerrain.GRATE, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("trader-shrine", DungeonTerrain.SHRINE, _LINE_2, focus="center"),
+    ),
+    "plasma_reactorum": (
+        EnvironmentObjectTemplate("plasma-coils", DungeonTerrain.LAVA, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("shielding-gantry", DungeonTerrain.COLUMN, _LINE_3, blocking=True, focus="edge"),
+        EnvironmentObjectTemplate("control-bank", DungeonTerrain.TERMINAL, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("coolant-baffles", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("reactor-breach", DungeonTerrain.LAVA, _BLOCK_2, focus="center"),
+    ),
+    "penal_oubliette": (
+        EnvironmentObjectTemplate("chain-rack", DungeonTerrain.GRATE, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("execution-dais", DungeonTerrain.SHRINE, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("cell-block", DungeonTerrain.COLUMN, _LINE_3, blocking=True, focus="edge"),
+        EnvironmentObjectTemplate("confession-booth", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("bone-pile", DungeonTerrain.RUBBLE, _L_SHAPE, focus="corner"),
+    ),
+    "ash_dune_outpost": (
+        EnvironmentObjectTemplate("signal-mast", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="edge"),
+        EnvironmentObjectTemplate("sandbag-redoubt", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("crashed-skiff", DungeonTerrain.COLUMN, _LINE_3, blocking=True, focus="center"),
+        EnvironmentObjectTemplate("field-beacon", DungeonTerrain.TERMINAL, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("dust-wreckage", DungeonTerrain.RUBBLE, _LINE_2, focus="corner"),
+    ),
+    "default": _DEFAULT_ENVIRONMENT_OBJECTS,
+}
+
+
+def _environment_object_templates(environment: str) -> tuple[EnvironmentObjectTemplate, ...]:
+    return _ENVIRONMENT_OBJECTS.get(environment, _ENVIRONMENT_OBJECTS["default"])
+
+
+def _object_footprint_positions(
+    anchor: tuple[int, int],
+    template: EnvironmentObjectTemplate,
+) -> tuple[tuple[int, int], ...]:
+    ax, ay = anchor
+    return tuple((ax + dx, ay + dy) for dx, dy in template.footprint)
+
+
+def _reachable_floor_tiles(
+    level: DungeonLevel,
+    start: tuple[int, int],
+) -> set[tuple[int, int]]:
+    seen = {start}
+    queue: deque[tuple[int, int]] = deque([start])
+    while queue:
+        x, y = queue.popleft()
+        for nx, ny in level.get_passable_neighbors(x, y):
+            if (nx, ny) in seen:
+                continue
+            seen.add((nx, ny))
+            queue.append((nx, ny))
+    return seen
+
+
+def _anchor_positions_for_template(
+    level: DungeonLevel,
+    room: DungeonRoom,
+    template: EnvironmentObjectTemplate,
+    occupied: set[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    candidates: list[tuple[int, int]] = []
+    max_dx = max(dx for dx, _ in template.footprint)
+    max_dy = max(dy for _, dy in template.footprint)
+    for y in range(room.y + 1, room.y + room.height - 1 - max_dy):
+        for x in range(room.x + 1, room.x + room.width - 1 - max_dx):
+            footprint = _object_footprint_positions((x, y), template)
+            if any(pos in occupied for pos in footprint):
+                continue
+            if any(not room.contains(px, py) for px, py in footprint):
+                continue
+            if any(not level.in_bounds(px, py) or not level.get_tile(px, py).passable for px, py in footprint):
+                continue
+            candidates.append((x, y))
+
+    def focus_key(anchor: tuple[int, int]) -> tuple[float, float]:
+        ax, ay = anchor
+        center_x = ax + sum(dx for dx, _ in template.footprint) / len(template.footprint)
+        center_y = ay + sum(dy for _, dy in template.footprint) / len(template.footprint)
+        room_distance = abs(center_x - room.center[0]) + abs(center_y - room.center[1])
+        edge_distance = min(
+            abs(center_x - room.x),
+            abs(center_x - (room.x + room.width - 1)),
+            abs(center_y - room.y),
+            abs(center_y - (room.y + room.height - 1)),
+        )
+        if template.focus == "edge":
+            return (edge_distance, room_distance)
+        if template.focus == "corner":
+            corners = (
+                (room.x + 1, room.y + 1),
+                (room.x + room.width - 2, room.y + 1),
+                (room.x + 1, room.y + room.height - 2),
+                (room.x + room.width - 2, room.y + room.height - 2),
+            )
+            corner_distance = min(abs(center_x - cx) + abs(center_y - cy) for cx, cy in corners)
+            return (corner_distance, room_distance)
+        return (room_distance, edge_distance)
+
+    candidates.sort(key=focus_key)
+    return candidates
+
+
+def _blocking_placement_preserves_routes(
+    level: DungeonLevel,
+    footprint: tuple[tuple[int, int], ...],
+    terrain: DungeonTerrain,
+) -> bool:
+    if level.player_pos is None:
+        return True
+
+    before_reachable = _reachable_floor_tiles(level, level.player_pos)
+    original_terrains = {position: level.get_terrain(*position) for position in footprint}
+    removed_tiles = sum(1 for position in footprint if position in before_reachable)
+
+    try:
+        for x, y in footprint:
+            level.set_terrain(x, y, terrain)
+        after_reachable = _reachable_floor_tiles(level, level.player_pos)
+    finally:
+        for (x, y), original in original_terrains.items():
+            level.set_terrain(x, y, original)
+
+    expected_reachable = len(before_reachable) - removed_tiles
+    if len(after_reachable) != expected_reachable:
+        return False
+    if level.stairs_down:
+        return all(destination in after_reachable for destination in level.stairs_down)
+    return True
+
 
 def _scatter_environment_objects(
     level: DungeonLevel,
@@ -1029,10 +1301,11 @@ def _scatter_environment_objects(
     depth: int,
     reserved: set[tuple[int, int]],
     rng: random.Random,
-) -> list[tuple[str, tuple[int, int]]]:
+) -> tuple[list[tuple[str, tuple[int, int]]], list[PlacedEnvironmentObject]]:
     item_pool = _FLOOR_OBJECTS.get(environment, _FLOOR_OBJECTS["default"])
-    if not item_pool or not rooms:
-        return []
+    object_pool = list(_environment_object_templates(environment))
+    if (not item_pool and not object_pool) or not rooms:
+        return [], []
 
     candidate_rooms = [
         (index, room)
@@ -1042,14 +1315,17 @@ def _scatter_environment_objects(
     if not candidate_rooms:
         candidate_rooms = list(enumerate(rooms))
     if not candidate_rooms:
-        return []
+        return [], []
 
     rng.shuffle(candidate_rooms)
-    target_count = max(1, min(3, len(candidate_rooms) // 3 + (1 if depth >= 6 else 0)))
+    target_item_count = max(1, min(3, len(candidate_rooms) // 3 + (1 if depth >= 6 else 0)))
+    target_object_count = max(2, min(len(object_pool), len(candidate_rooms) // 2 + 2 + (1 if depth >= 6 else 0)))
 
     placements: list[tuple[str, tuple[int, int]]] = []
+    placed_objects: list[PlacedEnvironmentObject] = []
+
     for _, room in candidate_rooms:
-        if len(placements) >= target_count:
+        if len(placements) >= target_item_count:
             break
         room_tiles = _room_tiles_by_focus(level, room, reserved, focus="center")
         if not room_tiles:
@@ -1060,7 +1336,52 @@ def _scatter_environment_objects(
         reserved.add(position)
         placements.append((item_id, position))
 
-    return placements
+    if not object_pool:
+        return placements, placed_objects
+
+    shuffled_templates = object_pool[:]
+    rng.shuffle(shuffled_templates)
+    for template in shuffled_templates:
+        if len(placed_objects) >= target_object_count:
+            break
+
+        room_pool = candidate_rooms[:]
+        rng.shuffle(room_pool)
+        for _, room in room_pool:
+            anchors = _anchor_positions_for_template(level, room, template, reserved)
+            shortlist = anchors[: min(8, len(anchors))]
+            if not shortlist:
+                continue
+            rng.shuffle(shortlist)
+            for anchor in shortlist:
+                footprint = _object_footprint_positions(anchor, template)
+                if template.blocking and template.terrain is not None:
+                    if not _blocking_placement_preserves_routes(level, footprint, template.terrain):
+                        continue
+                for x, y in footprint:
+                    if template.terrain is not None:
+                        if template.blocking:
+                            level.set_terrain(x, y, template.terrain)
+                        else:
+                            _set_feature_tile(level, x, y, template.terrain)
+                if template.item_id is not None:
+                    level.place_item(anchor[0], anchor[1], template.item_id)
+                    placements.append((template.item_id, anchor))
+                reserved.update(footprint)
+                placed_objects.append(
+                    PlacedEnvironmentObject(
+                        object_id=template.object_id,
+                        anchor=anchor,
+                        footprint=footprint,
+                        blocking=template.blocking,
+                    )
+                )
+                break
+            else:
+                continue
+            break
+
+    return placements, placed_objects
 
 
 def _scatter_environment_features(
@@ -3896,7 +4217,7 @@ def generate_dungeon_floor(
         profile,
     )
     _scatter_environment_features(level, rooms, env.name, reserved, rng)
-    placed_items = _scatter_environment_objects(level, rooms, env.name, depth, reserved, rng)
+    placed_items, placed_objects = _scatter_environment_objects(level, rooms, env.name, depth, reserved, rng)
     entity_roster = _generate_contacts(
         level,
         rooms,
@@ -3926,6 +4247,7 @@ def generate_dungeon_floor(
         exit_room_index=_find_room_index(rooms, stairs_down),
         secret_passages=secret_passages,
         placed_items=placed_items,
+        placed_objects=placed_objects,
         entity_roster=entity_roster,
         themed_rooms=themed_rooms,
     )
