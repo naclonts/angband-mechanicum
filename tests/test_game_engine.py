@@ -45,6 +45,7 @@ class TestSerialization:
         assert exported["turn_count"] == 1
         assert exported["info_panel"] == {"LOCATION": "Forge-Cathedral Alpha"}
         assert len(exported["conversation_history"]) == 2
+        assert exported["conversation_history"][1]["content"] == "You see a forge."
         assert exported["error_count"] == 0
         assert exported["current_scene_art"] is None
 
@@ -124,6 +125,24 @@ class TestProcessInput:
         assert len(engine._conversation_history) == 2
         assert engine._conversation_history[0]["role"] == "user"
         assert engine._conversation_history[1]["role"] == "assistant"
+        assert engine._conversation_history[1]["content"] == "You descend into the forge."
+
+    @pytest.mark.asyncio
+    async def test_success_stores_narrative_text_in_assistant_history(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        response_json = json.dumps({
+            "narrative_text": "The machine spirit answers in static.",
+            "scene_art": "╔═╗",
+            "info_update": {"LOCATION": "Relay Vault"},
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        await engine.process_input("listen")
+
+        assert engine._conversation_history[1]["role"] == "assistant"
+        assert engine._conversation_history[1]["content"] == "The machine spirit answers in static."
 
     @pytest.mark.asyncio
     async def test_success_with_scene_art(

@@ -64,6 +64,36 @@ def _extract_json(text: str) -> dict[str, Any]:
         return json.loads(text[start : end + 1])
     raise json.JSONDecodeError("No JSON found in response", text, 0)
 
+
+def _assistant_history_text(content: str) -> str:
+    """Return safe assistant history text for prompts and UI surfaces.
+
+    Raw JSON responses should stay in the JSONL debug log, but conversation
+    history that can later be restored or surfaced in the UI should only retain
+    the narrative text players are meant to see.
+    """
+    try:
+        response_data = _extract_json(content)
+    except json.JSONDecodeError:
+        return content
+    narrative_text = response_data.get("narrative_text")
+    return narrative_text if isinstance(narrative_text, str) and narrative_text else content
+
+
+def _normalize_conversation_history(messages: list[MessageParam]) -> list[MessageParam]:
+    """Normalize restored conversation history to avoid leaking raw JSON."""
+    normalized: list[MessageParam] = []
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        role = message.get("role")
+        content = message.get("content")
+        if role == "assistant" and isinstance(content, str):
+            normalized.append({"role": role, "content": _assistant_history_text(content)})
+            continue
+        normalized.append(dict(message))
+    return normalized
+
 MODEL: str = "claude-sonnet-4-20250514"
 MAX_TOKENS: int = 2048
 
@@ -1204,7 +1234,9 @@ You MUST respond with ONLY a valid JSON object, no other text:
         engine = cls.__new__(cls)
         engine._client = anthropic.AsyncAnthropic()
         engine._player_name = data.get("player_name", "Magos Explorator")
-        engine._conversation_history = data.get("conversation_history", [])
+        engine._conversation_history = _normalize_conversation_history(
+            data.get("conversation_history", [])
+        )
         engine._turn_count = data.get("turn_count", 0)
         engine._current_scene_art = data.get("current_scene_art")
         engine._info_panel = data.get("info_panel", {})
@@ -1317,7 +1349,7 @@ You MUST respond with ONLY a valid JSON object, no other text:
         # Store assistant reply in conversation history for context
         self._conversation_history.append({
             "role": "assistant",
-            "content": raw_text,
+            "content": _assistant_history_text(raw_text),
         })
 
         self._turn_count += 1
