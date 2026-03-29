@@ -556,7 +556,7 @@ DungeonMapPane {
     border: heavy $crt-dim;
     color: $crt-bright;
     background: $crt-surface;
-    height: 2fr;
+    height: 4fr;
     padding: 0 1;
     overflow-y: auto;
     border-title-color: $crt-bright;
