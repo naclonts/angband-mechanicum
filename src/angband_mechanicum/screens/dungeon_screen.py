@@ -390,6 +390,27 @@ class DungeonMapState:
 class DungeonScreen(Screen[None]):
     """Unified dungeon screen shell for exploration and future combat."""
 
+    AMBIENT_DISCOVERY_COOLDOWN = 3
+    AMBIENT_DISCOVERY_TERRAINS = {
+        DungeonTerrain.TERMINAL,
+        DungeonTerrain.SHRINE,
+        DungeonTerrain.STAIRS_UP,
+        DungeonTerrain.STAIRS_DOWN,
+        DungeonTerrain.ELEVATOR,
+        DungeonTerrain.GATE,
+        DungeonTerrain.PORTAL,
+        DungeonTerrain.LIFT,
+        DungeonTerrain.COLUMN,
+        DungeonTerrain.RUBBLE,
+        DungeonTerrain.WATER,
+        DungeonTerrain.LAVA,
+        DungeonTerrain.CHASM,
+        DungeonTerrain.GROWTH,
+        DungeonTerrain.COVER,
+        DungeonTerrain.GRATE,
+        DungeonTerrain.ACID_POOL,
+    }
+
     BINDINGS = [
         Binding("up", "move_north", "Move north", show=False),
         Binding("down", "move_south", "Move south", show=False),
@@ -448,6 +469,12 @@ class DungeonScreen(Screen[None]):
         self._last_look_summary: str | None = None
         self._last_examine_title: str | None = None
         self._last_examine_lines: list[str] = []
+        self._ambient_discovery_title: str | None = None
+        self._ambient_discovery_lines: list[str] = []
+        self._ambient_seen_keys: set[str] = set()
+        self._ambient_action_index: int = 0
+        self._ambient_last_trigger_index: int = -999
+        self._ambient_discovery_busy: bool = False
         if state is not None:
             self._state = state
             return
@@ -542,24 +569,139 @@ class DungeonScreen(Screen[None]):
 
     def _refresh_inspect_pane(self) -> None:
         pane = self.query_one("#dungeon-inspect", DungeonTransitionPane)
-        if self._last_examine_title is None:
-            pane.show_context(
-                "⛨ EXAMINATION",
-                [
-                    "Press L to enter look mode.",
-                    "Use arrows or HJK to move the cursor.",
-                    "Enter inspects the highlighted target.",
-                    "Esc cancels look mode.",
-                ],
-            )
+        if self._ambient_discovery_title is not None:
+            pane.show_context(self._ambient_discovery_title, self._ambient_discovery_lines)
             return
-        pane.show_context(self._last_examine_title, self._last_examine_lines)
+        pane.show_context(
+            "⛨ FIELD SCAN",
+            [
+                "Ambient discoveries surface here when something notable enters view.",
+                "Move through the dungeon to reveal contacts, relics, and terrain features.",
+                "Press L to enter look mode for a full examine.",
+            ],
+        )
+
+    def _ambient_candidate_key(self, context: dict[str, Any]) -> str:
+        target_kind = str(context.get("target_kind", "terrain"))
+        if target_kind == "character" and context.get("target_entity_id"):
+            return f"entity:{context['target_entity_id']}"
+        if target_kind == "object" and context.get("target_entity_id"):
+            return f"object:{context['target_entity_id']}"
+        position = context.get("target_position", [0, 0])
+        if isinstance(position, list) and len(position) == 2:
+            x, y = position
+        else:
+            x = y = 0
+        terrain = str(context.get("terrain", "unknown"))
+        return f"{target_kind}:{terrain}:{x}:{y}"
+
+    def _ambient_candidate_priority(self, context: dict[str, Any]) -> tuple[int, int, str]:
+        target_kind = str(context.get("target_kind", "terrain"))
+        if target_kind == "character":
+            kind_priority = 0
+        elif target_kind == "object":
+            kind_priority = 1
+        elif target_kind in {"terrain", "creature"}:
+            kind_priority = 2
+        else:
+            kind_priority = 3
+        distance = int(context.get("distance_from_player") or 0)
+        label = str(context.get("target_label", "Unknown"))
+        return kind_priority, distance, label
+
+    def _is_ambient_terrain(self, terrain: DungeonTerrain) -> bool:
+        return terrain in self.AMBIENT_DISCOVERY_TERRAINS
+
+    def _find_ambient_discovery_context(self) -> dict[str, Any] | None:
+        player_pos = self._state.player_pos
+        if player_pos is None:
+            return None
+
+        candidates: list[dict[str, Any]] = []
+        for entity in self._state.entities:
+            if not entity.alive:
+                continue
+            if entity.entity_type not in {"character", "object"} and not entity.can_talk:
+                continue
+            if self._state.level.get_tile(entity.x, entity.y).fog != FogState.VISIBLE:
+                continue
+            context = self._state.build_examine_context((entity.x, entity.y))
+            context["ambient_key"] = self._ambient_candidate_key(context)
+            candidates.append(context)
+
+        for y in range(self._state.level.height):
+            for x in range(self._state.level.width):
+                tile = self._state.level.get_tile(x, y)
+                if tile.fog != FogState.VISIBLE:
+                    continue
+                if not self._is_ambient_terrain(tile.terrain):
+                    continue
+                context = self._state.build_examine_context((x, y))
+                if context.get("target_kind") not in {"terrain", "creature"}:
+                    continue
+                if context.get("target_kind") == "terrain" and not context.get("target_visible", False):
+                    continue
+                context["ambient_key"] = self._ambient_candidate_key(context)
+                candidates.append(context)
+
+        candidates = [
+            context for context in candidates
+            if str(context.get("ambient_key")) not in self._ambient_seen_keys
+        ]
+        if not candidates:
+            return None
+        candidates.sort(key=self._ambient_candidate_priority)
+        return candidates[0]
+
+    def _set_ambient_discovery(
+        self,
+        title: str,
+        lines: Sequence[str],
+    ) -> None:
+        self._ambient_discovery_title = title
+        self._ambient_discovery_lines = list(lines)
+        self._refresh_all()
+
+    def _maybe_trigger_ambient_discovery(self) -> None:
+        if self._ambient_discovery_busy:
+            return
+        if self._ambient_action_index - self._ambient_last_trigger_index < self.AMBIENT_DISCOVERY_COOLDOWN:
+            return
+        context = self._find_ambient_discovery_context()
+        if context is None:
+            return
+        ambient_key = str(context.get("ambient_key"))
+        self._ambient_seen_keys.add(ambient_key)
+        self._ambient_last_trigger_index = self._ambient_action_index
+        self._ambient_discovery_busy = True
+        self._run_ambient_discovery(context)
+
+    @work(exclusive=True)
+    async def _run_ambient_discovery(self, context: dict[str, Any]) -> None:
+        try:
+            engine = self.app.game_engine  # type: ignore[attr-defined]
+            response = await engine.describe_ambient_dungeon_target(context)
+            if not response.narrative_text and not response.scene_art:
+                return
+            lines: list[str] = []
+            if response.scene_art:
+                lines.extend(response.scene_art.splitlines())
+                if response.narrative_text:
+                    lines.append("")
+            if response.narrative_text:
+                lines.extend(response.narrative_text.splitlines())
+            title = f"⛨ AMBIENT: {str(context.get('target_label', 'Discovery')).upper()}"
+            self._set_ambient_discovery(title, lines)
+        finally:
+            self._ambient_discovery_busy = False
 
     def _step(self, dx: int, dy: int) -> None:
         if self._look_mode:
             self._move_look_cursor(dx, dy)
             return
         result = self._state.attempt_step(dx, dy)
+        if result.kind == DungeonInteractionKind.MOVE:
+            self._ambient_action_index += 1
         self._refresh_all()
         if result.kind in {
             DungeonInteractionKind.CONVERSATION,
@@ -568,6 +710,8 @@ class DungeonScreen(Screen[None]):
             self._open_text_view_for_interaction(result)
         elif result.kind == DungeonInteractionKind.TRANSITION:
             self.app.travel_dungeon_transition()  # type: ignore[attr-defined]
+        elif result.kind == DungeonInteractionKind.MOVE:
+            self._maybe_trigger_ambient_discovery()
 
     def _move_look_cursor(self, dx: int, dy: int) -> None:
         if self._look_cursor_pos is None:
@@ -799,7 +943,9 @@ class DungeonScreen(Screen[None]):
 
     def action_wait(self) -> None:
         self._state.wait()
+        self._ambient_action_index += 1
         self._refresh_all()
+        self._maybe_trigger_ambient_discovery()
 
     def action_show_help(self) -> None:
         self.app.push_screen(

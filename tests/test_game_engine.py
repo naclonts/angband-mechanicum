@@ -271,6 +271,41 @@ class TestDeathNarrative:
 
 
 # ---------------------------------------------------------------------------
+# Ambient dungeon discovery
+# ---------------------------------------------------------------------------
+
+class TestAmbientDungeonDiscovery:
+    @pytest.mark.asyncio
+    async def test_ambient_discovery_does_not_advance_turn_state(
+        self, engine_with_mock_client: GameEngine
+    ) -> None:
+        engine = engine_with_mock_client
+        response_json = json.dumps({
+            "narrative_text": "A data shrine hums softly in the gloom.",
+            "scene_art": "╔═══╗\n║†║\n╚═══╝",
+            "info_update": None,
+            "entities": [],
+            "combat_trigger": False,
+            "speaking_npc": None,
+        })
+        engine._client.messages.create.return_value = _make_api_response(response_json)
+
+        result = await engine.describe_ambient_dungeon_target(
+            {
+                "target_label": "Data Shrine",
+                "target_kind": "object",
+                "terrain": "shrine",
+                "target_position": [3, 2],
+            }
+        )
+
+        assert result.narrative_text == "A data shrine hums softly in the gloom."
+        assert result.scene_art == "╔═══╗\n║†║\n╚═══╝"
+        assert engine.turn_count == 0
+        assert engine._conversation_history == []
+
+
+# ---------------------------------------------------------------------------
 # generate_encounter
 # ---------------------------------------------------------------------------
 
