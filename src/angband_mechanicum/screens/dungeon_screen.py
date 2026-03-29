@@ -13,7 +13,13 @@ from textual.screen import Screen
 from textual import work
 
 from angband_mechanicum.engine.dungeon_gen import GeneratedFloor, generate_dungeon_floor
-from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain, FogState
+from angband_mechanicum.engine.dungeon_level import (
+    DungeonLevel,
+    DungeonTerrain,
+    FogState,
+    is_transition_terrain,
+    transition_terrain_label,
+)
 from angband_mechanicum.engine.history import EntityType
 from angband_mechanicum.widgets.dungeon_map import (
     DungeonMapEntity,
@@ -32,6 +38,7 @@ class DungeonInteractionKind(enum.Enum):
     ATTACK = "attack"
     CONVERSATION = "conversation"
     OBJECT = "object"
+    TRANSITION = "transition"
     NEUTRAL = "neutral"
     BLOCKED = "blocked"
 
@@ -352,13 +359,22 @@ class DungeonMapState:
             )
             return result
         self._move_player_to((nx, ny))
-        terrain = self.level.get_terrain(nx, ny).value.replace("_", " ").title()
+        terrain_type = self.level.get_terrain(nx, ny)
+        if is_transition_terrain(terrain_type):
+            direction = "deeper" if (nx, ny) in self.level.stairs_down else "upward"
+            message = (
+                f"You step onto the {transition_terrain_label(terrain_type)} "
+                f"and feel it carry you {direction}."
+            )
+            self.append_message(message)
+            return DungeonActionResult(
+                kind=DungeonInteractionKind.TRANSITION,
+                message=message,
+                moved_to=(nx, ny),
+            )
+        terrain = terrain_type.value.replace("_", " ").title()
         message = f"You move to {nx},{ny} across {terrain}."
         self.append_message(message)
-        if self.level.get_terrain(nx, ny) == DungeonTerrain.STAIRS_DOWN:
-            self.append_message("Downward stairs descend deeper.")
-        elif self.level.get_terrain(nx, ny) == DungeonTerrain.STAIRS_UP:
-            self.append_message("Upward stairs lead back toward the surface.")
         return DungeonActionResult(
             kind=DungeonInteractionKind.MOVE,
             message=message,
@@ -538,6 +554,8 @@ class DungeonScreen(Screen[None]):
             DungeonInteractionKind.OBJECT,
         }:
             self._open_text_view_for_interaction(result)
+        elif result.kind == DungeonInteractionKind.TRANSITION:
+            self.app.travel_dungeon_transition()  # type: ignore[attr-defined]
 
     def _move_look_cursor(self, dx: int, dy: int) -> None:
         if self._look_cursor_pos is None:

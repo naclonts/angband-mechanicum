@@ -13,6 +13,7 @@ from textual.app import App
 
 from angband_mechanicum.engine.game_engine import GameEngine
 from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager
+from angband_mechanicum.engine.dungeon_level import transition_terrain_label
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.screens.api_key_screen import ApiKeyScreen
 from angband_mechanicum.screens.dungeon_screen import DungeonMapState, DungeonScreen
@@ -57,6 +58,57 @@ class DungeonSession:
     location: str | None = None
     intro_narrative: str | None = None
     pending_text_context: dict[str, Any] = field(default_factory=dict)
+    level_stack: list[str] = field(default_factory=list)
+    level_states: dict[str, DungeonMapState] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        self.level_states.setdefault(self.state.level.level_id, self.state)
+        if self.location is None:
+            self.location = self.state.level.name
+
+    def snapshot_current_state(self) -> None:
+        """Remember the live dungeon state under its level ID."""
+        self.level_states[self.state.level.level_id] = self.state
+        self.location = self.state.level.name
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the current dungeon session for persistence."""
+        return {
+            "state": self.state.to_dict(),
+            "story_id": self.story_id,
+            "location": self.location,
+            "intro_narrative": self.intro_narrative,
+            "pending_text_context": dict(self.pending_text_context),
+            "level_stack": list(self.level_stack),
+            "level_states": {
+                level_id: level_state.to_dict()
+                for level_id, level_state in self.level_states.items()
+            },
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DungeonSession:
+        """Reconstruct a dungeon session from serialized data."""
+        if "state" in data:
+            state_data = data["state"]
+        else:
+            state_data = data
+        state = DungeonMapState.from_dict(state_data)
+        level_states_raw = data.get("level_states", {})
+        level_states = {
+            level_id: DungeonMapState.from_dict(level_state)
+            for level_id, level_state in level_states_raw.items()
+        }
+        level_states[state.level.level_id] = state
+        return cls(
+            state=state,
+            story_id=data.get("story_id"),
+            location=data.get("location") or state.level.name,
+            intro_narrative=data.get("intro_narrative"),
+            pending_text_context=dict(data.get("pending_text_context", {})),
+            level_stack=[str(level_id) for level_id in data.get("level_stack", [])],
+            level_states=level_states,
+        )
 
     def to_text_restore_state(
         self,
@@ -132,11 +184,11 @@ class AngbandMechanicumApp(App[None]):
         seed = zlib.adler32(source.encode("utf-8"))
         location = story_start.location if story_start else "Unknown Depths"
         floor = generate_dungeon_floor(
-            level_id=source,
-            depth=1,
-            environment=environment,
-            name=location,
-            seed=seed,
+        level_id=source,
+        depth=1,
+        environment=environment,
+        name=location,
+        seed=seed,
         )
         messages = [story_start.intro_narrative] if story_start else []
         return DungeonSession(
@@ -147,7 +199,7 @@ class AngbandMechanicumApp(App[None]):
                 messages=messages,
             ),
             story_id=story_start.id if story_start else None,
-            location=location,
+            location=floor.level.name,
             intro_narrative=story_start.intro_narrative if story_start else None,
         )
 
@@ -208,6 +260,67 @@ class AngbandMechanicumApp(App[None]):
         if info_update:
             self.dungeon_session.pending_text_context.update(info_update)
         self.open_dungeon_view()
+
+    def travel_dungeon_transition(self) -> None:
+        """Traverse a dungeon transition tile into a new or previous level."""
+        if self.dungeon_session is None:
+            self.dungeon_session = self.build_dungeon_session(self._story_start)
+        session = self.dungeon_session
+        current = session.state
+        if current.player_pos is None:
+            return
+
+        session.snapshot_current_state()
+        current_pos = current.player_pos
+        current_terrain = current.level.get_terrain(*current_pos)
+        transition_label = transition_terrain_label(current_terrain)
+
+        if current_pos in current.level.stairs_up and session.level_stack:
+            previous_level_id = session.level_stack.pop()
+            previous_state = session.level_states.get(previous_level_id)
+            if previous_state is None:
+                current.append_message("The route above is lost to static.")
+                return
+            previous_state.append_message(
+                f"You return via the {transition_label} to {previous_state.level.name}."
+            )
+            session.state = previous_state
+            session.location = previous_state.level.name
+            self.open_dungeon_view()
+            return
+
+        if current_pos in current.level.stairs_down:
+            session.level_stack.append(current.level.level_id)
+            next_depth = current.level.depth + 1
+            next_level_id = f"{current.level.level_id}:depth-{next_depth}"
+            next_state = session.level_states.get(next_level_id)
+            if next_state is None:
+                floor = generate_dungeon_floor(
+                    level_id=next_level_id,
+                    depth=next_depth,
+                    environment=current.level.environment,
+                    name=f"{session.location or current.level.name} Depth {next_depth}",
+                    seed=zlib.adler32(next_level_id.encode("utf-8")),
+                )
+                next_state = DungeonMapState(
+                    level=floor.level,
+                    player_pos=floor.level.player_pos,
+                    entities=[],
+                    messages=[
+                        f"You travel via the {transition_label} to {floor.level.name}.",
+                    ],
+                )
+                session.level_states[next_level_id] = next_state
+            else:
+                next_state.append_message(
+                    f"You travel via the {transition_label} to {next_state.level.name}."
+                )
+            session.state = next_state
+            session.location = next_state.level.name
+            self.open_dungeon_view()
+            return
+
+        current.append_message(f"The {transition_label} does not respond.")
 
     def archive_player_death(self, record: DeathRecord) -> None:
         """Persist a death record, delete the live save, and return to the menu."""

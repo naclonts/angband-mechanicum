@@ -115,6 +115,7 @@ Primary files:
 - `DungeonScreen` owns or receives a `DungeonMapState`.
 - `DungeonMapState` wraps a persistent `DungeonLevel`, player position, FOV radius, messages, and lightweight map entities.
 - Movement and bump interactions are resolved by `DungeonMapState.attempt_step()`.
+- Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.
 - The screen refreshes the render widgets after each action.
 - Conversations or object interactions transition to `GameScreen` through app-level bridging.
 

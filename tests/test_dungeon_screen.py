@@ -291,6 +291,18 @@ class TestDungeonMapState:
         assert "leave it undisturbed" in state.messages[-1]
         assert state.player_pos == (2, 2)
 
+    def test_step_onto_transition_tile_returns_transition_result(self) -> None:
+        level = _make_level()
+        level.set_terrain(3, 2, DungeonTerrain.STAIRS_DOWN)
+        level.stairs_down = [(3, 2)]
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=1)
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.TRANSITION
+        assert result.moved_to == (3, 2)
+        assert "carry you deeper" in result.message
+
 
 class TestTransitionHelpers:
     def test_app_builds_dungeon_session_from_story_start(self) -> None:

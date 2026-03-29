@@ -504,12 +504,26 @@ _THEME_FEATURES: dict[str, list[str]] = {
     "hive": ["cover", "debris"],
 }
 
+_THEME_TRANSITIONS: dict[str, DungeonTerrain] = {
+    "forge": DungeonTerrain.LIFT,
+    "manufactorum": DungeonTerrain.LIFT,
+    "hive": DungeonTerrain.ELEVATOR,
+    "cathedral": DungeonTerrain.GATE,
+    "tomb": DungeonTerrain.GATE,
+    "corrupted": DungeonTerrain.PORTAL,
+}
+
 
 def _features_for_theme(theme: str | None) -> list[str]:
     """Derive feature list from a theme string."""
     if theme and theme in _THEME_FEATURES:
         return list(_THEME_FEATURES[theme])
     return []
+
+
+def _transition_terrain_for_environment(environment: str) -> DungeonTerrain | None:
+    """Return the terrain used to represent traversal points on a floor."""
+    return _THEME_TRANSITIONS.get(environment)
 
 
 # ---------------------------------------------------------------------------
@@ -1069,8 +1083,13 @@ def generate_dungeon_floor(
     if stairs_down == stairs_up and len(rooms) > 1:
         stairs_down = _find_nearest_floor(level, rooms[-1].center)
 
-    level.set_terrain(stairs_up[0], stairs_up[1], DungeonTerrain.STAIRS_UP)
-    level.set_terrain(stairs_down[0], stairs_down[1], DungeonTerrain.STAIRS_DOWN)
+    transition_terrain = _transition_terrain_for_environment(env.name)
+    if transition_terrain is None:
+        level.set_terrain(stairs_up[0], stairs_up[1], DungeonTerrain.STAIRS_UP)
+        level.set_terrain(stairs_down[0], stairs_down[1], DungeonTerrain.STAIRS_DOWN)
+    else:
+        level.set_terrain(stairs_up[0], stairs_up[1], transition_terrain)
+        level.set_terrain(stairs_down[0], stairs_down[1], transition_terrain)
     level.stairs_up = [stairs_up]
     level.stairs_down = [stairs_down]
     level.player_pos = stairs_up
@@ -1079,6 +1098,15 @@ def generate_dungeon_floor(
     _scatter_environment_features(level, rooms, env.name, reserved, rng)
     _add_doors(level, rng)
     secret_passages = _add_secret_passage(level, rooms, reserved, rng)
+
+    # Late carving steps can brush over traversal tiles, so reapply them last.
+    if transition_terrain is None:
+        level.set_terrain(stairs_up[0], stairs_up[1], DungeonTerrain.STAIRS_UP)
+        level.set_terrain(stairs_down[0], stairs_down[1], DungeonTerrain.STAIRS_DOWN)
+    else:
+        level.set_terrain(stairs_up[0], stairs_up[1], transition_terrain)
+        level.set_terrain(stairs_down[0], stairs_down[1], transition_terrain)
+    level.player_pos = stairs_up
 
     return GeneratedFloor(
         level=level,

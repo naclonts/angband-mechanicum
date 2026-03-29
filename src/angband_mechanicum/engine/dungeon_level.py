@@ -37,6 +37,10 @@ class DungeonTerrain(enum.Enum):
     # Vertical transitions
     STAIRS_UP = "stairs_up"
     STAIRS_DOWN = "stairs_down"
+    ELEVATOR = "elevator"
+    GATE = "gate"
+    PORTAL = "portal"
+    LIFT = "lift"
 
     # Hazards / difficult terrain
     WATER = "water"
@@ -65,6 +69,10 @@ _TERRAIN_PROPS: dict[DungeonTerrain, tuple[bool, bool, int]] = {
     DungeonTerrain.DOOR_CLOSED: (False, False, 0),
     DungeonTerrain.STAIRS_UP:   (True,  True,  1),
     DungeonTerrain.STAIRS_DOWN: (True,  True,  1),
+    DungeonTerrain.ELEVATOR:    (True,  True,  1),
+    DungeonTerrain.GATE:        (True,  True,  1),
+    DungeonTerrain.PORTAL:      (True,  True,  1),
+    DungeonTerrain.LIFT:        (True,  True,  1),
     DungeonTerrain.WATER:       (True,  True,  2),
     DungeonTerrain.LAVA:        (False, True,  0),
     DungeonTerrain.CHASM:       (False, True,  0),
@@ -98,6 +106,10 @@ _TERRAIN_GLYPHS: dict[DungeonTerrain, TerrainGlyph] = {
     DungeonTerrain.DOOR_CLOSED: TerrainGlyph("+", "#c89632"),
     DungeonTerrain.STAIRS_UP:   TerrainGlyph("<", "#ffffff"),
     DungeonTerrain.STAIRS_DOWN: TerrainGlyph(">", "#ffffff"),
+    DungeonTerrain.ELEVATOR:    TerrainGlyph("⇅", "#ffffff"),
+    DungeonTerrain.GATE:        TerrainGlyph("⌂", "#ffd700"),
+    DungeonTerrain.PORTAL:      TerrainGlyph("◉", "#cc66ff"),
+    DungeonTerrain.LIFT:        TerrainGlyph("↕", "#ffffff"),
     DungeonTerrain.WATER:       TerrainGlyph("~", "#4488ff"),
     DungeonTerrain.LAVA:        TerrainGlyph("~", "#ff4400"),
     DungeonTerrain.CHASM:       TerrainGlyph("·", "#222222"),
@@ -623,6 +635,10 @@ def dungeon_terrain_to_combat(dt: DungeonTerrain) -> "Terrain":
         DungeonTerrain.DOOR_CLOSED: Terrain.WALL,
         DungeonTerrain.STAIRS_UP:   Terrain.FLOOR,
         DungeonTerrain.STAIRS_DOWN: Terrain.FLOOR,
+        DungeonTerrain.ELEVATOR:    Terrain.FLOOR,
+        DungeonTerrain.GATE:        Terrain.FLOOR,
+        DungeonTerrain.PORTAL:      Terrain.FLOOR,
+        DungeonTerrain.LIFT:        Terrain.FLOOR,
         DungeonTerrain.WATER:       Terrain.FLOOR,   # combat Terrain lacks WATER
         DungeonTerrain.LAVA:        Terrain.WALL,
         DungeonTerrain.CHASM:       Terrain.WALL,
@@ -636,6 +652,31 @@ def dungeon_terrain_to_combat(dt: DungeonTerrain) -> "Terrain":
         DungeonTerrain.SHRINE:      Terrain.TERMINAL,
     }
     return _MAP.get(dt, Terrain.FLOOR)
+
+
+def is_transition_terrain(terrain: DungeonTerrain) -> bool:
+    """Return True if the terrain represents a traversal point."""
+    return terrain in {
+        DungeonTerrain.STAIRS_UP,
+        DungeonTerrain.STAIRS_DOWN,
+        DungeonTerrain.ELEVATOR,
+        DungeonTerrain.GATE,
+        DungeonTerrain.PORTAL,
+        DungeonTerrain.LIFT,
+    }
+
+
+def transition_terrain_label(terrain: DungeonTerrain) -> str:
+    """Return a compact human-readable label for a transition tile."""
+    labels = {
+        DungeonTerrain.STAIRS_UP: "stairs",
+        DungeonTerrain.STAIRS_DOWN: "stairs",
+        DungeonTerrain.ELEVATOR: "elevator",
+        DungeonTerrain.GATE: "gate",
+        DungeonTerrain.PORTAL: "portal",
+        DungeonTerrain.LIFT: "lift",
+    }
+    return labels.get(terrain, terrain.value.replace("_", " "))
 
 
 # ---------------------------------------------------------------------------
