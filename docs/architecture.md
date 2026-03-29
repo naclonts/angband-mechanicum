@@ -128,6 +128,7 @@ Primary files:
 - Creature turns now advance from the dungeon map itself, with hostile pursuit, ranged engagement, and idle/search transitions driven by the live map state instead of the legacy combat screen.
 - Creature log lines are gated by the player's current LOS/FOV perception so off-screen movement stays quiet while visible attacks and movement still surface in the field log.
 - Movement, bump, and adjacent door open/close interactions are resolved by `DungeonMapState.attempt_step()` and its door helpers.
+- Player ranged attacks now also resolve in `DungeonMapState`, with `DungeonScreen` exposing a cursor-based fire mode that validates visibility, range, and line of sight before creature turns advance.
 - Hazard traversal damage is also resolved during `DungeonMapState.attempt_step()`, then applied by `DungeonScreen` before creature turns advance so the status pane and death handling stay in sync with deterministic map movement.
 - Ctrl+direction travel reuses the same step resolution and stops when the path opens up, a contact appears, or combat/terrain interrupts control.
 - Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.
@@ -177,7 +178,7 @@ Primary files:
 - `GameScreen` can enter dungeon combat either explicitly (`/combat`) or from an LLM `combat_trigger`.
 - The app bridges that request into a generated dungeon encounter floor with hostile contacts already present on the map.
 - `CombatScreen` and `CombatEngine` remain only as legacy tactical references; the screen is quarantined and no longer part of the live combat flow.
-- The dungeon screen resolves combat through bump-to-attack and its local creature-turn loop.
+- The dungeon screen resolves combat through bump-to-attack, cursor-based ranged fire, and its local creature-turn loop.
 - `GameScreen` writes the transition narrative back into dungeon state and lets the map view take over.
 
 Primary files:

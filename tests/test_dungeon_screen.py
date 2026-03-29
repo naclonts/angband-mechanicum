@@ -23,6 +23,7 @@ from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.screens.game_screen import GameScreen
 import angband_mechanicum.screens.dungeon_screen as dungeon_screen_module
 from angband_mechanicum.screens.dungeon_screen import (
+    DungeonActionResult,
     DungeonInteractionKind,
     DungeonMapState,
     DungeonScreen,
@@ -149,6 +150,23 @@ class TestDungeonMapRendering:
         assert "12/20" in status
         assert "LOG:" not in status
 
+    def test_status_panel_reports_fire_mode_targeting_details(self) -> None:
+        level = _make_level()
+        status = render_dungeon_status(
+            level,
+            (2, 2),
+            integrity=(12, 20),
+            look_cursor=(4, 2),
+            look_summary="Loota (locked)",
+            target_mode="fire",
+            target_details=("RANGE: 2/8", "Target lock confirmed"),
+        )
+
+        assert "FIRE MODE:" in status
+        assert "Loota (locked)" in status
+        assert "RANGE: 2/8" in status
+        assert "Enter: fire / Esc: cancel" in status
+
 
 class TestDungeonScreenBindings:
     def test_diagonal_movement_bindings_include_vi_and_numpad_aliases(self) -> None:
@@ -196,6 +214,7 @@ class TestDungeonScreenBindings:
 
         assert bindings["5"] == "wait"
         assert bindings["space"] == "wait"
+        assert bindings["f"] == "fire"
 
     def test_help_text_lists_each_diagonal_direction(self) -> None:
         hotkeys = dict(DungeonScreen.HOTKEYS)
@@ -206,12 +225,13 @@ class TestDungeonScreenBindings:
         assert hotkeys["3 / PgDn"] == "Move southeast"
         assert hotkeys["Tab"] == "Cycle focus between dungeon panels"
         assert (
-            hotkeys["Ctrl + arrows / HJKYUBN / 7-9-1-3 / Home-PgUp-End-PgDn"]
+        hotkeys["Ctrl + arrows / HJKYUBN / 7-9-1-3 / Home-PgUp-End-PgDn"]
             == "Travel until something interesting happens"
         )
         assert hotkeys["O"] == "Open adjacent door"
         assert hotkeys["C"] == "Close adjacent door"
         assert hotkeys["5 / Space"] == "Wait / rescan"
+        assert hotkeys["F"] == "Fire at a visible hostile"
 
     def test_non_map_panels_are_focusable(self) -> None:
         assert DungeonMessageLog.can_focus is True
@@ -445,6 +465,7 @@ class TestDungeonMapState:
             player_pos=(2, 2),
             fov_radius=2,
             player_attack=6,
+            player_attack_range=9,
             entities=[entity],
             messages=["First contact"],
         )
@@ -452,6 +473,7 @@ class TestDungeonMapState:
         assert restored.player_pos == (2, 2)
         assert restored.fov_radius == 2
         assert restored.player_attack == 6
+        assert restored.player_attack_range == 9
         assert restored.messages == ["First contact"]
         assert restored.level.name == "Test Floor"
         assert restored.entities[0].history_entity_id == "skitarius-alpha-7"
@@ -632,6 +654,119 @@ class TestDungeonMapState:
         assert state.messages[-1] == (
             "You strike Rogue Servitor for 4 damage. Rogue Servitor reels with 2/6 integrity remaining."
         )
+
+    def test_ranged_attack_hits_visible_hostile_within_range(self) -> None:
+        level = _make_level()
+        level.player_pos = (2, 2)
+        level.compute_fov((2, 2), 8)
+        hostile = DungeonMapEntity(
+            entity_id="loota-1",
+            name="Loota",
+            x=4,
+            y=2,
+            disposition="hostile",
+            hp=7,
+            max_hp=7,
+            attack=3,
+            movement=2,
+            attack_range=6,
+            armor=1,
+        )
+        state = DungeonMapState(
+            level=level,
+            player_pos=(2, 2),
+            player_attack=5,
+            player_attack_range=8,
+            entities=[hostile],
+        )
+
+        result = state.attempt_ranged_attack((4, 2))
+
+        assert result.kind == DungeonInteractionKind.ATTACK
+        assert result.ranged_attack is True
+        assert result.attack_damage == 4
+        assert hostile.hp == 3
+        assert state.messages[-1] == (
+            "You shoot Loota for 4 damage. Loota staggers with 3/7 integrity remaining."
+        )
+
+    def test_ranged_attack_rejects_out_of_range_target(self) -> None:
+        level = _make_level()
+        level.player_pos = (2, 2)
+        level.compute_fov((2, 2), 8)
+        hostile = DungeonMapEntity(
+            entity_id="loota-1",
+            name="Loota",
+            x=4,
+            y=2,
+            disposition="hostile",
+            hp=7,
+            max_hp=7,
+            attack=3,
+            movement=2,
+            attack_range=6,
+            armor=1,
+        )
+        state = DungeonMapState(
+            level=level,
+            player_pos=(2, 2),
+            player_attack=5,
+            player_attack_range=1,
+            entities=[hostile],
+        )
+
+        result = state.attempt_ranged_attack((4, 2))
+
+        assert result.kind == DungeonInteractionKind.BLOCKED
+        assert hostile.hp == 7
+        assert state.messages[-1] == "Target out of range (2/1)."
+
+    def test_ranged_attack_checks_line_of_sight(self) -> None:
+        level = DungeonLevel(
+            level_id="los-test",
+            name="LOS Test",
+            depth=1,
+            environment="forge",
+            width=7,
+            height=5,
+        )
+        for y in range(level.height):
+            for x in range(level.width):
+                if x in (0, level.width - 1) or y in (0, level.height - 1):
+                    level.set_terrain(x, y, DungeonTerrain.WALL)
+                else:
+                    level.set_terrain(x, y, DungeonTerrain.FLOOR)
+        level.set_terrain(3, 2, DungeonTerrain.WALL)
+        level.player_pos = (2, 2)
+        level.compute_fov((2, 2), 8)
+
+        hostile = DungeonMapEntity(
+            entity_id="loota-1",
+            name="Loota",
+            x=4,
+            y=2,
+            disposition="hostile",
+            hp=7,
+            max_hp=7,
+            attack=3,
+            movement=2,
+            attack_range=6,
+            armor=1,
+        )
+        state = DungeonMapState(
+            level=level,
+            player_pos=(2, 2),
+            player_attack=5,
+            player_attack_range=8,
+            entities=[hostile],
+        )
+        state.level.set_visible(4, 2)
+
+        result = state.attempt_ranged_attack((4, 2))
+
+        assert result.kind == DungeonInteractionKind.BLOCKED
+        assert hostile.hp == 7
+        assert state.messages[-1] == "No line of sight to target."
 
     def test_friendly_bump_prompts_conversation(self) -> None:
         level = _make_level()
@@ -858,6 +993,61 @@ class TestDungeonLookMode:
         screen.action_confirm_look()
 
         assert screen._look_mode is False
+        assert screen._look_cursor_pos is None
+
+    def test_fire_mode_stays_modal_across_cursor_moves(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        level.compute_fov((2, 2), 8)
+        hostile = DungeonMapEntity(
+            entity_id="loota-1",
+            name="Loota",
+            x=4,
+            y=2,
+            disposition="hostile",
+            hp=7,
+            max_hp=7,
+            attack=3,
+            movement=2,
+            attack_range=6,
+            armor=1,
+        )
+        screen = DungeonScreen(level=level, player_pos=(2, 2), entities=[hostile])
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        screen.action_fire()
+        screen.action_move_west()
+
+        assert screen._fire_mode is True
+        assert screen._look_cursor_pos == (3, 2)
+        assert screen.state.player_pos == (2, 2)
+
+    def test_confirm_in_fire_mode_resolves_ranged_attack(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        level.compute_fov((2, 2), 8)
+        hostile = DungeonMapEntity(
+            entity_id="loota-1",
+            name="Loota",
+            x=4,
+            y=2,
+            disposition="hostile",
+            hp=7,
+            max_hp=7,
+            attack=3,
+            movement=2,
+            attack_range=6,
+            armor=1,
+        )
+        screen = DungeonScreen(level=level, player_pos=(2, 2), entities=[hostile])
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+        processed: list[DungeonActionResult] = []
+        monkeypatch.setattr(screen, "_process_step_result", lambda result: processed.append(result))
+
+        screen.action_fire()
+        screen.action_confirm_look()
+
+        assert processed
+        assert processed[0].ranged_attack is True
+        assert screen._fire_mode is False
         assert screen._look_cursor_pos is None
 
 class TestAmbientDiscoveries:
