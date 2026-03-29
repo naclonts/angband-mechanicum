@@ -375,6 +375,78 @@ class TestDungeonMapState:
         assert restored.level.name == "Test Floor"
         assert restored.entities[0].history_entity_id == "skitarius-alpha-7"
 
+    def test_advance_creature_turns_moves_melee_hostile_around_obstacle(self) -> None:
+        level = DungeonLevel(
+            level_id="turn-test",
+            name="Turn Test",
+            depth=1,
+            environment="forge",
+            width=7,
+            height=5,
+        )
+        for y in range(level.height):
+            for x in range(level.width):
+                if x in (0, level.width - 1) or y in (0, level.height - 1):
+                    level.set_terrain(x, y, DungeonTerrain.WALL)
+                else:
+                    level.set_terrain(x, y, DungeonTerrain.FLOOR)
+        for y in range(1, 4):
+            level.set_terrain(3, y, DungeonTerrain.WALL)
+        level.player_pos = (5, 2)
+        level.compute_fov((5, 2), 5)
+
+        hostile = DungeonMapEntity(
+            entity_id="rogue-servitor",
+            name="Rogue Servitor",
+            x=1,
+            y=2,
+            disposition="hostile",
+            movement_ai="aggressive",
+            hp=6,
+            max_hp=6,
+            attack=3,
+            movement=3,
+            attack_range=1,
+            armor=0,
+        )
+        state = DungeonMapState(level=level, player_pos=(5, 2), entities=[hostile])
+
+        reports = state.advance_creature_turns()
+
+        assert reports[0].attacked_player is False
+        assert reports[0].moved_to == (2, 2)
+        assert state.entities[0].position == (2, 2)
+        assert state.messages[-1].startswith("Rogue Servitor moves")
+
+    def test_advance_creature_turns_applies_ranged_attack_report(self) -> None:
+        level = _make_level()
+        level.player_pos = (4, 2)
+        level.compute_fov((4, 2), 5)
+
+        loota = DungeonMapEntity(
+            entity_id="loota-1",
+            name="Loota",
+            x=1,
+            y=2,
+            disposition="hostile",
+            movement_ai="aggressive",
+            hp=9,
+            max_hp=9,
+            attack=5,
+            movement=2,
+            attack_range=6,
+            armor=1,
+        )
+        state = DungeonMapState(level=level, player_pos=(4, 2), entities=[loota])
+
+        reports = state.advance_creature_turns()
+
+        assert reports[0].attacked_player is True
+        assert reports[0].attack_damage == 5
+        assert reports[0].moved_to is None
+        assert state.entities[0].position == (1, 2)
+        assert state.messages[-1].startswith("Loota attacks")
+
     def test_hostile_bump_attacks_and_clears_tile(self) -> None:
         level = _make_level()
         hostile = DungeonMapEntity(

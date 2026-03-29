@@ -15,7 +15,14 @@ from textual.events import Key
 from textual.screen import Screen
 from textual import work
 
-from angband_mechanicum.engine.dungeon_entities import DungeonEntity, DungeonEntityRoster
+from angband_mechanicum.engine.dungeon_entities import (
+    DungeonDisposition,
+    DungeonEntity,
+    DungeonEntityRoster,
+    DungeonMovementAI,
+    DungeonTurnResult,
+)
+from angband_mechanicum.engine.combat_engine import CombatStats
 from angband_mechanicum.engine.dungeon_gen import GeneratedFloor, generate_dungeon_floor
 from angband_mechanicum.engine.dungeon_level import (
     DungeonLevel,
@@ -65,9 +72,19 @@ def build_map_entities_from_roster(roster: DungeonEntityRoster) -> list[DungeonM
                 hp=entity.stats.hp,
                 max_hp=entity.stats.max_hp,
                 attack=entity.stats.attack,
+                movement=entity.stats.movement,
+                attack_range=entity.stats.attack_range,
                 armor=entity.stats.armor,
                 description=entity.description,
                 history_entity_id=entity.history_entity_id,
+                movement_ai=entity.movement_ai.value,
+                home_position=entity.home_position or (x, y),
+                alert_state=entity.alert_state,
+                alert_turns=entity.alert_turns,
+                last_seen_player_position=entity.last_seen_player_position,
+                preferred_range=entity.preferred_range,
+                patrol_route=list(entity.patrol_route),
+                patrol_index=entity.patrol_index,
             )
         )
     return entities
@@ -505,6 +522,78 @@ class DungeonMapState:
         assert self.player_pos is not None
         self.recompute_fov()
         self.append_message("You hold position and scan the chamber.")
+
+    def advance_creature_turns(self) -> list[DungeonTurnResult]:
+        """Advance all living dungeon actors once and report their actions."""
+        reports: list[DungeonTurnResult] = []
+        player_position = self.player_pos
+        occupied: set[tuple[int, int]] = {
+            entity.position
+            for entity in self.entities
+            if entity.alive and entity.position is not None
+        }
+        if player_position is not None:
+            occupied.add(player_position)
+
+        for entity in self.entities:
+            if not entity.alive or entity.position is None:
+                continue
+            actor = DungeonEntity(
+                entity_id=entity.entity_id,
+                name=entity.name,
+                disposition=DungeonDisposition(entity.disposition),
+                movement_ai=DungeonMovementAI(entity.movement_ai),
+                can_talk=entity.can_talk,
+                portrait_key="mechanicus_adept",
+                stats=CombatStats(
+                    max_hp=entity.max_hp,
+                    hp=entity.hp,
+                    attack=entity.attack,
+                    armor=entity.armor,
+                    movement=entity.movement,
+                    attack_range=entity.attack_range,
+                ),
+                description=entity.description,
+                x=entity.x,
+                y=entity.y,
+                home_position=entity.home_position,
+                alert_state=entity.alert_state,
+                alert_turns=entity.alert_turns,
+                last_seen_player_position=entity.last_seen_player_position,
+                preferred_range=entity.preferred_range,
+                history_entity_id=entity.history_entity_id,
+                patrol_route=list(entity.patrol_route),
+                patrol_index=entity.patrol_index,
+            )
+            plan = actor.turn_action(
+                self.level,
+                player_position=player_position,
+                occupied=occupied,
+            )
+            entity.alert_state = actor.alert_state
+            entity.alert_turns = actor.alert_turns
+            entity.last_seen_player_position = actor.last_seen_player_position
+            entity.home_position = actor.home_position
+            entity.patrol_index = actor.patrol_index
+            entity.preferred_range = actor.preferred_range
+
+            current_position = entity.position
+            if current_position is not None:
+                occupied.discard(current_position)
+            if plan.moved_to is not None and plan.moved_to != current_position:
+                if current_position is not None:
+                    self.level.remove_creature(*current_position)
+                entity.x, entity.y = plan.moved_to
+                self.level.place_creature(entity.x, entity.y, entity.entity_id)
+                occupied.add(plan.moved_to)
+            elif current_position is not None:
+                occupied.add(current_position)
+
+            if plan.message:
+                self.append_message(plan.message)
+            reports.append(plan)
+
+        return reports
 
 
 class DungeonScreen(Screen[None]):
@@ -968,11 +1057,27 @@ class DungeonScreen(Screen[None]):
         elif result.kind == DungeonInteractionKind.TRANSITION:
             self.app.travel_dungeon_transition()  # type: ignore[attr-defined]
             self._autosave()
-        elif result.kind == DungeonInteractionKind.MOVE:
+        elif result.kind in {
+            DungeonInteractionKind.MOVE,
+            DungeonInteractionKind.ATTACK,
+            DungeonInteractionKind.NEUTRAL,
+        }:
+            self._apply_creature_turns()
             self._maybe_trigger_ambient_discovery()
             self._autosave()
         elif result.kind != DungeonInteractionKind.BLOCKED:
             self._autosave()
+
+    def _apply_creature_turns(self) -> None:
+        """Advance the local AI after a player action."""
+        reports = self._state.advance_creature_turns()
+        if not reports:
+            return
+        engine = getattr(self.app, "game_engine", None)
+        total_damage = sum(report.attack_damage for report in reports if report.attacked_player)
+        if engine is not None and total_damage > 0:
+            engine.take_damage(total_damage)
+        self._refresh_all()
 
     @work(exclusive=True)
     async def _run_travel(self, dx: int, dy: int) -> None:
@@ -1252,6 +1357,7 @@ class DungeonScreen(Screen[None]):
     def action_wait(self) -> None:
         self._state.wait()
         self._ambient_action_index += 1
+        self._apply_creature_turns()
         self._refresh_all()
         self._maybe_trigger_ambient_discovery()
         self._autosave()

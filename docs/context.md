@@ -21,6 +21,7 @@ When text view is opened from a dungeon interaction, the active target and curre
 When ambient responses include both `scene_art` and `narrative_text`, the art is kept unwrapped and the prose wraps cleanly to the panel width.
 The dungeon status pane shows gameplay-relevant player status, especially HP/integrity, instead of a log-entry count.
 Tab cycles focus between the map, field log, and side panels so the non-map panes can be scrolled without losing movement controls.
+Creature turns now advance on the map after player actions: hostiles pursue or hold range based on line of sight, while friendly and neutral actors can follow, patrol, or wander in scenario-appropriate ways.
 
 ### Text View (narrative + dialogue + travel)
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.
