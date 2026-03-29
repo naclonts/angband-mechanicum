@@ -59,14 +59,7 @@ class MenuScreen(Screen[None]):
             def on_story_selected(story: StoryStart | None) -> None:
                 if story is None:
                     return
-                from angband_mechanicum.engine.game_engine import GameEngine
-                from angband_mechanicum.screens.game_screen import GameScreen
-
-                engine = GameEngine(player_name=name)
-                engine.apply_story_start(story)
-                self.app.game_engine = engine  # type: ignore[attr-defined]
-                self.app.save_slot = _generate_slot_id()  # type: ignore[attr-defined]
-                self.app.switch_screen(GameScreen(story_start=story))
+                self.app.begin_new_game(name, story)  # type: ignore[attr-defined]
 
             self.app.push_screen(StorySelectScreen(), callback=on_story_selected)
 
@@ -89,14 +82,23 @@ class MenuScreen(Screen[None]):
 
     def _load_game(self, slot_id: str) -> None:
         from angband_mechanicum.engine.game_engine import GameEngine
-        from angband_mechanicum.screens.game_screen import GameScreen
+        from angband_mechanicum.screens.dungeon_screen import DungeonMapState
 
         manager: SaveManager = SaveManager()
         state = manager.load(slot_id)
         engine: GameEngine = GameEngine.from_dict(state)
         self.app.game_engine = engine  # type: ignore[attr-defined]
         self.app.save_slot = slot_id  # type: ignore[attr-defined]
-        self.app.switch_screen(GameScreen(restored_state=state))
+        if state.get("dungeon_session"):
+            session = self.app.build_dungeon_session(None)  # type: ignore[attr-defined]
+            session.state = DungeonMapState.from_dict(state["dungeon_session"])
+            session.story_id = state.get("story_start_id")
+            session.location = state.get("info_panel", {}).get("LOCATION")
+            session.intro_narrative = None
+            self.app.dungeon_session = session  # type: ignore[attr-defined]
+            self.app.open_dungeon_view()  # type: ignore[attr-defined]
+            return
+        self.app.open_text_view(restored_state=state)  # type: ignore[attr-defined]
 
 
 def _generate_slot_id() -> str:

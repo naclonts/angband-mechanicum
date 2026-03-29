@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from rich.text import Text
 
+from angband_mechanicum.app import AngbandMechanicumApp
 from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain, FogState
+from angband_mechanicum.engine.story_starts import StoryStart
+from angband_mechanicum.screens.game_screen import GameScreen
 from angband_mechanicum.screens.dungeon_screen import DungeonMapState
 from angband_mechanicum.widgets.dungeon_map import render_dungeon_map, render_dungeon_status
 
@@ -79,3 +82,50 @@ class TestDungeonMapState:
         state.wait()
         assert state.messages[-1] == "You hold position and scan the chamber."
         assert level.get_tile(2, 2).fog == FogState.VISIBLE
+
+    def test_state_round_trips_through_dict(self) -> None:
+        level = _make_level()
+        state = DungeonMapState(
+            level=level,
+            player_pos=(2, 2),
+            fov_radius=2,
+            messages=["First contact"],
+        )
+        restored = DungeonMapState.from_dict(state.to_dict())
+        assert restored.player_pos == (2, 2)
+        assert restored.fov_radius == 2
+        assert restored.messages == ["First contact"]
+        assert restored.level.name == "Test Floor"
+
+
+class TestTransitionHelpers:
+    def test_app_builds_dungeon_session_from_story_start(self) -> None:
+        app = AngbandMechanicumApp()
+        story = StoryStart(
+            id="test-story",
+            title="The Silent Forge",
+            description="A forge goes silent.",
+            location="Forge-Cathedral Alpha",
+            intro_narrative="The forge awaits.",
+            scene_art="ART",
+        )
+        session = app.build_dungeon_session(story)
+
+        assert session.story_id == "test-story"
+        assert session.location == "Forge-Cathedral Alpha"
+        assert session.intro_narrative == "The forge awaits."
+        assert session.state.level.name == "Forge-Cathedral Alpha"
+        assert session.state.messages == ["The forge awaits."]
+        assert session.state.player_pos is not None
+
+    def test_game_screen_can_build_dungeon_transition_state(self) -> None:
+        screen = GameScreen()
+        payload = screen.build_dungeon_transition_state(
+            ["Conversation ended."],
+            scene_art="SCENE",
+            info_update={"LOCATION": "Vault"},
+        )
+
+        assert payload["narrative_log"] == ["Conversation ended."]
+        assert payload["current_scene_art"] == "SCENE"
+        assert payload["info_update"] == {"LOCATION": "Vault"}

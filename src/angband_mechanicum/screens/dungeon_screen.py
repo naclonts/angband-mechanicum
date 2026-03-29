@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Any, Sequence
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -54,6 +54,33 @@ class DungeonMapState:
 
     def append_message(self, text: str) -> None:
         self.messages.append(text)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "level": self.level.to_dict(),
+            "player_pos": list(self.player_pos) if self.player_pos is not None else None,
+            "fov_radius": self.fov_radius,
+            "entities": [entity.to_dict() for entity in self.entities],
+            "messages": list(self.messages),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> DungeonMapState:
+        from angband_mechanicum.engine.dungeon_level import DungeonLevel
+
+        level = DungeonLevel.from_dict(data["level"])
+        player_pos_raw = data.get("player_pos")
+        player_pos = tuple(player_pos_raw) if player_pos_raw is not None else None
+        return cls(
+            level=level,
+            player_pos=player_pos,
+            fov_radius=int(data.get("fov_radius", 8)),
+            entities=[
+                DungeonMapEntity.from_dict(entity_data)
+                for entity_data in data.get("entities", [])
+            ],
+            messages=[str(message) for message in data.get("messages", [])],
+        )
 
     def entity_at(self, position: tuple[int, int]) -> DungeonMapEntity | None:
         for entity in self.entities:
@@ -127,14 +154,23 @@ class DungeonScreen(Screen[None]):
         self,
         level: DungeonLevel | None = None,
         floor: GeneratedFloor | None = None,
+        state: DungeonMapState | None = None,
         player_pos: tuple[int, int] | None = None,
         fov_radius: int = 8,
         entities: Sequence[DungeonMapEntity] | None = None,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
+        if state is not None:
+            self._state = state
+            return
         if floor is None and level is None:
-            floor = generate_dungeon_floor(level_id="demo-floor", depth=1, environment="forge", seed=1)
+            floor = generate_dungeon_floor(
+                level_id="demo-floor",
+                depth=1,
+                environment="forge",
+                seed=1,
+            )
         resolved_level = floor.level if floor is not None else level
         assert resolved_level is not None
         self._state = DungeonMapState(
@@ -147,6 +183,20 @@ class DungeonScreen(Screen[None]):
     @property
     def state(self) -> DungeonMapState:
         return self._state
+
+    def snapshot_state(self) -> DungeonMapState:
+        """Return the live state object for app-level transitions."""
+        return self._state
+
+    def build_text_view_context(self, narrative_text: str, *, scene_art: str | None = None) -> dict[str, Any]:
+        """Build a minimal text-view restore payload for later bridge calls."""
+        payload: dict[str, Any] = {
+            "narrative_log": [narrative_text],
+            "current_scene_art": scene_art,
+        }
+        if self._state.player_pos is not None:
+            payload["map_return_pos"] = list(self._state.player_pos)
+        return payload
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="dungeon-layout"):
