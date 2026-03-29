@@ -1,6 +1,6 @@
 ---
 id: am-bw0g
-status: in_progress
+status: closed
 deps: [am-ky9z]
 links: []
 created: 2026-03-29T02:53:27Z
