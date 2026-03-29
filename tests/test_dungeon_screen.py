@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from rich.text import Text
 import pytest
 
@@ -471,6 +473,156 @@ class TestAmbientDiscoveries:
         assert len(seen_contexts) == 1
         assert first_title == "⛨ AMBIENT: DATA SHRINE"
         assert first_lines == ["A brief machine-spirit whisper settles over the panel."]
+
+
+class TestAmbientDiscoveryArtWrapping:
+    """The inspect panel should preserve ASCII art while wrapping prose."""
+
+    def test_set_ambient_stores_separate_art_and_narrative(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        art = "  ╔═══════╗\n  ║ FORGE ║\n  ╚═══════╝"
+        narrative = "The forge hums with the resonance of bound machine spirits."
+
+        screen._set_ambient_discovery(
+            "⛨ AMBIENT: SHRINE",
+            [],
+            scene_art=art,
+            narrative_text=narrative,
+        )
+
+        assert screen._ambient_discovery_art == art
+        assert screen._ambient_discovery_narrative == narrative
+
+    def test_set_ambient_without_art_leaves_fields_none(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        screen._set_ambient_discovery(
+            "⛨ AMBIENT: DISCOVERY",
+            ["A brief note."],
+        )
+
+        assert screen._ambient_discovery_art is None
+        assert screen._ambient_discovery_narrative is None
+
+class TestShowInspectTextObjects:
+    """Unit tests for the Text objects produced by show_inspect."""
+
+    def test_refresh_inspect_pane_uses_show_inspect_for_split_payload(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+
+        calls: dict[str, object] = {}
+
+        class _FakePane:
+            def show_inspect(self, title: str, *, scene_art: str | None = None, narrative_text: str | None = None) -> None:
+                calls["inspect"] = {
+                    "title": title,
+                    "scene_art": scene_art,
+                    "narrative_text": narrative_text,
+                }
+
+            def show_context(self, title: str, lines: Sequence[str]) -> None:
+                calls["context"] = {"title": title, "lines": list(lines)}
+
+        fake_pane = _FakePane()
+        monkeypatch.setattr(
+            screen,
+            "query_one",
+            lambda selector, cls=None: fake_pane,  # type: ignore[assignment]
+        )
+        screen._ambient_discovery_title = "⛨ AMBIENT: SHRINE"
+        screen._ambient_discovery_lines = ["fallback"]
+        screen._ambient_discovery_art = "ART"
+        screen._ambient_discovery_narrative = "Wrapped prose."
+
+        screen._refresh_inspect_pane()
+
+        assert calls["inspect"] == {
+            "title": "⛨ AMBIENT: SHRINE",
+            "scene_art": "ART",
+            "narrative_text": "Wrapped prose.",
+        }
+        assert "context" not in calls
+
+    def test_refresh_inspect_pane_falls_back_to_context_for_plain_lines(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+
+        calls: dict[str, object] = {}
+
+        class _FakePane:
+            def show_inspect(self, title: str, *, scene_art: str | None = None, narrative_text: str | None = None) -> None:
+                calls["inspect"] = {
+                    "title": title,
+                    "scene_art": scene_art,
+                    "narrative_text": narrative_text,
+                }
+
+            def show_context(self, title: str, lines: Sequence[str]) -> None:
+                calls["context"] = {"title": title, "lines": list(lines)}
+
+        fake_pane = _FakePane()
+        monkeypatch.setattr(
+            screen,
+            "query_one",
+            lambda selector, cls=None: fake_pane,  # type: ignore[assignment]
+        )
+        screen._ambient_discovery_title = "⛨ AMBIENT: SHRINE"
+        screen._ambient_discovery_lines = ["line one", "line two"]
+        screen._ambient_discovery_art = None
+        screen._ambient_discovery_narrative = None
+
+        screen._refresh_inspect_pane()
+
+        assert calls["context"] == {
+            "title": "⛨ AMBIENT: SHRINE",
+            "lines": ["line one", "line two"],
+        }
+        assert "inspect" not in calls
+
+    def test_art_text_objects_have_no_wrap(self) -> None:
+        """Verify that show_inspect writes art as Text(no_wrap=True)."""
+        pane = DungeonTransitionPane.__new__(DungeonTransitionPane)
+        # Track write calls without running actual RichLog logic
+        writes: list[object] = []
+        pane.clear = lambda: None  # type: ignore[assignment]
+        pane.write = lambda content, **kw: writes.append(content)  # type: ignore[assignment]
+        pane.scroll_home = lambda: None  # type: ignore[assignment]
+
+        art = "╔═══╗\n║ X ║\n╚═══╝"
+        narrative = "A terminal glows."
+
+        pane.show_inspect("TITLE", scene_art=art, narrative_text=narrative)
+
+        # Writes: title, 3 art lines, blank separator, narrative
+        assert len(writes) == 6
+
+        # Art lines (indices 1-3) should have no_wrap=True
+        for i in range(1, 4):
+            art_text = writes[i]
+            assert isinstance(art_text, Text), f"write {i} should be a Text object"
+            assert art_text.no_wrap is True, f"art line {i} should have no_wrap=True"
+            assert art_text.overflow == "ignore", f"art line {i} should have overflow='ignore'"
+
+        # Narrative (index 5) should NOT have no_wrap
+        narrative_text = writes[5]
+        assert isinstance(narrative_text, Text), "narrative should be a Text object"
+        assert not narrative_text.no_wrap, "narrative should allow wrapping"
+
+
 class _FakeEngine:
     def __init__(self) -> None:
         self.turn_count = 7

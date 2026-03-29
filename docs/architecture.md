@@ -119,6 +119,7 @@ Primary files:
 - `generate_dungeon_floor()` now seeds a small environment-aware roster of hostile and non-hostile contacts alongside the floor geometry.
 - Movement and bump interactions are resolved by `DungeonMapState.attempt_step()`.
 - Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.
+- `DungeonTransitionPane.show_inspect()` renders ambient discoveries by keeping `scene_art` on unwrapped lines while allowing `narrative_text` to wrap to the pane width.
 - The screen refreshes the render widgets after each action.
 - Conversations or object interactions transition to `GameScreen` through app-level bridging.
 

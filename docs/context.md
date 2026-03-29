@@ -15,7 +15,7 @@ A CLI roguelike set in the Warhammer 40K universe. The player is an Adeptus Mech
 Roguelike overhead tile map. The player (@) moves through persistent dungeon levels using numpad/vi-keys. Combat is Angband-style bump-to-attack on the same map — no separate combat screen. FOV/line-of-sight determines visibility. NPCs, items, and terrain features populate the dungeon.
 The dungeon viewport follows the player so large levels stay centered in the terminal instead of rendering from a fixed top-left corner.
 Transition tiles are part of the dungeon itself: stairs, lifts, elevators, gates, and portals move the player between persistent levels or themed areas while preserving the session stack.
-The bottom-right inspect panel now also surfaces occasional ambient line-of-sight discoveries for nearby characters, objects, and notable features while explicit look/examine still routes into text view.
+The bottom-right inspect panel now also surfaces occasional ambient line-of-sight discoveries for nearby characters, objects, and notable features while explicit look/examine still routes into text view. When ambient responses include both `scene_art` and `narrative_text`, the art is kept unwrapped and the prose wraps cleanly to the panel width.
 Tab cycles focus between the map, field log, and side panels so the non-map panes can be scrolled without losing movement controls.
 
 ### Text View (narrative + dialogue + travel)

@@ -314,6 +314,29 @@ class DungeonTransitionPane(RichLog):
         self.write(f"[bold]{title}[/bold]\n{body}")
         self.scroll_home()
 
+    def show_inspect(
+        self,
+        title: str,
+        scene_art: str | None = None,
+        narrative_text: str | None = None,
+    ) -> None:
+        """Display an inspect result with unwrapped art and wrapped prose.
+
+        Scene art is written with ``no_wrap`` so ASCII layouts are preserved.
+        Narrative text is written normally and will word-wrap to the panel width.
+        """
+        self.clear()
+        self.write(Text.from_markup(f"[bold]{title}[/bold]"))
+        if scene_art:
+            for art_line in scene_art.splitlines():
+                self.write(Text(art_line, no_wrap=True, overflow="ignore"))
+            if narrative_text:
+                # Blank separator between art and prose
+                self.write(Text(""))
+        if narrative_text:
+            self.write(Text.from_markup(narrative_text))
+        self.scroll_home()
+
 
 class DungeonStatusPane(RichLog):
     """Widget that renders dungeon floor metadata."""
