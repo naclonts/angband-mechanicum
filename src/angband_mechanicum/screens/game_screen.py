@@ -44,6 +44,7 @@ class GameScreen(Screen[None]):
     STORY_HOTKEYS: list[tuple[str, str]] = [
         ("Enter", "Submit command"),
         ("Tab", "Cycle panes"),
+        ("/explore", "Return to dungeon exploration"),
         ("c", "Begin combat (when prompted)"),
         ("/combat", "Enter combat mode (manual)"),
         ("h", "This help"),
@@ -83,18 +84,14 @@ class GameScreen(Screen[None]):
         # NarrativePane manages its own border_title (scroll indicator)
         self.query_one("#right-panel").border_title = "⛨ STATUS"
 
+        self._initialize_info_panel_state()
+
         if self._restored_state:
             self._restore_ui(self._restored_state)
         else:
             intro = self._story_start.intro_narrative if self._story_start else INTRO_NARRATIVE
             self.query_one("#narrative", NarrativePane).append_narrative(intro)
             self._narrative_log.append(intro)
-            # Initialize engine info panel with story overrides or player-name defaults
-            engine = self.app.game_engine  # type: ignore[attr-defined]
-            if self._story_start and self._story_start.info_overrides:
-                engine._info_panel = dict(self._story_start.info_overrides)
-            else:
-                engine._info_panel = default_info(engine.player_name)
 
         # Push deterministic status (integrity + party HP) to the panel
         self._push_status_to_panel()
@@ -116,6 +113,23 @@ class GameScreen(Screen[None]):
             width=scene.content_width,
             height=scene.content_height,
         )
+
+    def _initialize_info_panel_state(self) -> None:
+        """Seed engine-side info panel data before the widgets render it."""
+        engine = self.app.game_engine  # type: ignore[attr-defined]
+        if self._story_start and self._story_start.info_overrides:
+            engine._info_panel = dict(self._story_start.info_overrides)
+        else:
+            engine._info_panel = default_info(engine.player_name)
+
+        if self._restored_state and self._restored_state.get("info_panel"):
+            engine._info_panel.update(
+                dict(self._restored_state.get("info_panel", {}))
+            )
+        if self._restored_state and self._restored_state.get("info_update"):
+            engine._info_panel.update(
+                dict(self._restored_state.get("info_update", {}))
+            )
 
     def _restore_ui(self, state: dict[str, Any]) -> None:
         """Restore UI panes from saved state."""
@@ -283,10 +297,14 @@ class GameScreen(Screen[None]):
 
     @work(exclusive=True)
     async def handle_command(self, text: str) -> None:
+        normalized = text.strip().lower()
 
         # Intercept /combat command before sending to LLM
-        if text.strip().lower() == "/combat":
+        if normalized == "/combat":
             await self._enter_combat()
+            return
+        if normalized == "/explore":
+            self._enter_explore_mode()
             return
 
         narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
@@ -327,9 +345,59 @@ class GameScreen(Screen[None]):
         if response.combat_trigger:
             self._pending_room_hint = response.room_hint
             self._enter_combat_from_trigger()
+        elif self._response_requests_dungeon_return(response.narrative_text, response.info_update):
+            self.return_to_dungeon(
+                [response.narrative_text],
+                scene_art=response.scene_art,
+                info_update=response.info_update,
+            )
 
         # Autosave after each successful command
         self._autosave()
+
+    def _enter_explore_mode(self) -> None:
+        """Switch back to the persistent dungeon view from text mode."""
+        narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
+        transition_text = (
+            "\n[bold]> /explore[/bold]\n"
+            "\n[bold]++ EXPLORATION MODE ENGAGED ++ RETURNING TO THE DUNGEON ++[/bold]\n"
+        )
+        narrative.append_narrative(transition_text)
+        self._narrative_log.append(transition_text)
+        self.return_to_dungeon(
+            [
+                "Exploration resumes.",
+            ],
+            scene_art=None,
+            info_update=None,
+        )
+
+    @staticmethod
+    def _response_requests_dungeon_return(
+        narrative_text: str,
+        info_update: dict[str, str] | None,
+    ) -> bool:
+        """Interpret optional engine hints that ask the UI to re-enter exploration."""
+        if info_update:
+            for key in ("MODE", "mode", "VIEW", "view", "NEXT_MODE", "next_mode"):
+                value = info_update.get(key)
+                if isinstance(value, str) and value.strip().lower() in {
+                    "explore",
+                    "exploration",
+                    "dungeon",
+                    "map",
+                }:
+                    return True
+
+        marker_text = narrative_text.lower()
+        return any(
+            marker in marker_text
+            for marker in (
+                "[explore]",
+                "[return-to-dungeon]",
+                "++ exploration mode engaged ++",
+            )
+        )
 
     @work(exclusive=True)
     async def _enter_combat_from_trigger(self) -> None:

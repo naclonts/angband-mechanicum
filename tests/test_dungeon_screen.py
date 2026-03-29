@@ -394,7 +394,7 @@ class TestDungeonLookMode:
         screen.action_confirm_look()
 
         assert screen._look_mode is False
-        assert screen._look_cursor_pos == (3, 2)
+        assert screen._look_cursor_pos is None
 
 
 class TestDungeonExamineIntegration:

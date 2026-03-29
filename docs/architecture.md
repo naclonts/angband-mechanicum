@@ -81,16 +81,17 @@ flowchart TD
     H --> I["begin_new_game()"]
     I --> J["GameEngine.apply_story_start()"]
     I --> K["build_dungeon_session()"]
-    K --> L["DungeonScreen"]
+    K --> L["GameScreen<br/>story intro"]
+    L -->|/explore| M["DungeonScreen"]
     F --> R["HallOfDeadScreen"]
 
-    L -->|conversation/object interaction| M["open_text_view()"]
-    M --> N["GameScreen"]
-    N -->|return_to_dungeon_view()| L
-    N -->|combat trigger or /combat| O["CombatScreen"]
-    O --> N
-    N -->|death| P["archive_player_death()"]
-    P --> Q["MenuScreen"]
+    M -->|conversation/object interaction| N["open_text_view()"]
+    N --> O["GameScreen"]
+    O -->|return_to_dungeon_view()| M
+    O -->|combat trigger or /combat| P["CombatScreen"]
+    P --> O
+    O -->|death| Q["archive_player_death()"]
+    Q --> R["MenuScreen"]
 ```
 
 ## Primary Code Flows
@@ -100,7 +101,8 @@ flowchart TD
 - `MenuScreen` starts the new-game workflow.
 - `CharacterSetupScreen` captures the player name.
 - `StorySelectScreen` chooses a `StoryStart`.
-- `AngbandMechanicumApp.begin_new_game()` creates a fresh `GameEngine`, applies story setup, creates a save slot, seeds a dungeon session, and opens `DungeonScreen`.
+- `AngbandMechanicumApp.begin_new_game()` creates a fresh `GameEngine`, applies story setup, creates a save slot, seeds a dungeon session, and opens `GameScreen` with the story intro already printed.
+- The player uses `/explore` to enter `DungeonScreen` while preserving the same `DungeonSession`.
 
 Primary files:
 

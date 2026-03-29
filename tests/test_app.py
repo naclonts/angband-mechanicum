@@ -10,6 +10,7 @@ from angband_mechanicum import app as app_module
 from angband_mechanicum.app import AngbandMechanicumApp, DungeonSession
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.engine.save_manager import DeathRecord
+from angband_mechanicum.screens.game_screen import GameScreen
 
 
 @dataclass
@@ -128,3 +129,48 @@ def test_dungeon_session_round_trip_preserves_level_stack() -> None:
     assert restored.level_stack == ["previous-level"]
     assert restored.state.level.level_id == session.state.level.level_id
     assert restored.level_states[session.state.level.level_id].level.name == session.state.level.name
+
+
+def test_begin_new_game_opens_story_intro_in_text_view(monkeypatch: pytest.MonkeyPatch) -> None:
+    """New games should start in the narrative screen instead of the dungeon map."""
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="intro-test",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="ART",
+        info_overrides={"LOCATION": "Forge-Cathedral Alpha"},
+    )
+    captured: dict[str, object] = {}
+
+    def _capture_open_text_view(**kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr(app, "open_text_view", _capture_open_text_view)
+    monkeypatch.setattr(app, "open_dungeon_view", lambda **kwargs: captured.setdefault("opened_dungeon", True))
+
+    app.begin_new_game("Magos Explorator", story)
+
+    assert app.dungeon_session is not None
+    assert app.save_slot is not None
+    assert "opened_dungeon" not in captured
+    assert captured["story_start"] == story
+    restored_state = captured["restored_state"]
+    assert isinstance(restored_state, dict)
+    assert restored_state["narrative_log"] == ["The forge awaits."]
+    assert restored_state["current_scene_art"] == "ART"
+    assert restored_state["info_update"] == {"LOCATION": "Forge-Cathedral Alpha"}
+
+
+def test_game_screen_recognizes_structured_explore_hints() -> None:
+    """Text responses can request a dungeon return without a hard-coded slash command."""
+    assert GameScreen._response_requests_dungeon_return(
+        "The path opens before you.",
+        {"NEXT_MODE": "explore"},
+    ) is True
+    assert GameScreen._response_requests_dungeon_return(
+        "Remain in conversation.",
+        None,
+    ) is False
