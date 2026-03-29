@@ -83,7 +83,7 @@ tk dep <id> <dep-id>       # Declare id depends on dep-id
 7. Do the work. Use `tk add-note <id> "text"` to leave context for other agents.
 8. Run `tk close <id>` when done.
 9. Reference ticket IDs in commit messages (e.g., `am-hsdv: wire up LLM engine`).
-10. Parent agent merges the worktree branch back to main after subagent completes.
+10. Parent agent must merge the worktree branch back to `main` after the subagent completes, verify the merged result on `main`, and only then consider the ticket fully integrated.
 
 ### Parallel Work with Worktrees
 
@@ -95,7 +95,7 @@ This project uses **git worktrees** for parallel agent isolation. Each subagent 
 2. **Parent spawns subagents** each in an isolated worktree. If the agent platform has an `isolation: "worktree"` option, use it. Otherwise, explicitly instruct the subagent to create a git worktree manually before touching code.
 3. Each subagent gets its own branch and full repo copy. No shared mutable state.
 4. Subagent does `tk start <id>`, works, commits, `tk close <id>`.
-5. Parent merges branches back to main (or opens PRs for review).
+5. Parent merges branches back to `main` (or opens PRs for review), verifies the integrated result, and closes out any remaining ticket-file state in the main checkout.
 
 **Manual worktree fallback (when the tool has no isolation flag):**
 
@@ -103,7 +103,7 @@ This project uses **git worktrees** for parallel agent isolation. Each subagent 
 2. Parent or subagent runs `git worktree add <path> -b <branch-name>`.
 3. Subagent `cd`s into that worktree and does all implementation work there.
 4. Subagent must not edit files from the main checkout while the ticket is in progress.
-5. Parent merges the finished branch and removes the worktree when done.
+5. Parent merges the finished branch into `main`, verifies the integrated result from the main checkout, and removes the worktree when done.
 
 **Why this works with `tk`:** Each ticket is its own `.md` file in `.tickets/`. Agents working different tickets edit different files, so git merges cleanly. No locking or coordination primitives needed.
 
@@ -123,6 +123,9 @@ tk create "Scrollable datalog" -t feature --tags ui
 # After both complete, merge branches
 git merge typing
 git merge scrollable-datalog
+
+# Parent verifies tests from main after merging
+uv run pytest
 ```
 
 **Subagent checklist (run these in your worktree):**
@@ -133,6 +136,13 @@ git merge scrollable-datalog
 4. Do the work, commit with ticket ID in message (e.g., `am-pyqp: add mypy strict config`)
 5. `tk close <id>`
 6. Exit — parent agent handles the merge
+
+**Parent checklist (run these from the main checkout):**
+
+1. Merge each completed subagent branch back into `main` immediately after review.
+2. Resolve any ticket-file state so `.tickets/<id>.md` reflects the final merged status on `main`.
+3. Run the relevant verification from `main`, not just inside the subagent worktree.
+4. Remove finished worktrees only after the merge and verification succeed.
 
 **Concurrency awareness:** Assume other agents may be active in other worktrees at any time. Do not modify files outside your worktree. The parent agent is responsible for merge coordination.
 

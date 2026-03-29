@@ -69,6 +69,12 @@ InfoPanel {
     padding: 1 1;
 }
 
+#prompt-hint {
+    height: auto;
+    color: $crt-dim;
+    padding: 0 1;
+}
+
 PromptInput {
     height: auto;
     dock: bottom;

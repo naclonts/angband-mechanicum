@@ -23,6 +23,7 @@ from angband_mechanicum.screens.menu_screen import MenuScreen
 from angband_mechanicum.widgets.dungeon_map import DungeonMapPane, DungeonMessageLog
 from angband_mechanicum.widgets.info_panel import InfoPanel
 from angband_mechanicum.widgets.prompt_input import PromptInput
+from textual.widgets import Static
 
 # The menu layout uses Center containers that need sufficient terminal space.
 # Use a generous size for all e2e tests so widgets are always visible/clickable.
@@ -218,6 +219,18 @@ class TestNewGame:
             await _start_new_game(pilot, app)
             prompt = app.screen.query_one("#prompt", PromptInput)
             assert prompt.has_focus
+
+    @pytest.mark.asyncio
+    async def test_text_view_shows_explore_hint(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The story view reminds players how to return to dungeon exploration."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app)
+            hint = app.screen.query_one("#prompt-hint", Static)
+            assert "/explore" in str(hint.render())
 
     @pytest.mark.asyncio
     async def test_info_panel_has_defaults(

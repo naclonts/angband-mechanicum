@@ -11,7 +11,7 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.events import Resize
 from textual.screen import Screen
-from textual.widgets import Input
+from textual.widgets import Input, Static
 from textual import work
 
 from angband_mechanicum.assets.npc_portraits import NPCPortraitStore
@@ -74,6 +74,7 @@ class GameScreen(Screen[None]):
         yield NarrativePane(id="narrative")
         yield Vertical(
             InfoPanel(id="info"),
+            Static("Type /explore to return to dungeon exploration.", id="prompt-hint"),
             PromptInput(id="prompt"),
             id="right-panel",
         )
