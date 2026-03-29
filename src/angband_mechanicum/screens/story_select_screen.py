@@ -12,7 +12,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Label, Static
 
 from angband_mechanicum.engine.story_starts import STORY_STARTS, StoryStart
-from angband_mechanicum.screens import ARROW_NAV_BINDINGS
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS, MenuNavigationMixin
 
 
 HEADER_ART: str = """\
@@ -27,7 +27,7 @@ FOOTER_TEXT: str = (
 )
 
 
-class StorySelectScreen(Screen[StoryStart | None]):
+class StorySelectScreen(MenuNavigationMixin, Screen[StoryStart | None]):
     """Screen for selecting a story starting scenario.
 
     Dismisses with the chosen :class:`StoryStart`, or ``None`` if the
@@ -57,6 +57,9 @@ class StorySelectScreen(Screen[StoryStart | None]):
                             classes="story-entry",
                         )
                 yield Static(FOOTER_TEXT, id="story-footer")
+
+    def on_mount(self) -> None:
+        self.focus_default_menu_control()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-random":

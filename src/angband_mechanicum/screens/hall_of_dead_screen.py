@@ -11,10 +11,10 @@ from textual.screen import Screen
 from textual.widgets import Button, Static
 
 from angband_mechanicum.engine.save_manager import DeathRecord, SaveManager
-from angband_mechanicum.screens import ARROW_NAV_BINDINGS
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS, MenuNavigationMixin
 
 
-class HallOfDeadScreen(Screen[None]):
+class HallOfDeadScreen(MenuNavigationMixin, Screen[None]):
     """Display the persistent death records from fallen runs."""
 
     BINDINGS = [
@@ -42,6 +42,7 @@ class HallOfDeadScreen(Screen[None]):
     def on_mount(self) -> None:
         self.title = "HALL OF THE DEAD"
         self._refresh_records()
+        self.focus_default_menu_control()
 
     def _refresh_records(self) -> None:
         records_container = self.query_one("#hall-records", VerticalScroll)

@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 from textual.app import ComposeResult
-from textual.binding import Binding
 from textual.containers import Center, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label, Static
 
 from angband_mechanicum.engine.save_manager import SaveManager, SaveMetadata
-from angband_mechanicum.screens import ARROW_NAV_BINDINGS
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS, MenuNavigationMixin
 
 TITLE_ART: str = """\
 ╔═══════════════════════════════════════════════════════╗
@@ -22,7 +21,7 @@ TITLE_ART: str = """\
 FOOTER_TEXT: str = "[dim]++ THE OMNISSIAH PROTECTS ++ FLESH IS WEAK ++ THE MACHINE IS ETERNAL ++[/dim]"
 
 
-class MenuScreen(Screen[None]):
+class MenuScreen(MenuNavigationMixin, Screen[None]):
     """Main menu with New Game and Load Game options."""
 
     BINDINGS = [*ARROW_NAV_BINDINGS]
@@ -44,6 +43,7 @@ class MenuScreen(Screen[None]):
             load_btn.disabled = True
             load_btn.label = "++ LOAD GAME ++ [NO SAVES]"
         self._saves: list[SaveMetadata] = saves
+        self.focus_default_menu_control()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-new":
