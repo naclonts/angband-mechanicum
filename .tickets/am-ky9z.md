@@ -23,3 +23,9 @@ Certain map tiles/objects are "text view triggers" — interacting with them tra
 
 Reference: TOME/Angband main game view — exploration and combat unified on one map.
 
+
+## Notes
+
+**2026-03-29T03:09:50Z**
+
+Map rendering should use per-tile colors from dungeon_level.get_terrain_glyph() with environment overrides, not the monochrome CRT green theme. CRT green stays for UI chrome (borders, panels, text) but map tiles get full terminal color palette. TerrainGlyph (char + fg hex) and Environment.color_overrides are defined in engine/dungeon_level.py. FOV dimming: VISIBLE tiles use full color, EXPLORED tiles should be dimmed (e.g. halve brightness or use a grey tint), HIDDEN tiles are not rendered.

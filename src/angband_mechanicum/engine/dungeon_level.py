@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +80,39 @@ _TERRAIN_PROPS: dict[DungeonTerrain, tuple[bool, bool, int]] = {
 
 
 # ---------------------------------------------------------------------------
+# Terrain rendering
+# ---------------------------------------------------------------------------
+
+
+class TerrainGlyph(NamedTuple):
+    """Display character and foreground color for a terrain type."""
+
+    char: str
+    fg: str
+
+
+_TERRAIN_GLYPHS: dict[DungeonTerrain, TerrainGlyph] = {
+    DungeonTerrain.FLOOR:       TerrainGlyph("·", "#585858"),
+    DungeonTerrain.WALL:        TerrainGlyph("#", "#a0a0a0"),
+    DungeonTerrain.DOOR_OPEN:   TerrainGlyph("'", "#c89632"),
+    DungeonTerrain.DOOR_CLOSED: TerrainGlyph("+", "#c89632"),
+    DungeonTerrain.STAIRS_UP:   TerrainGlyph("<", "#ffffff"),
+    DungeonTerrain.STAIRS_DOWN: TerrainGlyph(">", "#ffffff"),
+    DungeonTerrain.WATER:       TerrainGlyph("~", "#4488ff"),
+    DungeonTerrain.LAVA:        TerrainGlyph("~", "#ff4400"),
+    DungeonTerrain.CHASM:       TerrainGlyph("·", "#222222"),
+    DungeonTerrain.RUBBLE:      TerrainGlyph(":", "#808080"),
+    DungeonTerrain.TERMINAL:    TerrainGlyph("¤", "#00ff41"),
+    DungeonTerrain.COLUMN:      TerrainGlyph("O", "#b0b0b0"),
+    DungeonTerrain.GROWTH:      TerrainGlyph('"', "#22aa22"),
+    DungeonTerrain.COVER:       TerrainGlyph("%", "#808060"),
+    DungeonTerrain.GRATE:       TerrainGlyph("≡", "#708090"),
+    DungeonTerrain.ACID_POOL:   TerrainGlyph("~", "#88ff00"),
+    DungeonTerrain.SHRINE:      TerrainGlyph("†", "#ffd700"),
+}
+
+
+# ---------------------------------------------------------------------------
 # Fog of war
 # ---------------------------------------------------------------------------
 
@@ -90,6 +123,146 @@ class FogState(enum.Enum):
     HIDDEN = "hidden"        # Never seen
     EXPLORED = "explored"    # Seen before, not currently visible
     VISIBLE = "visible"      # In current field-of-view
+
+
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Environment:
+    """Defines the character of a dungeon environment.
+
+    The LLM narrative determines which environment applies (cathedral,
+    swamp, forge, etc.).  The generator uses ``feature_terrains`` and
+    ``room_types`` to shape the level layout.  The renderer uses
+    ``color_overrides`` layered on top of ``_TERRAIN_GLYPHS`` to tint
+    terrain to match the setting.
+    """
+
+    name: str
+    description: str
+    feature_terrains: tuple[DungeonTerrain, ...]
+    room_types: tuple[str, ...]
+    color_overrides: dict[DungeonTerrain, str] = field(default_factory=dict)
+
+
+ENVIRONMENTS: dict[str, Environment] = {
+    "forge": Environment(
+        name="forge",
+        description="Mechanicus forge — industrial metalwork, molten slag, cogitator banks",
+        feature_terrains=(
+            DungeonTerrain.TERMINAL, DungeonTerrain.RUBBLE,
+            DungeonTerrain.COLUMN, DungeonTerrain.COVER,
+            DungeonTerrain.GRATE,
+        ),
+        room_types=("open_room", "pillared_hall", "corridor", "l_shaped"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#6e4b1e",
+            DungeonTerrain.WALL:  "#8b6914",
+        },
+    ),
+    "cathedral": Environment(
+        name="cathedral",
+        description="Imperial cathedral — vaulted stone, pillars, sacred shrines",
+        feature_terrains=(
+            DungeonTerrain.COLUMN, DungeonTerrain.SHRINE,
+            DungeonTerrain.RUBBLE,
+        ),
+        room_types=("pillared_hall", "open_room", "cross_room", "corridor"),
+        color_overrides={
+            DungeonTerrain.FLOOR:  "#707070",
+            DungeonTerrain.WALL:   "#c0b090",
+            DungeonTerrain.COLUMN: "#d0c0a0",
+        },
+    ),
+    "hive": Environment(
+        name="hive",
+        description="Underhive — cramped hab-stacks, scrap barricades, rusted grating",
+        feature_terrains=(
+            DungeonTerrain.COVER, DungeonTerrain.RUBBLE,
+            DungeonTerrain.GRATE, DungeonTerrain.TERMINAL,
+        ),
+        room_types=("small_chamber", "corridor", "l_shaped", "maze"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#4a4036",
+            DungeonTerrain.WALL:  "#6b5b4a",
+        },
+    ),
+    "sewer": Environment(
+        name="sewer",
+        description="Sub-hive drainage — stagnant water, corroded pipes, toxic runoff",
+        feature_terrains=(
+            DungeonTerrain.WATER, DungeonTerrain.GRATE,
+            DungeonTerrain.GROWTH, DungeonTerrain.ACID_POOL,
+        ),
+        room_types=("corridor", "cross_room", "l_shaped", "open_room"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#3a4a3a",
+            DungeonTerrain.WALL:  "#556655",
+            DungeonTerrain.WATER: "#336655",
+        },
+    ),
+    "corrupted": Environment(
+        name="corrupted",
+        description="Warp-tainted zone — mutated growths, reality fractures, daemonic residue",
+        feature_terrains=(
+            DungeonTerrain.GROWTH, DungeonTerrain.LAVA,
+            DungeonTerrain.RUBBLE, DungeonTerrain.CHASM,
+        ),
+        room_types=("open_room", "cross_room", "maze", "arena"),
+        color_overrides={
+            DungeonTerrain.FLOOR:  "#3a1a3a",
+            DungeonTerrain.WALL:   "#6a2a4a",
+            DungeonTerrain.GROWTH: "#aa22aa",
+            DungeonTerrain.LAVA:   "#ff2266",
+        },
+    ),
+    "overgrown": Environment(
+        name="overgrown",
+        description="Reclaimed ruins — vines, fungal blooms, pooling water",
+        feature_terrains=(
+            DungeonTerrain.GROWTH, DungeonTerrain.WATER,
+            DungeonTerrain.RUBBLE, DungeonTerrain.COLUMN,
+        ),
+        room_types=("open_room", "pillared_hall", "l_shaped", "arena"),
+        color_overrides={
+            DungeonTerrain.FLOOR:  "#3a5a2a",
+            DungeonTerrain.WALL:   "#5a7a4a",
+            DungeonTerrain.GROWTH: "#44cc44",
+        },
+    ),
+    "tomb": Environment(
+        name="tomb",
+        description="Ancient crypt — sealed chambers, sarcophagi, engraved stone",
+        feature_terrains=(
+            DungeonTerrain.COLUMN, DungeonTerrain.SHRINE,
+            DungeonTerrain.RUBBLE,
+        ),
+        room_types=("small_chamber", "corridor", "pillared_hall", "cross_room"),
+        color_overrides={
+            DungeonTerrain.FLOOR:  "#505050",
+            DungeonTerrain.WALL:   "#787878",
+            DungeonTerrain.SHRINE: "#b8b8ff",
+        },
+    ),
+    "manufactorum": Environment(
+        name="manufactorum",
+        description="Imperial factory — assembly lines, conveyor gantries, cogitator stacks",
+        feature_terrains=(
+            DungeonTerrain.TERMINAL, DungeonTerrain.COVER,
+            DungeonTerrain.RUBBLE, DungeonTerrain.COLUMN,
+            DungeonTerrain.GRATE,
+        ),
+        room_types=("open_room", "corridor", "pillared_hall", "l_shaped"),
+        color_overrides={
+            DungeonTerrain.FLOOR:    "#4a4a50",
+            DungeonTerrain.WALL:     "#6a6a70",
+            DungeonTerrain.TERMINAL: "#00ccff",
+        },
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +340,7 @@ class DungeonLevel:
     level_id: str
     name: str
     depth: int
+    environment: str
     width: int
     height: int
     tiles: list[list[DungeonTile]] = field(default_factory=list)
@@ -278,6 +452,7 @@ class DungeonLevel:
             "level_id": self.level_id,
             "name": self.name,
             "depth": self.depth,
+            "environment": self.environment,
             "width": self.width,
             "height": self.height,
             "tiles": [[t.to_dict() for t in row] for row in self.tiles],
@@ -302,6 +477,7 @@ class DungeonLevel:
             level_id=data["level_id"],
             name=data["name"],
             depth=data["depth"],
+            environment=data.get("environment", ""),
             width=data["width"],
             height=data["height"],
             tiles=tiles,
@@ -345,3 +521,25 @@ def dungeon_terrain_to_combat(dt: DungeonTerrain) -> "Terrain":
         DungeonTerrain.SHRINE:      Terrain.TERMINAL,
     }
     return _MAP.get(dt, Terrain.FLOOR)
+
+
+# ---------------------------------------------------------------------------
+# Rendering helper
+# ---------------------------------------------------------------------------
+
+
+def get_terrain_glyph(
+    terrain: DungeonTerrain,
+    environment: str = "",
+) -> TerrainGlyph:
+    """Return the display glyph and color for a terrain type.
+
+    If *environment* names a known environment with a color override for
+    this terrain, the override color is used with the default character.
+    """
+    base = _TERRAIN_GLYPHS[terrain]
+    if environment and environment in ENVIRONMENTS:
+        override_fg = ENVIRONMENTS[environment].color_overrides.get(terrain)
+        if override_fg is not None:
+            return TerrainGlyph(base.char, override_fg)
+    return base
