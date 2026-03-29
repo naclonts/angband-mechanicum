@@ -688,6 +688,32 @@ You MUST respond with ONLY a valid JSON object, no other text:
 
         return result
 
+    async def examine_dungeon_target(self, target_context: dict[str, Any]) -> GameResponse:
+        """Ask the LLM to narrate a close examination of a dungeon target."""
+        prompt_lines: list[str] = [
+            "Examine the following dungeon target in the voice of the narrative engine.",
+            "Return valid JSON with narrative_text, scene_art, info_update, entities, combat_trigger, room_hint, and speaking_npc.",
+            "combat_trigger must be false.",
+            "scene_art should depict the target or surrounding environment.",
+            "",
+            "Target context:",
+        ]
+        for key in sorted(target_context):
+            value = target_context[key]
+            if isinstance(value, (dict, list)):
+                value_text = json.dumps(value, ensure_ascii=False)
+            else:
+                value_text = str(value)
+            prompt_lines.append(f"- {key}: {value_text}")
+
+        prompt_lines.extend(
+            [
+                "",
+                "Describe what the player learns or notices by looking closely.",
+            ]
+        )
+        return await self.process_input("\n".join(prompt_lines))
+
     def record_combat_result(self, result: CombatResult) -> None:
         """Persist a combat result into conversation history and game history.
 

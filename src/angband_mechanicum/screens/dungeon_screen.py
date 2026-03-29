@@ -10,14 +10,16 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
+from textual import work
 
 from angband_mechanicum.engine.dungeon_gen import GeneratedFloor, generate_dungeon_floor
-from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain
+from angband_mechanicum.engine.dungeon_level import DungeonLevel, DungeonTerrain, FogState
 from angband_mechanicum.engine.history import EntityType
 from angband_mechanicum.widgets.dungeon_map import (
     DungeonMapEntity,
     DungeonMapPane,
     DungeonMessageLog,
+    DungeonTransitionPane,
     DungeonStatusPane,
 )
 from angband_mechanicum.widgets.help_overlay import HelpOverlay
@@ -86,6 +88,80 @@ class DungeonMapState:
 
     def append_message(self, text: str) -> None:
         self.messages.append(text)
+
+    def build_examine_context(self, position: tuple[int, int]) -> dict[str, Any]:
+        """Build a structured context payload for a look/examine action."""
+        x, y = position
+        tile = self.level.get_tile(x, y)
+        entity = self.entity_at(position)
+        terrain = self.level.get_terrain(x, y)
+        visible = tile.fog == FogState.VISIBLE
+
+        surroundings: dict[str, str] = {}
+        for dx, dy, label in ((0, -1, "north"), (0, 1, "south"), (-1, 0, "west"), (1, 0, "east")):
+            nx, ny = x + dx, y + dy
+            if self.level.in_bounds(nx, ny):
+                surroundings[label] = self.level.get_terrain(nx, ny).value
+
+        context: dict[str, Any] = {
+            "target_position": [x, y],
+            "player_position": list(self.player_pos) if self.player_pos is not None else None,
+            "distance_from_player": (
+                abs(self.player_pos[0] - x) + abs(self.player_pos[1] - y)
+                if self.player_pos is not None
+                else None
+            ),
+            "target_visible": visible,
+            "terrain": terrain.value,
+            "terrain_passable": tile.passable,
+            "terrain_transparent": tile.transparent,
+            "items": list(tile.items),
+            "creature_id": tile.creature_id,
+            "surroundings": surroundings,
+        }
+        if entity is not None:
+            context.update(
+                {
+                    "target_kind": entity.entity_type,
+                    "target_label": entity.name,
+                    "target_entity_id": entity.entity_id,
+                    "target_entity_name": entity.name,
+                    "target_entity_type": entity.entity_type,
+                    "target_disposition": entity.disposition,
+                    "target_can_talk": entity.can_talk,
+                    "target_description": entity.description,
+                    "target_scene_art": entity.scene_art,
+                    "target_hp": entity.hp,
+                    "target_max_hp": entity.max_hp,
+                }
+            )
+        else:
+            context["target_kind"] = "terrain"
+            context["target_label"] = terrain.value.replace("_", " ").title()
+        if tile.items:
+            context["target_label"] = context.get("target_label", terrain.value)
+            if len(tile.items) == 1:
+                context["target_kind"] = "item"
+                context["target_label"] = f"{context['target_label']} with 1 item"
+            else:
+                context["target_label"] = f"{context['target_label']} with {len(tile.items)} items"
+        if tile.creature_id and entity is None:
+            context["target_kind"] = "creature"
+            context["target_label"] = f"Creature marker at {x},{y}"
+        return context
+
+    def get_look_summary(self, position: tuple[int, int]) -> str:
+        """Return a short one-line summary for the current look target."""
+        context = self.build_examine_context(position)
+        label = str(context.get("target_label", "Unknown"))
+        if not context.get("target_visible", False):
+            return f"{label} is not currently visible."
+        if context.get("target_kind") == "character":
+            disposition = context.get("target_disposition", "neutral")
+            return f"{label} ({disposition})"
+        if context.get("target_kind") == "object":
+            return f"{label} (object)"
+        return label
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -306,19 +382,24 @@ class DungeonScreen(Screen[None]):
         Binding("h", "move_west", "Move west", show=False),
         Binding("j", "move_south", "Move south", show=False),
         Binding("k", "move_north", "Move north", show=False),
-        Binding("l", "move_east", "Move east", show=False),
         Binding("y", "move_northwest", "Move northwest", show=False),
         Binding("u", "move_northeast", "Move northeast", show=False),
         Binding("b", "move_southwest", "Move southwest", show=False),
         Binding("n", "move_southeast", "Move southeast", show=False),
+        Binding("l", "look", "Look", show=True),
+        Binding("enter", "confirm_look", "Inspect", show=False),
+        Binding("escape", "cancel_look", "Cancel look", show=False),
         Binding("space", "wait", "Wait", show=True),
         Binding("f1", "show_help", "Help", show=True),
     ]
 
     HOTKEYS: list[tuple[str, str]] = [
         ("Arrow keys", "Move"),
-        ("HJKL", "Cardinal movement"),
+        ("HJK", "Cardinal movement"),
+        ("L", "Look"),
         ("YUBN", "Diagonal movement"),
+        ("Enter", "Inspect target"),
+        ("Esc", "Cancel look mode"),
         ("Space", "Wait / rescan"),
         ("F1", "Help"),
     ]
@@ -334,6 +415,12 @@ class DungeonScreen(Screen[None]):
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
+        self._look_mode: bool = False
+        self._look_primed: bool = False
+        self._look_cursor_pos: tuple[int, int] | None = None
+        self._last_look_summary: str | None = None
+        self._last_examine_title: str | None = None
+        self._last_examine_lines: list[str] = []
         if state is not None:
             self._state = state
             return
@@ -378,16 +465,21 @@ class DungeonScreen(Screen[None]):
                     self._state.level,
                     self._get_player_pos,
                     self._get_entities,
+                    self._get_look_cursor,
                     id="dungeon-map",
                 )
                 yield DungeonMessageLog(self._get_messages, id="dungeon-log")
-            yield DungeonStatusPane(
-                self._state.level,
-                self._get_player_pos,
-                self._get_entities,
-                self._get_message_count,
-                id="dungeon-status",
-            )
+            with Vertical(id="dungeon-right"):
+                yield DungeonStatusPane(
+                    self._state.level,
+                    self._get_player_pos,
+                    self._get_entities,
+                    self._get_message_count,
+                    self._get_look_cursor,
+                    self._get_look_summary,
+                    id="dungeon-status",
+                )
+                yield DungeonTransitionPane(id="dungeon-inspect")
 
     def on_mount(self) -> None:
         self.title = f"DUNGEON: {self._state.level.name.upper()}"
@@ -407,12 +499,39 @@ class DungeonScreen(Screen[None]):
     def _get_message_count(self) -> int:
         return len(self._state.messages)
 
+    def _get_look_cursor(self) -> tuple[int, int] | None:
+        return self._look_cursor_pos
+
+    def _get_look_summary(self) -> str | None:
+        if self._look_cursor_pos is None:
+            return self._last_look_summary
+        return self._state.get_look_summary(self._look_cursor_pos)
+
     def _refresh_all(self) -> None:
         self.query_one("#dungeon-map", DungeonMapPane).refresh_map()
         self.query_one("#dungeon-log", DungeonMessageLog).sync_log()
         self.query_one("#dungeon-status", DungeonStatusPane).refresh_status()
+        self._refresh_inspect_pane()
+
+    def _refresh_inspect_pane(self) -> None:
+        pane = self.query_one("#dungeon-inspect", DungeonTransitionPane)
+        if self._last_examine_title is None:
+            pane.show_context(
+                "⛨ EXAMINATION",
+                [
+                    "Press L to enter look mode.",
+                    "Use arrows or HJK to move the cursor.",
+                    "Enter inspects the highlighted target.",
+                    "Esc cancels look mode.",
+                ],
+            )
+            return
+        pane.show_context(self._last_examine_title, self._last_examine_lines)
 
     def _step(self, dx: int, dy: int) -> None:
+        if self._look_mode:
+            self._move_look_cursor(dx, dy)
+            return
         result = self._state.attempt_step(dx, dy)
         self._refresh_all()
         if result.kind in {
@@ -420,6 +539,27 @@ class DungeonScreen(Screen[None]):
             DungeonInteractionKind.OBJECT,
         }:
             self._open_text_view_for_interaction(result)
+
+    def _move_look_cursor(self, dx: int, dy: int) -> None:
+        if self._look_cursor_pos is None:
+            self._look_cursor_pos = self._state.player_pos
+        assert self._look_cursor_pos is not None
+        nx = self._look_cursor_pos[0] + dx
+        ny = self._look_cursor_pos[1] + dy
+        if not self._state.level.in_bounds(nx, ny):
+            self._state.append_message("The cursor cannot move beyond the map edge.")
+            self._refresh_all()
+            return
+        if self._state.level.get_tile(nx, ny).fog != FogState.VISIBLE:
+            self._state.append_message("That target is not visible.")
+            self._refresh_all()
+            return
+        self._look_cursor_pos = (nx, ny)
+        self._last_look_summary = self._state.get_look_summary(self._look_cursor_pos)
+        self._refresh_all()
+        if self._look_primed:
+            self._look_primed = False
+            self.action_confirm_look()
 
     def _open_text_view_for_interaction(self, result: DungeonActionResult) -> None:
         if result.target_entity_id is None:
@@ -486,6 +626,47 @@ class DungeonScreen(Screen[None]):
             restored_state=restored_state,
         )
 
+    @work(exclusive=True)
+    async def _run_examine(self, position: tuple[int, int]) -> None:
+        context = self._state.build_examine_context(position)
+        context["look_mode"] = True
+        context["look_cursor"] = list(position)
+        context["look_summary"] = self._state.get_look_summary(position)
+        context["look_instructions"] = (
+            "The player is examining a visible dungeon target. "
+            "Provide a vivid short description and accompanying scene art."
+        )
+        self._last_look_summary = str(context.get("look_summary", ""))
+        engine = self.app.game_engine  # type: ignore[attr-defined]
+        response = await engine.examine_dungeon_target(context)
+        title = str(context.get("target_label", "Examination"))
+        self._last_examine_title = f"⛨ {title.upper()}"
+        self._last_examine_lines = []
+        if response.scene_art:
+            self._last_examine_lines.extend(response.scene_art.splitlines())
+            self._last_examine_lines.append("")
+        self._last_examine_lines.append(response.narrative_text)
+        self._state.append_message(response.narrative_text)
+        self._refresh_all()
+
+    def _begin_look_mode(self) -> None:
+        self._look_mode = True
+        self._look_primed = True
+        self._look_cursor_pos = self._state.player_pos
+        self._last_look_summary = self._state.get_look_summary(self._look_cursor_pos)
+        self._state.append_message("Look mode engaged. Move the cursor to a visible target.")
+        self._refresh_all()
+
+    def _cancel_look_mode(self) -> None:
+        if not self._look_mode:
+            return
+        self._look_mode = False
+        self._look_primed = False
+        self._look_cursor_pos = None
+        self._last_look_summary = None
+        self._state.append_message("Look mode cancelled.")
+        self._refresh_all()
+
     def _sync_entity_history_id(self, entity_id: str, history_entity_id: str | None) -> None:
         if history_entity_id is None:
             return
@@ -517,6 +698,26 @@ class DungeonScreen(Screen[None]):
 
     def action_move_southeast(self) -> None:
         self._step(1, 1)
+
+    def action_look(self) -> None:
+        if self._look_mode:
+            self._cancel_look_mode()
+            return
+        self._begin_look_mode()
+
+    def action_confirm_look(self) -> None:
+        if not self._look_mode or self._look_cursor_pos is None:
+            return
+        if self._state.level.get_tile(*self._look_cursor_pos).fog != FogState.VISIBLE:
+            self._state.append_message("That target is not visible.")
+            self._refresh_all()
+            return
+        self._look_mode = False
+        self._look_primed = False
+        self._run_examine(self._look_cursor_pos)
+
+    def action_cancel_look(self) -> None:
+        self._cancel_look_mode()
 
     def action_wait(self) -> None:
         self._state.wait()

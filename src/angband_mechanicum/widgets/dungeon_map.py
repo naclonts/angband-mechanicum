@@ -88,6 +88,11 @@ def _render_glyph(glyph: TerrainGlyph, visible: bool) -> str:
     return f"[dim][{glyph.fg}]{glyph.char}[/{glyph.fg}][/dim]"
 
 
+def _render_cursor() -> str:
+    """Render the look cursor."""
+    return "[bold #ff66ff]◉[/bold #ff66ff]"
+
+
 def _tile_visible(level: DungeonLevel, x: int, y: int) -> bool:
     return level.in_bounds(x, y) and level.get_tile(x, y).fog == FogState.VISIBLE
 
@@ -96,6 +101,7 @@ def render_dungeon_map(
     level: DungeonLevel,
     player_pos: tuple[int, int],
     entities: Sequence[DungeonMapEntity] = (),
+    cursor_pos: tuple[int, int] | None = None,
 ) -> str:
     """Render a dungeon floor as a rich-text map."""
     entity_by_pos = {
@@ -114,6 +120,9 @@ def render_dungeon_map(
     for y in range(level.height):
         row: list[str] = [f"{y:2d}║"]
         for x in range(level.width):
+            if cursor_pos is not None and (x, y) == cursor_pos:
+                row.append(_render_cursor())
+                continue
             if (x, y) == player_pos:
                 row.append("[bold #00ff41]@[/bold #00ff41]")
                 continue
@@ -142,6 +151,8 @@ def render_dungeon_status(
     player_pos: tuple[int, int],
     message_count: int,
     entities: Sequence[DungeonMapEntity] = (),
+    look_cursor: tuple[int, int] | None = None,
+    look_summary: str | None = None,
 ) -> str:
     """Render the side panel for the dungeon screen."""
     px, py = player_pos
@@ -162,6 +173,24 @@ def render_dungeon_status(
         f"FOV:   {visible} visible / {explored} seen",
         f"LOG:   {message_count} entries",
     ]
+    if look_cursor is not None:
+        lx, ly = look_cursor
+        lines.extend(
+            [
+                "",
+                "LOOK MODE:",
+                f"  TARGET: ({lx},{ly})",
+            ]
+        )
+        if look_summary:
+            lines.append(f"  {look_summary}")
+    else:
+        lines.extend(
+            [
+                "",
+                "[dim]l: look / Enter: inspect / Esc: cancel[/dim]",
+            ]
+        )
     if entities_here:
         lines.append("")
         lines.append("CONTACT:")
@@ -188,20 +217,24 @@ class DungeonMapPane(Static):
         level: DungeonLevel,
         get_player_pos: Callable[[], tuple[int, int]],
         get_entities: Callable[[], Sequence[DungeonMapEntity]],
+        get_cursor_pos: Callable[[], tuple[int, int] | None] | None = None,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
         self._level = level
         self._get_player_pos = get_player_pos
         self._get_entities = get_entities
+        self._get_cursor_pos = get_cursor_pos
 
     def refresh_map(self) -> None:
+        cursor_pos = self._get_cursor_pos() if self._get_cursor_pos is not None else None
         self.update(
             Text.from_markup(
                 render_dungeon_map(
                     self._level,
                     self._get_player_pos(),
                     self._get_entities(),
+                    cursor_pos=cursor_pos,
                 )
             )
         )
@@ -227,6 +260,8 @@ class DungeonStatusPane(Static):
         get_player_pos: Callable[[], tuple[int, int]],
         get_entities: Callable[[], Sequence[DungeonMapEntity]],
         get_message_count: Callable[[], int],
+        get_look_cursor: Callable[[], tuple[int, int] | None] | None = None,
+        get_look_summary: Callable[[], str | None] | None = None,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
@@ -234,8 +269,14 @@ class DungeonStatusPane(Static):
         self._get_player_pos = get_player_pos
         self._get_entities = get_entities
         self._get_message_count = get_message_count
+        self._get_look_cursor = get_look_cursor
+        self._get_look_summary = get_look_summary
 
     def refresh_status(self) -> None:
+        look_cursor = self._get_look_cursor() if self._get_look_cursor is not None else None
+        look_summary = (
+            self._get_look_summary() if self._get_look_summary is not None else None
+        )
         self.update(
             Text.from_markup(
                 render_dungeon_status(
@@ -243,6 +284,8 @@ class DungeonStatusPane(Static):
                     self._get_player_pos(),
                     self._get_message_count(),
                     self._get_entities(),
+                    look_cursor=look_cursor,
+                    look_summary=look_summary,
                 )
             )
         )
