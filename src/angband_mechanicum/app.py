@@ -292,6 +292,70 @@ class AngbandMechanicumApp(App[None]):
         self._sync_engine_environment_context(profile, fallback_location=destination.display_name)
         return session, destination
 
+    def enter_dungeon_combat_view(
+        self,
+        *,
+        room_hint: dict[str, Any] | None = None,
+        narrative_lines: list[str] | None = None,
+        scene_art: str | None = None,
+        info_update: dict[str, str] | None = None,
+        source_label: str = "combat",
+    ) -> None:
+        """Mount a combat-heavy dungeon encounter without using the legacy tactical screen."""
+        if self.dungeon_session is None:
+            self.dungeon_session = self.build_dungeon_session(self._story_start)
+
+        session = self.dungeon_session
+        profile = session.generation_profile or build_story_dungeon_profile(self._story_start)
+        environment = session.current_environment_id or session.state.level.environment or profile.environment
+        location_name = session.location or session.state.level.name
+        encounter_name = location_name
+        if room_hint and isinstance(room_hint.get("name"), str) and room_hint["name"].strip():
+            encounter_name = room_hint["name"].strip()
+
+        seed_components = [
+            source_label,
+            environment,
+            location_name,
+            session.state.level.level_id,
+            encounter_name,
+        ]
+        if room_hint and isinstance(room_hint.get("theme"), str):
+            seed_components.append(room_hint["theme"])
+        if room_hint and isinstance(room_hint.get("room_type"), str):
+            seed_components.append(room_hint["room_type"])
+
+        seed = zlib.adler32(":".join(seed_components).encode("utf-8"))
+        floor = generate_dungeon_floor(
+            level_id=f"{session.state.level.level_id}:combat:{seed}",
+            depth=session.state.level.depth,
+            environment=environment,
+            name=encounter_name,
+            seed=seed,
+            profile=profile,
+        )
+
+        prior_messages = list(session.state.messages)
+        session.snapshot_current_state()
+        combat_state = DungeonMapState(
+            level=floor.level,
+            player_pos=floor.level.player_pos,
+            entities=build_map_entities_from_roster(floor.entity_roster),
+            messages=prior_messages,
+        )
+        session.state = combat_state
+        session.level_states[floor.level.level_id] = combat_state
+        session.location = encounter_name
+        session.current_environment_id = floor.level.environment
+        session.generation_profile = profile
+
+        self._sync_engine_environment_context(profile, fallback_location=encounter_name)
+        self.return_to_dungeon_view(
+            narrative_lines=narrative_lines,
+            scene_art=scene_art,
+            info_update=info_update,
+        )
+
     def travel_to_destination(self, request_text: str) -> TravelDestination:
         """Resolve a travel request and mount a matching dungeon session."""
         session, destination = self.build_destination_session(request_text)

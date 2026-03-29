@@ -432,6 +432,59 @@ def test_travel_to_destination_builds_environment_specific_session(
     assert restored.destination_label == "Sub-hive drainage"
 
 
+def test_enter_dungeon_combat_view_replaces_session_with_encounter_floor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Combat routing should stay inside the dungeon bridge instead of tactical combat."""
+    floor = _make_floor_with_contacts(
+        level_id="forge-combat",
+        name="Forge Combat",
+        depth=1,
+    )
+
+    def _fake_generate_dungeon_floor(**kwargs: object) -> GeneratedFloor:
+        floor.level.name = str(kwargs["name"])
+        floor.level.environment = str(kwargs["environment"])
+        floor.level.level_id = str(kwargs["level_id"])
+        return floor
+
+    monkeypatch.setattr(app_module, "generate_dungeon_floor", _fake_generate_dungeon_floor)
+
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="forge-combat-test",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="ART",
+    )
+    session = app.build_dungeon_session(story)
+    app.dungeon_session = session
+
+    captured: dict[str, object] = {}
+    app.return_to_dungeon_view = lambda **kwargs: captured.update(kwargs)  # type: ignore[assignment]
+
+    app.enter_dungeon_combat_view(
+        room_hint={"name": "Engagement Cell", "theme": "forge", "room_type": "arena"},
+        narrative_lines=["Hostiles manifest in the chamber."],
+        scene_art="SCENE",
+        info_update={"MODE": "dungeon"},
+        source_label="combat-trigger",
+    )
+
+    assert session.state.level.name == "Engagement Cell"
+    assert session.current_environment_id == "forge"
+    assert [entity.entity_id for entity in session.state.entities] == [
+        "forge-priest",
+        "rogue-servitor",
+    ]
+    assert session.state.messages[0] == "The forge awaits."
+    assert captured["narrative_lines"] == ["Hostiles manifest in the chamber."]
+    assert captured["scene_art"] == "SCENE"
+    assert captured["info_update"] == {"MODE": "dungeon"}
+
+
 def test_game_screen_recognizes_structured_explore_hints() -> None:
     """Text responses can request a dungeon return without a hard-coded slash command."""
     assert GameScreen._response_requests_dungeon_return(

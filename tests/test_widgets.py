@@ -78,6 +78,8 @@ class TestCombatGridSelectedIndicator:
 
 
 class TestCombatScreenBindings:
+    """Legacy tactical screen bindings are kept only as a deprecated reference."""
+
     def test_no_party_cycle_binding(self) -> None:
         keys = [binding.key for binding in CombatScreen.BINDINGS]
         assert "tab" not in keys

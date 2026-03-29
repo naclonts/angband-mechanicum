@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import re
-import time
 from typing import Any
 
 from textual.app import ComposeResult
@@ -21,12 +20,8 @@ from angband_mechanicum.assets.placeholder_art import (
     INTRO_NARRATIVE,
     TECHPRIEST_PORTRAIT,
 )
-from angband_mechanicum.engine.game_engine import DeathNarrative
-from angband_mechanicum.engine.combat_engine import CombatResult
 from angband_mechanicum.engine.story_starts import StoryStart
 from angband_mechanicum.engine.save_manager import SaveManager
-from angband_mechanicum.engine.save_manager import DeathRecord, generate_death_record_id
-from angband_mechanicum.screens.combat_screen import CombatScreen
 from angband_mechanicum.widgets.help_overlay import HelpOverlay
 from angband_mechanicum.widgets.info_panel import default_info, InfoPanel
 from angband_mechanicum.widgets.narrative_pane import NarrativePane
@@ -47,8 +42,8 @@ class GameScreen(Screen[None]):
         ("Tab", "Cycle panes"),
         ("/explore", "Return to dungeon exploration"),
         ("/travel <destination>", "Travel to a new location"),
-        ("c", "Begin combat (when prompted)"),
-        ("/combat", "Enter combat mode (manual)"),
+        ("c", "Enter a combat encounter when prompted"),
+        ("/combat", "Force a combat encounter in the dungeon"),
         ("h", "This help"),
     ]
 
@@ -87,7 +82,6 @@ class GameScreen(Screen[None]):
         self._speaking_npc_id: str | None = speaking_npc_id
         self._save_manager: SaveManager = SaveManager()
         self._narrative_log: list[str] = []
-        self._pending_room_hint: dict | None = None
         self._npc_portraits: NPCPortraitStore = NPCPortraitStore()
         self._showing_npc_portrait: bool = False
 
@@ -287,102 +281,6 @@ class GameScreen(Screen[None]):
             info_update=info_update,
         )
 
-    def _build_death_context(self, result: CombatResult) -> dict[str, Any]:
-        """Collect the structured context used for the Hall of the Dead entry."""
-        engine = self.app.game_engine  # type: ignore[attr-defined]
-        status = engine.get_status_data()
-        companions = status.get("companions", [])
-        companion_summary = ", ".join(
-            f"{member['name']} ({'DEAD' if not member['alive'] else 'ALIVE'})"
-            for member in companions
-        )
-        enemies = ", ".join(
-            f"{enemy.name} ({'defeated' if enemy.defeated else 'survived'})"
-            for enemy in result.enemies
-        )
-        dungeon_session = getattr(self.app, "dungeon_session", None)
-        location = getattr(dungeon_session, "location", None) or status.get("info", {}).get("LOCATION", "Unknown Depths")
-        deepest_level = 0
-        if dungeon_session is not None:
-            deepest_level = getattr(dungeon_session.state.level, "depth", 0)
-        turns_survived = engine.turn_count + result.turn_count
-        return {
-            "player_name": engine.player_name,
-            "location": location,
-            "deepest_level_reached": deepest_level,
-            "turns_survived": turns_survived,
-            "enemies_slain": result.enemies_defeated,
-            "enemy_summary": enemies or "unknown hostiles",
-            "cause_of_death": f"Fell in battle against {enemies or 'unknown hostiles'}",
-            "recent_narrative": self._narrative_log[-8:],
-            "combat_log_summary": result.log_summary,
-            "companion_summary": companion_summary or "none",
-            "save_slot_id": getattr(self.app, "save_slot", None),
-            "story_start_id": getattr(getattr(self.app, "dungeon_session", None), "story_id", None),
-            "player_integrity": f"{result.player_hp_remaining}/{result.player_hp_max}",
-        }
-
-    @work(exclusive=True)
-    async def _handle_player_death(self, result: CombatResult) -> None:
-        """Generate the death memorial, persist it, and return to the menu."""
-        engine = self.app.game_engine  # type: ignore[attr-defined]
-        death_context = self._build_death_context(result)
-        memorial: DeathNarrative = await engine.generate_death_narrative(death_context)
-        record = DeathRecord(
-            record_id=generate_death_record_id(),
-            timestamp=time.time(),
-            player_name=str(death_context["player_name"]),
-            location=str(death_context["location"]),
-            turns_survived=int(death_context["turns_survived"]),
-            enemies_slain=int(death_context["enemies_slain"]),
-            deepest_level_reached=int(death_context["deepest_level_reached"]),
-            cause_of_death=memorial.cause_of_death,
-            summary=memorial.summary,
-            save_slot_id=death_context.get("save_slot_id"),
-            story_start_id=death_context.get("story_start_id"),
-        )
-        self.app.archive_player_death(record)  # type: ignore[attr-defined]
-
-    def _handle_combat_result(self, result: CombatResult | None) -> None:
-        """Handle combat resolution, including permadeath."""
-        if result is None:
-            return
-
-        engine = self.app.game_engine  # type: ignore[attr-defined]
-        engine.set_integrity(result.player_hp_remaining)
-
-        narrative_pane: NarrativePane = self.query_one("#narrative", NarrativePane)
-        if result.victory:
-            summary = (
-                f"\n[bold]++ COMBAT RESOLVED: VICTORY ++[/bold]\n"
-                f"Hostiles neutralised: {result.enemies_defeated}/{result.enemies_total}\n"
-                f"Integrity remaining: {result.player_hp_remaining}/{result.player_hp_max}\n"
-                f"Turns elapsed: {result.turn_count}\n"
-                f"[dim]++ THE OMNISSIAH IS PLEASED ++[/dim]\n"
-            )
-        else:
-            summary = (
-                f"\n[bold]++ COMBAT RESOLVED: {'RETREAT' if result.player_hp_remaining > 0 else 'DEFEAT'} ++[/bold]\n"
-                f"Hostiles neutralised: {result.enemies_defeated}/{result.enemies_total}\n"
-                f"Integrity remaining: {result.player_hp_remaining}/{result.player_hp_max}\n"
-                f"Turns elapsed: {result.turn_count}\n"
-                f"[dim]++ THE MACHINE SPIRIT ENDURES ++[/dim]\n"
-            )
-        narrative_pane.append_narrative(summary)
-        self._narrative_log.append(summary)
-
-        # Persist combat result in engine history and LLM conversation
-        engine.record_combat_result(result)
-
-        # Update the info panel with the current integrity
-        self._update_integrity_display()
-
-        if result.player_hp_remaining <= 0:
-            self._handle_player_death(result)
-            return
-
-        self.query_one("#prompt", PromptInput).focus()
-
     def on_input_submitted(self, event: Input.Submitted) -> None:
         prompt: PromptInput = self.query_one("#prompt", PromptInput)
         if prompt.is_processing:
@@ -397,9 +295,8 @@ class GameScreen(Screen[None]):
     async def handle_command(self, text: str) -> None:
         normalized = text.strip().lower()
 
-        # Intercept /combat command before sending to LLM
         if normalized == "/combat":
-            await self._enter_combat()
+            self._enter_combat()
             return
         if normalized == "/explore":
             self._enter_explore_mode()
@@ -443,10 +340,14 @@ class GameScreen(Screen[None]):
         # Push deterministic status (integrity + party HP + info fields)
         self._push_status_to_panel()
 
-        # If the LLM signalled combat, enter tactical mode automatically
         if response.combat_trigger:
-            self._pending_room_hint = response.room_hint
-            self._enter_combat_from_trigger()
+            self._enter_dungeon_combat_mode(
+                label="combat-trigger",
+                room_hint=response.room_hint,
+                narrative_lines=[response.narrative_text],
+                scene_art=response.scene_art,
+                info_update=response.info_update,
+            )
         elif self._response_requests_dungeon_return(response.narrative_text, response.info_update):
             self.return_to_dungeon(
                 [response.narrative_text],
@@ -472,6 +373,38 @@ class GameScreen(Screen[None]):
             ],
             scene_art=None,
             info_update=None,
+        )
+
+    def _enter_dungeon_combat_mode(
+        self,
+        *,
+        label: str,
+        room_hint: dict[str, Any] | None,
+        narrative_lines: list[str] | None = None,
+        scene_art: str | None = None,
+        info_update: dict[str, str] | None = None,
+    ) -> None:
+        """Ask the app to mount a dungeon encounter instead of tactical combat."""
+        narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
+        if label == "combat-trigger":
+            transition_text = (
+                "\n[bold]++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+                "[dim]Hostiles are being manifested directly into the dungeon layer.[/dim]\n"
+            )
+        else:
+            transition_text = (
+                f"\n[bold]> {label}[/bold]\n"
+                "[bold]++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+                "[dim]Hostiles are being manifested directly into the dungeon layer.[/dim]\n"
+            )
+        narrative.append_narrative(transition_text)
+        self._narrative_log.append(transition_text)
+        self.app.enter_dungeon_combat_view(  # type: ignore[attr-defined]
+            room_hint=room_hint,
+            narrative_lines=narrative_lines,
+            scene_art=scene_art,
+            info_update=info_update,
+            source_label=label,
         )
 
     @staticmethod
@@ -501,103 +434,23 @@ class GameScreen(Screen[None]):
             )
         )
 
-    @work(exclusive=True)
-    async def _enter_combat_from_trigger(self) -> None:
-        """Enter combat automatically when the LLM signals a combat trigger."""
+    def _enter_combat(self) -> None:
+        """Enter a dungeon encounter from the manual command."""
         narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
-        prompt: PromptInput = self.query_one("#prompt", PromptInput)
-        engine = self.app.game_engine  # type: ignore[attr-defined]
-
-        narrative.append_narrative(
-            "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
-        )
-        self._narrative_log.append(
-            "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
-        )
-
-        # Generate encounter via the LLM (with loading indicator)
-        narrative.show_loading()
-        prompt.set_processing(True)
-        room_hint = self._pending_room_hint
-        self._pending_room_hint = None
-
-        try:
-            encounter = await engine.generate_encounter(room_hint=room_hint)
-        finally:
-            narrative.hide_loading()
-            prompt.set_processing(False)
-
-        # Show the encounter description
-        desc = encounter.get("encounter_description", "Hostile contacts detected.")
-        narrative.append_narrative(f"\n[dim]{desc}[/dim]\n")
-        self._narrative_log.append(f"\n[dim]{desc}[/dim]\n")
-
-        enemy_roster: list[tuple[str, int, int]] = encounter.get("enemy_roster", [])
-        map_def = encounter.get("map_def")
-
-        def on_combat_result(result: CombatResult | None) -> None:
-            """Handle combat result when CombatScreen is dismissed."""
-            self._handle_combat_result(result)
-
-        self.app.push_screen(
-            CombatScreen(
-                player_hp=engine.integrity,
-                player_max_hp=engine.max_integrity,
-                party_ids=engine.party_member_ids,
-                enemy_roster=enemy_roster if enemy_roster else None,
-                map_def=map_def,
-                player_name=engine.player_name,
-            ),
-            callback=on_combat_result,
-        )
-
-    async def _enter_combat(self) -> None:
-        """Generate an encounter via the LLM, then push the CombatScreen."""
-        narrative: NarrativePane = self.query_one("#narrative", NarrativePane)
-        prompt: PromptInput = self.query_one("#prompt", PromptInput)
-        engine = self.app.game_engine  # type: ignore[attr-defined]
-
         narrative.append_narrative(
             "\n[bold]> /combat[/bold]\n"
-            "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+            "\n[bold]++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+            "[dim]Hostiles are being manifested directly into the dungeon layer.[/dim]\n"
         )
         self._narrative_log.append(
             "\n[bold]> /combat[/bold]\n"
-            "\n[bold]++ TACTICAL MODE ENGAGED ++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+            "\n[bold]++ COMBAT PROTOCOLS ACTIVE ++[/bold]\n"
+            "[dim]Hostiles are being manifested directly into the dungeon layer.[/dim]\n"
         )
-
-        # Generate encounter via the LLM (with loading indicator)
-        narrative.show_loading()
-        prompt.set_processing(True)
-        try:
-            encounter = await engine.generate_encounter()
-        finally:
-            narrative.hide_loading()
-            prompt.set_processing(False)
-
-        # Show the encounter description
-        desc = encounter.get("encounter_description", "Hostile contacts detected.")
-        narrative.append_narrative(f"\n[dim]{desc}[/dim]\n")
-        self._narrative_log.append(f"\n[dim]{desc}[/dim]\n")
-
-        enemy_roster: list[tuple[str, int, int]] = encounter.get("enemy_roster", [])
-        map_def = encounter.get("map_def")
-
-        def on_combat_result(result: CombatResult | None) -> None:
-            """Handle combat result when CombatScreen is dismissed."""
-            self._handle_combat_result(result)
-
-        # Pass current integrity and generated roster into the combat screen.
-        # Companions now remain map-side NPCs instead of direct combat units.
-        self.app.push_screen(
-            CombatScreen(
-                player_hp=engine.integrity,
-                player_max_hp=engine.max_integrity,
-                enemy_roster=enemy_roster if enemy_roster else None,
-                map_def=map_def,
-                player_name=engine.player_name,
-            ),
-            callback=on_combat_result,
+        self._enter_dungeon_combat_mode(
+            label="/combat",
+            room_hint=None,
+            narrative_lines=["Combat protocols active."],
         )
 
     def _update_speaking_portrait(self, speaking_npc: str | None) -> None:
