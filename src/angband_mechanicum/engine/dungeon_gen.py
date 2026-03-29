@@ -152,6 +152,22 @@ class GeneratedMap:
         }
 
 
+@dataclass(frozen=True)
+class EnvironmentDebugEntry:
+    """Debug-facing snapshot of preset environment generation data."""
+
+    environment_id: str
+    description: str
+    feature_terrains: tuple[str, ...]
+    room_types: tuple[str, ...]
+    hostile_contacts: tuple[str, ...]
+    friendly_contacts: tuple[str, ...]
+    neutral_contacts: tuple[str, ...]
+    item_names: tuple[str, ...]
+    object_templates: tuple[str, ...]
+    themed_rooms: tuple[str, ...]
+
+
 # ---------------------------------------------------------------------------
 # Room hint (from LLM combat trigger)
 # ---------------------------------------------------------------------------
@@ -3639,6 +3655,33 @@ def _plan_contact_spawns(
 
 def _contacts_for_environment(environment: str) -> dict[str, tuple[_ContactArchetype, ...]]:
     return _ENVIRONMENT_CONTACTS.get(environment, _ENVIRONMENT_CONTACTS["forge"])
+
+
+def build_environment_debug_catalog() -> tuple[EnvironmentDebugEntry, ...]:
+    """Return a stable debug view of the preset environment content tables."""
+    entries: list[EnvironmentDebugEntry] = []
+    for environment_id, environment in ENVIRONMENTS.items():
+        contacts = _contacts_for_environment(environment_id)
+        themed_rooms = tuple(
+            template.name for template in _themed_room_templates_for_environment(environment_id)
+        )
+        entries.append(
+            EnvironmentDebugEntry(
+                environment_id=environment_id,
+                description=environment.description,
+                feature_terrains=tuple(terrain.value for terrain in environment.feature_terrains),
+                room_types=environment.room_types,
+                hostile_contacts=tuple(archetype.name for archetype in contacts.get("hostile", ())),
+                friendly_contacts=tuple(archetype.name for archetype in contacts.get("friendly", ())),
+                neutral_contacts=tuple(archetype.name for archetype in contacts.get("neutral", ())),
+                item_names=_FLOOR_OBJECTS.get(environment_id, _FLOOR_OBJECTS["default"]),
+                object_templates=tuple(
+                    template.object_id for template in _environment_object_templates(environment_id)
+                ),
+                themed_rooms=themed_rooms,
+            )
+        )
+    return tuple(entries)
 
 
 def _matches_any_tag(tags: tuple[str, ...], expected: tuple[str, ...]) -> bool:

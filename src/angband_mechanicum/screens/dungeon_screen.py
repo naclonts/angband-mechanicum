@@ -24,7 +24,12 @@ from angband_mechanicum.engine.dungeon_entities import (
     DungeonTurnResult,
 )
 from angband_mechanicum.engine.combat_engine import CombatStats
-from angband_mechanicum.engine.dungeon_gen import GeneratedFloor, generate_dungeon_floor
+from angband_mechanicum.engine.dungeon_gen import (
+    EnvironmentDebugEntry,
+    GeneratedFloor,
+    build_environment_debug_catalog,
+    generate_dungeon_floor,
+)
 from angband_mechanicum.engine.dungeon_level import (
     DungeonLevel,
     DungeonTerrain,
@@ -45,6 +50,14 @@ from angband_mechanicum.widgets.dungeon_map import (
 from angband_mechanicum.widgets.help_overlay import HelpOverlay
 
 logger = logging.getLogger(__name__)
+
+
+def _comma_list(items: Sequence[str], *, limit: int = 4) -> str:
+    if not items:
+        return "none"
+    visible = list(items[:limit])
+    suffix = "" if len(items) <= limit else f", +{len(items) - limit} more"
+    return ", ".join(visible) + suffix
 
 
 def _symbol_for_dungeon_entity(entity: DungeonEntity) -> str:
@@ -847,6 +860,7 @@ class DungeonScreen(Screen[None]):
         Binding("o", "open_door", "Open door", show=True),
         Binding("c", "close_door", "Close door", show=True),
         Binding("f", "fire", "Fire", show=True),
+        Binding("f3", "show_environment_catalog", "Env debug", show=True),
         Binding("l", "look", "Look", show=True),
         Binding("enter", "confirm_look", "Inspect", show=False),
         Binding("escape", "cancel_look", "Cancel look", show=False),
@@ -859,6 +873,7 @@ class DungeonScreen(Screen[None]):
         ("Arrow keys", "Move"),
         ("HJK", "Cardinal movement"),
         ("F", "Fire at a visible hostile"),
+        ("F3", "Debug environment catalog"),
         ("L", "Look"),
         ("Tab", "Cycle focus between dungeon panels"),
         ("Y / U / B / N", "Vi diagonals"),
@@ -889,6 +904,16 @@ class DungeonScreen(Screen[None]):
         self._save_manager: SaveManager = SaveManager()
         self._look_mode: bool = False
         self._fire_mode: bool = False
+        self._environment_catalog_open: bool = False
+        self._environment_catalog: tuple[EnvironmentDebugEntry, ...] = build_environment_debug_catalog()
+        current_environment = (
+            state.level.environment if state is not None else (
+                floor.level.environment if floor is not None else (
+                    level.environment if level is not None else "forge"
+                )
+            )
+        )
+        self._environment_catalog_index = self._resolve_environment_catalog_index(current_environment)
         self._look_cursor_pos: tuple[int, int] | None = None
         self._last_look_summary: str | None = None
         self._last_examine_title: str | None = None
@@ -1047,6 +1072,67 @@ class DungeonScreen(Screen[None]):
             return ()
         return self._build_fire_target_details(self._look_cursor_pos)
 
+    def _resolve_environment_catalog_index(self, environment_id: str) -> int:
+        for index, entry in enumerate(self._environment_catalog):
+            if entry.environment_id == environment_id:
+                return index
+        return 0
+
+    def _selected_environment_debug_entry(self) -> EnvironmentDebugEntry:
+        return self._environment_catalog[self._environment_catalog_index]
+
+    def _build_environment_catalog_lines(self) -> list[str]:
+        selected = self._selected_environment_debug_entry()
+        lines = [
+            "[dim]F3 closes. Up/Down or J/K changes selection.[/dim]",
+            "",
+            "[bold]ENVIRONMENTS[/bold]",
+        ]
+        current_environment = self._state.level.environment
+        for index, entry in enumerate(self._environment_catalog):
+            marker = ">" if index == self._environment_catalog_index else " "
+            current = " [dim](current)[/dim]" if entry.environment_id == current_environment else ""
+            lines.append(f"{marker} {entry.environment_id}{current}")
+        lines.extend(
+            [
+                "",
+                f"[bold]{selected.environment_id.upper()}[/bold]",
+                selected.description,
+                f"Features: {_comma_list(selected.feature_terrains)}",
+                f"Rooms: {_comma_list(selected.room_types)}",
+                f"Hostiles: {_comma_list(selected.hostile_contacts)}",
+                f"Friendlies: {_comma_list(selected.friendly_contacts)}",
+                f"Neutrals: {_comma_list(selected.neutral_contacts)}",
+                f"Objects: {_comma_list(selected.object_templates)}",
+                f"Loose items: {_comma_list(selected.item_names)}",
+                f"Themed rooms: {_comma_list(selected.themed_rooms, limit=3)}",
+            ]
+        )
+        return lines
+
+    def _open_environment_catalog(self) -> None:
+        self._look_mode = False
+        self._look_cursor_pos = None
+        self._last_look_summary = None
+        self._environment_catalog_open = True
+        self._environment_catalog_index = self._resolve_environment_catalog_index(
+            self._state.level.environment
+        )
+        self._refresh_all()
+
+    def _close_environment_catalog(self) -> None:
+        if not self._environment_catalog_open:
+            return
+        self._environment_catalog_open = False
+        self._refresh_all()
+
+    def _move_environment_catalog(self, delta: int) -> None:
+        if not self._environment_catalog_open:
+            return
+        count = len(self._environment_catalog)
+        self._environment_catalog_index = (self._environment_catalog_index + delta) % count
+        self._refresh_all()
+
     def _refresh_all(self) -> None:
         self.query_one("#dungeon-map", DungeonMapPane).refresh_map()
         self.query_one("#dungeon-log", DungeonMessageLog).sync_log()
@@ -1055,6 +1141,12 @@ class DungeonScreen(Screen[None]):
 
     def _refresh_inspect_pane(self) -> None:
         pane = self.query_one("#dungeon-inspect", DungeonTransitionPane)
+        if self._environment_catalog_open:
+            pane.show_context(
+                "⛨ DEBUG ENVIRONMENT CATALOG",
+                self._build_environment_catalog_lines(),
+            )
+            return
         if self._ambient_discovery_title is not None:
             if self._ambient_discovery_art is not None or self._ambient_discovery_narrative is not None:
                 pane.show_inspect(
@@ -1343,6 +1435,11 @@ class DungeonScreen(Screen[None]):
 
     def _step(self, dx: int, dy: int) -> None:
         if self._death_in_progress:
+            return
+        if self._environment_catalog_open:
+            delta = -1 if dx < 0 or dy < 0 else 1 if dx > 0 or dy > 0 else 0
+            if delta != 0:
+                self._move_environment_catalog(delta)
             return
         if self._look_mode or self._fire_mode:
             self._move_look_cursor(dx, dy)
@@ -1775,6 +1872,8 @@ class DungeonScreen(Screen[None]):
         self._travel_or_step(1, 1)
 
     def action_look(self) -> None:
+        if self._environment_catalog_open:
+            self._close_environment_catalog()
         if self._look_mode:
             self._cancel_look_mode()
             return
@@ -1785,6 +1884,12 @@ class DungeonScreen(Screen[None]):
             self._cancel_fire_mode()
             return
         self._begin_fire_mode()
+
+    def action_show_environment_catalog(self) -> None:
+        if self._environment_catalog_open:
+            self._close_environment_catalog()
+            return
+        self._open_environment_catalog()
 
     def action_confirm_look(self) -> None:
         if self._fire_mode:
@@ -1806,6 +1911,8 @@ class DungeonScreen(Screen[None]):
     def action_cancel_look(self) -> None:
         if self._fire_mode:
             self._cancel_fire_mode()
+        if self._environment_catalog_open:
+            self._close_environment_catalog()
             return
         self._cancel_look_mode()
 
