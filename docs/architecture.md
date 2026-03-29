@@ -32,6 +32,7 @@ At a high level, the app is organized into four layers:
    - `AngbandMechanicumApp` owns shared state such as the active `GameEngine`, current save slot, and persistent `DungeonSession`.
 2. Screens and widgets
    - `screens/` handles interaction flow and screen-level behavior.
+   - Menu-style screens share a focus-order helper so arrow keys cycle actionable controls in DOM order and default focus lands on the first usable widget.
    - `widgets/` handles display and input widgets with minimal game logic.
 3. Engine layer
    - `engine/` holds deterministic game models, procedural generation, persistence, and the LLM-facing narrative engine.

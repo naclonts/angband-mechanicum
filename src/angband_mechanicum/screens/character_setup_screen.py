@@ -9,7 +9,7 @@ from textual.containers import Center, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Input, Label, Static
 
-from angband_mechanicum.screens import ARROW_NAV_BINDINGS
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS, MenuNavigationMixin
 
 HEADER_ART: str = """\
  +============================================================+
@@ -40,7 +40,7 @@ NAME_SUGGESTIONS: list[str] = [
 DEFAULT_NAME: str = "Magos Explorator"
 
 
-class CharacterSetupScreen(Screen[str]):
+class CharacterSetupScreen(MenuNavigationMixin, Screen[str]):
     """Screen for the player to enter their Tech-Priest's name.
 
     Dismissed with the chosen name string.
@@ -80,7 +80,7 @@ class CharacterSetupScreen(Screen[str]):
 
     def on_mount(self) -> None:
         self.query_one("#charsetup-header").border_title = "++ DESIGNATION PROTOCOL ++"
-        self.query_one("#charsetup-input", Input).focus()
+        self.focus_default_menu_control()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "btn-confirm":

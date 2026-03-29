@@ -10,7 +10,7 @@ from textual.containers import Center, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Input, Static
 
-from angband_mechanicum.screens import ARROW_NAV_BINDINGS
+from angband_mechanicum.screens import ARROW_NAV_BINDINGS, MenuNavigationMixin
 
 HEADER_ART: str = """\
  ╔═══════════════════════════════════════════════════════════╗
@@ -33,7 +33,7 @@ FOOTER_TEXT: str = (
 )
 
 
-class ApiKeyScreen(Screen[None]):
+class ApiKeyScreen(MenuNavigationMixin, Screen[None]):
     """Prompts the user for an Anthropic API key when one is not set."""
 
     BINDINGS = [*ARROW_NAV_BINDINGS]
@@ -63,7 +63,7 @@ class ApiKeyScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self.query_one("#apikey-header").border_title = "++ CIPHER-KEY REQUIRED ++"
-        self.query_one("#apikey-input", Input).focus()
+        self.focus_default_menu_control()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         key: str = self.query_one("#apikey-input", Input).value.strip()
