@@ -5,7 +5,7 @@ Angband Mechanicum is a Textual-based terminal game with two primary interaction
 - `DungeonScreen` for exploration on a persistent tile map
 - `GameScreen` for narrative, dialogue, and other LLM-driven text interactions
 
-The current codebase still contains a separate `CombatScreen` and `CombatEngine`. That path is functional, but it is now the legacy tactical subsystem alongside the newer unified dungeon path.
+The codebase still contains a separate `CombatScreen` and `CombatEngine` as legacy tactical artifacts, but live combat now stays in the unified dungeon path.
 
 ## Goals Of This Document
 
@@ -52,7 +52,7 @@ flowchart LR
     A["App<br/>AngbandMechanicumApp"] --> B["Menu / Setup Screens"]
     A --> C["DungeonScreen<br/>map exploration"]
     A --> D["GameScreen<br/>text narrative"]
-    A --> E["CombatScreen<br/>legacy tactical mode"]
+    A --> E["CombatScreen<br/>legacy tactical artifact"]
 
     D --> F["GameEngine<br/>LLM + history + status"]
     C --> G["DungeonMapState<br/>live exploration state"]
@@ -89,7 +89,7 @@ flowchart TD
     M -->|conversation/object interaction| N["open_text_view()"]
     N --> O["GameScreen"]
     O -->|return_to_dungeon_view()| M
-    O -->|combat trigger or /combat| P["CombatScreen"]
+    O -->|combat trigger or /combat| P["Dungeon encounter mode<br/>spawn hostiles on the map"]
     P --> O
     O -->|death| Q["archive_player_death()"]
     Q --> R["MenuScreen"]
@@ -167,11 +167,11 @@ Primary files:
 
 ### 4. Legacy tactical combat flow
 
-- `GameScreen` can enter combat either explicitly (`/combat`) or from an LLM `combat_trigger`.
-- `GameEngine.generate_encounter()` uses the LLM to produce an enemy roster and optional map hint.
-- `CombatScreen` hosts `CombatEngine` and the combat widgets.
-- Combat resolves into a `CombatResult`.
-- `GameScreen` writes the result back into narrative history and player integrity.
+- `GameScreen` can enter dungeon combat either explicitly (`/combat`) or from an LLM `combat_trigger`.
+- The app bridges that request into a generated dungeon encounter floor with hostile contacts already present on the map.
+- `CombatScreen` and `CombatEngine` remain only as legacy tactical references; they are no longer part of the live combat flow.
+- The dungeon screen resolves combat through bump-to-attack and its local creature-turn loop.
+- `GameScreen` writes the transition narrative back into dungeon state and lets the map view take over.
 
 Primary files:
 
@@ -353,7 +353,7 @@ And two related play loops:
 - The newer unified dungeon path in `DungeonScreen`
 - The older tactical combat path in `CombatScreen`
 
-This is the main transitional seam future agents should understand. If implementing new exploration features, prefer the dungeon stack unless the work is explicitly about the legacy tactical subsystem.
+This is the main transitional seam future agents should understand. If implementing new exploration or combat features, prefer the dungeon stack unless the work is explicitly about the legacy tactical subsystem.
 
 ## Recommended Extension Points
 

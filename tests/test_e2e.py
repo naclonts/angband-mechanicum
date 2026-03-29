@@ -418,7 +418,7 @@ class TestPlayTurns:
             })
             _mock_engine_client(app, response_2)
 
-            await _submit_command(pilot, app, "go to cargo lift")
+            await _submit_command(pilot, app, "inspect the cargo lift")
 
             assert app.game_engine.turn_count == 2
             assert len(app.game_engine._conversation_history) == 4
