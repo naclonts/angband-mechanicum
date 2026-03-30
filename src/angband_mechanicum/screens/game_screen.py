@@ -8,10 +8,10 @@ from typing import Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Container, Vertical
 from textual.events import Resize
 from textual.screen import Screen
-from textual.widgets import Input, Static
+from textual.widgets import ContentSwitcher, Input, Static
 from textual import work
 
 from angband_mechanicum.assets.npc_portraits import NPCPortraitStore
@@ -28,18 +28,21 @@ from angband_mechanicum.widgets.narrative_pane import NarrativePane
 from angband_mechanicum.widgets.portrait_pane import PortraitPane
 from angband_mechanicum.widgets.prompt_input import PromptInput
 from angband_mechanicum.widgets.scene_pane import ScenePane
+from angband_mechanicum.widgets.debug_log_pane import DebugLogPane
 
 logger: logging.Logger = logging.getLogger(__name__)
 
 
 class GameScreen(Screen[None]):
     BINDINGS = [
+        Binding("f2", "toggle_debug_view", "Debug", show=True, priority=True),
         Binding("h", "show_help", "Help", show=True, priority=True),
     ]
 
     STORY_HOTKEYS: list[tuple[str, str]] = [
         ("Enter", "Submit command"),
         ("Tab", "Cycle panes"),
+        ("F2", "Toggle debug logs view"),
         ("/explore", "Return to dungeon exploration"),
         ("/travel <destination>", "Travel to a new location"),
         ("c", "Enter a combat encounter when prompted"),
@@ -84,21 +87,28 @@ class GameScreen(Screen[None]):
         self._narrative_log: list[str] = []
         self._npc_portraits: NPCPortraitStore = NPCPortraitStore()
         self._showing_npc_portrait: bool = False
+        self._debug_view_visible: bool = False
 
     def compose(self) -> ComposeResult:
         initial_scene = self._story_start.scene_art if self._story_start else FORGE_SCENE
-        yield ScenePane(initial_scene, id="scene")
-        yield PortraitPane(TECHPRIEST_PORTRAIT, id="portrait")
-        yield NarrativePane(id="narrative")
-        yield Vertical(
-            InfoPanel(id="info"),
-            Static(
-                "Type /explore to return to dungeon exploration. Try /travel <destination> for new coordinates.",
-                id="prompt-hint",
-            ),
-            PromptInput(id="prompt"),
-            id="right-panel",
-        )
+        with ContentSwitcher(initial="story-view", id="game-view-switcher"):
+            with Container(id="story-view"):
+                yield ScenePane(initial_scene, id="scene")
+                yield PortraitPane(TECHPRIEST_PORTRAIT, id="portrait")
+                yield NarrativePane(id="narrative")
+                yield Vertical(
+                    InfoPanel(id="info"),
+                    Static(
+                        "Type /explore to return to dungeon exploration. "
+                        "Try /travel <destination> for new coordinates. "
+                        "Press F2 for debug logs.",
+                        id="prompt-hint",
+                    ),
+                    PromptInput(id="prompt"),
+                    id="right-panel",
+                )
+            with Container(id="debug-view"):
+                yield DebugLogPane(id="debug-log")
 
     def on_mount(self) -> None:
         self.query_one("#scene", ScenePane).border_title = "⛨ ENVIRONMENT"
@@ -125,6 +135,7 @@ class GameScreen(Screen[None]):
         self.query_one("#prompt", PromptInput).focus()
         # Push initial pane dimensions to the engine after layout
         self.call_after_refresh(self._sync_scene_pane_size)
+        self.call_after_refresh(self._refresh_debug_view)
 
     def on_resize(self, event: Resize) -> None:
         """Re-sync scene pane dimensions when the terminal is resized."""
@@ -249,6 +260,45 @@ class GameScreen(Screen[None]):
                 hotkeys=self.STORY_HOTKEYS,
             )
         )
+
+    def action_toggle_debug_view(self) -> None:
+        """Switch between the normal story layout and the debug log dump."""
+        self._debug_view_visible = not self._debug_view_visible
+        switcher = self.query_one("#game-view-switcher", ContentSwitcher)
+        if self._debug_view_visible:
+            switcher.current = "debug-view"
+            self._refresh_debug_view()
+            self.query_one("#debug-log", DebugLogPane).focus()
+            return
+        switcher.current = "story-view"
+        self.query_one("#prompt", PromptInput).focus()
+
+    def _refresh_debug_view(self) -> None:
+        """Push the latest engine and UI snapshot into the debug pane."""
+        snapshot = {
+            "app": {
+                "dungeon_session_environment": (
+                    self.app.dungeon_session.current_environment_id  # type: ignore[attr-defined]
+                    if self.app.dungeon_session is not None  # type: ignore[attr-defined]
+                    else None
+                ),
+                "dungeon_session_location": (
+                    self.app.dungeon_session.location  # type: ignore[attr-defined]
+                    if self.app.dungeon_session is not None  # type: ignore[attr-defined]
+                    else None
+                ),
+                "save_slot": getattr(self.app, "save_slot", None),
+            },
+            "engine": self.app.game_engine.build_debug_snapshot(),  # type: ignore[attr-defined]
+            "ui": {
+                "narrative_log": list(self._narrative_log),
+                "restored_state_keys": sorted((self._restored_state or {}).keys()),
+                "showing_debug_view": self._debug_view_visible,
+                "showing_npc_portrait": self._showing_npc_portrait,
+                "speaking_npc_id": self._speaking_npc_id,
+            },
+        }
+        self.query_one("#debug-log", DebugLogPane).show_snapshot(snapshot)
 
     def build_dungeon_transition_state(
         self,

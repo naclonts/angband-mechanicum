@@ -524,6 +524,65 @@ class GameEngine:
             "party": list(companions),
         }
 
+    def _read_debug_log_entries(self) -> list[dict[str, Any]]:
+        """Return parsed JSONL records for the current session log file."""
+        if not self._log_path.exists():
+            return []
+
+        entries: list[dict[str, Any]] = []
+        try:
+            for line_number, raw_line in enumerate(
+                self._log_path.read_text(encoding="utf-8").splitlines(),
+                start=1,
+            ):
+                if not raw_line.strip():
+                    continue
+                try:
+                    parsed = json.loads(raw_line)
+                except json.JSONDecodeError as exc:
+                    entries.append({
+                        "line_number": line_number,
+                        "parse_error": type(exc).__name__,
+                        "raw_line": raw_line,
+                    })
+                    continue
+                if isinstance(parsed, dict):
+                    entries.append(parsed)
+                else:
+                    entries.append({
+                        "line_number": line_number,
+                        "value": parsed,
+                    })
+        except OSError as exc:
+            return [{"read_error": str(exc), "path": str(self._log_path)}]
+        return entries
+
+    def build_debug_snapshot(self) -> dict[str, Any]:
+        """Return a debug-oriented snapshot of the current engine state."""
+        return {
+            "active_interaction_context": (
+                dict(self._active_interaction_context)
+                if self._active_interaction_context is not None
+                else None
+            ),
+            "conversation_history": list(self._conversation_history),
+            "current_environment_id": self._current_environment_id,
+            "current_location_label": self._current_location_label,
+            "current_location_profile_id": self._current_location_profile_id,
+            "current_scene_art": self._current_scene_art,
+            "history": self._history.to_dict(),
+            "info_panel": dict(self._info_panel),
+            "jsonl_log_entries": self._read_debug_log_entries(),
+            "jsonl_log_path": str(self._log_path),
+            "max_integrity": self._max_integrity,
+            "party_hp": {key: list(value) for key, value in self._party_hp.items()},
+            "party_member_ids": list(self._party_member_ids),
+            "player_name": self._player_name,
+            "status": self.get_status_data(),
+            "story_start_id": self._story_start_id,
+            "turn_count": self._turn_count,
+        }
+
     @property
     def turn_count(self) -> int:
         return self._turn_count

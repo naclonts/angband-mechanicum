@@ -27,6 +27,7 @@ from angband_mechanicum.widgets.dungeon_map import (
 )
 from angband_mechanicum.widgets.info_panel import InfoPanel
 from angband_mechanicum.widgets.narrative_pane import NarrativePane
+from angband_mechanicum.widgets.debug_log_pane import DebugLogPane
 from angband_mechanicum.widgets.scene_pane import ScenePane
 from angband_mechanicum.widgets.prompt_input import PromptInput
 from textual.widgets import Static
@@ -705,3 +706,46 @@ class TestPromptBorder:
             assert top_color == right_color, (
                 f"border-top color {top_color} != border-right color {right_color}"
             )
+
+
+class TestDebugLogsView:
+    @pytest.mark.asyncio
+    async def test_f2_toggles_debug_logs_view_without_losing_story_state(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """F2 should reveal a live debug dump and return focus to the prompt."""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        async with app.run_test(size=APP_SIZE) as pilot:
+            await _start_new_game(pilot, app)
+            _mock_engine_client(
+                app,
+                json.dumps(
+                    {
+                        "narrative_text": "The machine spirit answers in static.",
+                        "info_update": {"LOCATION": "Relay Vault"},
+                    }
+                ),
+            )
+
+            await _submit_command(pilot, app, "listen")
+
+            await pilot.press("f2")
+            await pilot.pause()
+
+            debug_pane = app.screen.query_one("#debug-log", DebugLogPane)
+            rendered = "\n".join(strip.text for strip in debug_pane.lines)
+
+            assert debug_pane.has_focus
+            assert '"turn_count": 1' in rendered
+            assert '"player_input": "listen"' in rendered
+            assert "The machine spirit answers in static." in rendered
+            assert '"jsonl_log_entries"' in rendered
+
+            await pilot.press("f2")
+            await pilot.pause()
+
+            prompt = app.screen.query_one("#prompt", PromptInput)
+            narrative = app.screen.query_one("#narrative", NarrativePane)
+            assert prompt.has_focus
+            assert narrative.lines[-1].text == "The machine spirit answers in static."
