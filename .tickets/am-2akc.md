@@ -1,6 +1,6 @@
 ---
 id: am-2akc
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-03-30T00:00:46Z
@@ -23,3 +23,7 @@ Difficulty: medium. Research-oriented ticket with some ambiguity; inspect the lo
 **2026-03-30T00:01:01Z**
 
 Local reference path: the Tales of Maj'Eyal / T-Engine code to review is at ~/projects/t-engine4 on this machine.
+
+**2026-03-30T00:16:00Z**
+
+Reviewed representative ToME zone and content systems at `~/projects/t-engine4`, focusing on `class/Game.lua`, `class/GameState.lua`, zone definitions such as `trollmire`, `old-forest`, `daikara`, `lake-nur`, `sandworm-lair`, `temporal-rift`, `conclave-vault`, `ruined-dungeon`, `sludgenest`, and pride zones, plus event/vault content. Main findings pushed into `am-ju7p`: layer environ identity across generator plus content tables, use rare alternate environ variants, make special floors explicit, distribute themed discoveries per floor, constrain encounter pools by theme tags/factions, and add at least one reactive novelty rule per environ.
