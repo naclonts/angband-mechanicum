@@ -46,3 +46,5 @@ Actionable implementation guidance for `am-ju7p`:
 - Add theme-filtered spawn tables analogous to ToME's `special_rarity` usage. Avoid one monolithic room or encounter list.
 - Add a small rare-variant system so revisiting the same environ can select a different profile. This can be as small as a weighted `variant` key that swaps 20-40% of the room/enemy/object tables.
 - Split the implementation if needed into subtasks such as: content schema support, shared room/set-piece library, environment-specific packs, reactive environ rules, and discovery/lore surfacing.
+
+Review ~/projects/t-engine4 if relevant for inspiration.  
