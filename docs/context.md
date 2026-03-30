@@ -30,6 +30,7 @@ Hazard tiles such as acid pools and lava can be crossed, but they inflict determ
 ### Text View (narrative + dialogue + travel)
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.
 When the player is directly speaking to or closely examining a specific character, the scene art can center that character instead of only showing the broader surroundings.
+`F2` opens a debug-only logs view for the current session so developers can inspect the structured history, conversation state, and raw JSONL turn log without leaving the live game.
 Travel requests entered in text view are resolved to the closest supported dungeon environment, then a matching dungeon session is generated and mounted on arrival.
 Text-view responses that ask the player to resume exploration keep their scene art and info updates in the dungeon session so the next bridge back to text can restore the same context.
 Curated story starts now seed explicit dungeon-generation profiles instead of relying on free-text environment inference. Those profiles carry canonical environment identity, faction bias, landmark/set-piece preferences, and content exclusions across story intro, `/explore`, save/load, and later floor transitions.

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import anthropic
 import pytest
 
+from angband_mechanicum.engine.history import EntityType
 from angband_mechanicum.engine.game_engine import GameEngine, GameResponse, NOOSPHERE_ERRORS
 from tests.conftest import _make_api_response
 
@@ -72,6 +74,44 @@ class TestStatusData:
         servo_skull = next(member for member in status["companions"] if member["id"] == "servo-skull")
         assert servo_skull["alive"] is False
         assert servo_skull["hp"] == 0
+
+
+class TestDebugSnapshot:
+    def test_build_debug_snapshot_includes_history_and_jsonl_entries(
+        self, tmp_path: Path
+    ) -> None:
+        engine = GameEngine()
+        entity = engine.history.register_entity(
+            "Cogitator Shrine",
+            EntityType.PLACE,
+            "A shrine of sputtering logic engines.",
+        )
+        engine.history.add_step(
+            "inspect shrine",
+            "The shrine vents old incense.",
+            [entity.id],
+            {"LOCATION": "Relay Vault"},
+        )
+        engine._turn_count = 1
+        engine._log_path = tmp_path / "debug.jsonl"
+        engine._log_path.write_text(
+            "\n".join(
+                [
+                    json.dumps({"turn": 1, "raw_response": "{\"ok\": true}"}),
+                    "not-json",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        snapshot = engine.build_debug_snapshot()
+
+        assert snapshot["turn_count"] == 1
+        assert snapshot["history"]["steps"][0]["player_input"] == "inspect shrine"
+        assert snapshot["history"]["steps"][0]["entity_ids"] == [entity.id]
+        assert snapshot["jsonl_log_entries"][0]["turn"] == 1
+        assert snapshot["jsonl_log_entries"][1]["parse_error"] == "JSONDecodeError"
+        assert snapshot["jsonl_log_path"] == str(engine._log_path)
 
 
 class TestTravelDestinationResolution:

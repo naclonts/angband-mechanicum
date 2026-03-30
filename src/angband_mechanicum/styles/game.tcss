@@ -7,12 +7,50 @@ $crt-bg: #0a0a0a;
 $crt-surface: #0d1a0d;
 
 GameScreen {
+    background: $crt-bg;
+}
+
+#game-view-switcher {
+    width: 100%;
+    height: 100%;
+}
+
+#story-view {
+    width: 100%;
+    height: 100%;
     layout: grid;
     grid-size: 2 2;
     grid-columns: 3fr 1fr;
     grid-rows: 2fr 3fr;
     grid-gutter: 1;
     background: $crt-bg;
+}
+
+#debug-view {
+    width: 100%;
+    height: 100%;
+    background: $crt-bg;
+}
+
+DebugLogPane {
+    height: 100%;
+    border: heavy $crt-dim;
+    color: $crt-medium;
+    background: $crt-surface;
+    padding: 0 1;
+    scrollbar-color: $crt-dim;
+    scrollbar-color-hover: $crt-bright;
+    border-title-color: $crt-bright;
+    border-title-style: bold;
+}
+
+DebugLogPane:focus {
+    border: heavy $crt-bright;
+}
+
+DebugLogPane {
+    border-subtitle-color: $crt-dim;
+    border-subtitle-style: bold;
 }
 
 ScenePane {

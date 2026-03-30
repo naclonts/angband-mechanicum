@@ -148,6 +148,7 @@ Primary files:
 
 - `GameScreen` captures prompt input and submits it to `GameEngine.process_input()`.
 - When `GameScreen` was opened from a dungeon interaction, it also seeds a focused interaction context into `GameEngine` so follow-up dialogue stays grounded in the addressed target and current dungeon location.
+- `GameScreen` also exposes an `F2` debug view that dumps the current UI state plus `GameEngine.build_debug_snapshot()` so developers can inspect `GameHistory`, conversation state, and parsed JSONL turn logs without mutating gameplay state.
 - Travel-style text commands are resolved against the known dungeon environments, then `AngbandMechanicumApp` builds a matching `DungeonSession` and mounts that destination dungeon before the player returns to map view.
 - When text responses request a return to the dungeon, their scene art and info updates are kept in the session's pending bridge context so the next text-view restore can reuse them.
 - Curated story starts and text-travel both update the same canonical environment context on `GameEngine`, so text prompts and dungeon generation share one persisted environment/profile identity.
@@ -169,6 +170,7 @@ Primary files:
 - [src/angband_mechanicum/screens/game_screen.py](../src/angband_mechanicum/screens/game_screen.py)
 - [src/angband_mechanicum/engine/game_engine.py](../src/angband_mechanicum/engine/game_engine.py)
 - [src/angband_mechanicum/engine/history.py](../src/angband_mechanicum/engine/history.py)
+- [src/angband_mechanicum/widgets/debug_log_pane.py](../src/angband_mechanicum/widgets/debug_log_pane.py)
 - [src/angband_mechanicum/widgets/narrative_pane.py](../src/angband_mechanicum/widgets/narrative_pane.py)
 - [src/angband_mechanicum/widgets/info_panel.py](../src/angband_mechanicum/widgets/info_panel.py)
 
