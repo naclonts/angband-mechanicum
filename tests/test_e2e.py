@@ -344,6 +344,8 @@ class TestNewGame:
         async with app.run_test(size=APP_SIZE) as pilot:
             await _start_new_game(pilot, app, enter_explore_view=True)
 
+            screen = app.screen
+            assert isinstance(screen, DungeonScreen)
             pane = app.screen.query_one("#dungeon-inspect", DungeonTransitionPane)
             long_line = (
                 "The machine-spirit murmurs an extended warning about the chamber, "
@@ -351,32 +353,7 @@ class TestNewGame:
                 "running it past the visible boundary."
             )
 
-            pane.show_context("⛨ AMBIENT: SHRINE", [long_line])
-            await pilot.pause()
-
-            rendered_lines = [strip.text for strip in pane.lines]
-            assert pane.content_region.width > 0
-            assert len(rendered_lines) > 1
-            assert max(len(line) for line in rendered_lines) <= pane.content_region.width
-
-    @pytest.mark.asyncio
-    async def test_ambient_panel_wraps_prose_without_touching_scene_art(
-        self, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """Ambient inspect text should wrap to the panel width while preserving line art."""
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
-        app = AngbandMechanicumApp()
-        async with app.run_test(size=APP_SIZE) as pilot:
-            await _start_new_game(pilot, app, enter_explore_view=True)
-
-            pane = app.screen.query_one("#dungeon-inspect", DungeonTransitionPane)
-            long_line = (
-                "The machine-spirit murmurs an extended warning about the chamber, "
-                "and the inspect pane should wrap this prose cleanly instead of "
-                "running it past the visible boundary."
-            )
-
-            pane.show_context("⛨ AMBIENT: SHRINE", [long_line])
+            screen._set_ambient_discovery("⛨ AMBIENT: SHRINE", [long_line])
             await pilot.pause()
 
             rendered_lines = [strip.text for strip in pane.lines]

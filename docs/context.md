@@ -22,7 +22,7 @@ Transition tiles are part of the dungeon itself: stairs, lifts, elevators, gates
 The bottom-right inspect panel now also surfaces occasional ambient line-of-sight discoveries for nearby characters, objects, and notable features while explicit look/examine still routes into text view.
 When text view is opened from a dungeon interaction, the active target and current dungeon context are carried into the prompt so follow-up dialogue stays anchored to the addressed character or object.
 Dungeon-to-text bridges also seed the text status panel with the live dungeon location, while pending text-bridge context is only reused when returning from a prior text response.
-When ambient responses include both `scene_art` and `narrative_text`, the art is kept unwrapped and the prose wraps cleanly to the panel width.
+The field-scan pane renders prose against the live pane width, and when ambient responses include both `scene_art` and `narrative_text`, the art is kept unwrapped while the prose wraps cleanly beneath it.
 The dungeon status pane shows gameplay-relevant player status, especially HP/integrity, instead of a log-entry count.
 Tab cycles focus between the map, field log, and side panels so the non-map panes can be scrolled without losing movement controls.
 Creature turns now advance on the map after player actions: hostiles pursue or hold range based on line of sight, while friendly and neutral actors can follow, patrol, or wander in scenario-appropriate ways.
