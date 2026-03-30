@@ -1014,6 +1014,33 @@ class TestAmbientDiscoveries:
 class TestAmbientDiscoveryArtWrapping:
     """The inspect panel should preserve ASCII art while wrapping prose."""
 
+    @pytest.mark.asyncio
+    async def test_field_scan_context_wraps_in_live_widget(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        story = StoryStart(
+            id="ambient-wrap",
+            title="Ambient Wrap",
+            description="Mounted inspect panel regression coverage.",
+            location="Forge-Cathedral Theta",
+            intro_narrative="The machine spirit hums.",
+            scene_art="ART",
+        )
+        app.dungeon_session = app.build_dungeon_session(story)
+
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.open_dungeon_view()
+            await pilot.pause()
+
+            pane = app.screen.query_one("#dungeon-inspect", DungeonTransitionPane)
+            rendered_lines = [strip.text for strip in pane.lines]
+
+            assert pane.content_region.width > 0
+            assert len(rendered_lines) > 1
+            assert max(len(line) for line in rendered_lines) <= pane.content_region.width
+
     def test_set_ambient_stores_separate_art_and_narrative(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -1048,6 +1075,53 @@ class TestAmbientDiscoveryArtWrapping:
 
         assert screen._ambient_discovery_art is None
         assert screen._ambient_discovery_narrative is None
+
+    @pytest.mark.asyncio
+    async def test_live_widget_preserves_art_and_wraps_ambient_narrative(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-fake")
+        app = AngbandMechanicumApp()
+        story = StoryStart(
+            id="ambient-art-wrap",
+            title="Ambient Art Wrap",
+            description="Mounted inspect panel regression coverage.",
+            location="Forge-Cathedral Theta",
+            intro_narrative="The machine spirit hums.",
+            scene_art="ART",
+        )
+        app.dungeon_session = app.build_dungeon_session(story)
+
+        async with app.run_test(size=(120, 40)) as pilot:
+            app.open_dungeon_view()
+            await pilot.pause()
+
+            screen = app.screen
+            assert isinstance(screen, DungeonScreen)
+            pane = screen.query_one("#dungeon-inspect", DungeonTransitionPane)
+
+            art = "  ╔══════╗\n  ║ SHRN ║\n  ╚══════╝"
+            narrative = (
+                "The shrine emits a sustained canticle of warning, and the "
+                "mounted inspect pane should wrap this prose without bending "
+                "the line art above it."
+            )
+
+            screen._set_ambient_discovery(
+                "⛨ AMBIENT: SHRINE",
+                [],
+                scene_art=art,
+                narrative_text=narrative,
+            )
+            await pilot.pause()
+
+            rendered_lines = [strip.text for strip in pane.lines]
+            art_lines = art.splitlines()
+            narrative_lines = rendered_lines[len(art_lines) + 2 :]
+
+            assert rendered_lines[1 : len(art_lines) + 1] == art_lines
+            assert len(narrative_lines) > 1
+            assert max(len(line) for line in narrative_lines) <= pane.content_region.width
 
 class TestShowInspectTextObjects:
     """Unit tests for the Text objects produced by show_inspect."""

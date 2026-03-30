@@ -376,13 +376,51 @@ class DungeonTransitionPane(RichLog):
 
     def __init__(self, **kwargs: object) -> None:
         super().__init__(markup=True, wrap=True, auto_scroll=False, **kwargs)  # type: ignore[arg-type]
+        self._title: str | None = None
+        self._context_lines: list[str] = []
+        self._scene_art: str | None = None
+        self._narrative_text: str | None = None
+        self._pending_width_refresh: bool = False
+
+    def _current_render_width(self) -> int | None:
+        """Return the live content width when layout is ready."""
+        try:
+            width = self.scrollable_content_region.width or self.content_region.width
+        except RuntimeError:
+            return None
+        return width if width > 0 else None
+
+    def _queue_width_refresh(self) -> None:
+        """Replay the current payload once layout has a usable width."""
+        if getattr(self, "_pending_width_refresh", False):
+            return
+        try:
+            self._pending_width_refresh = True
+            self.call_after_refresh(self._rerender_current_payload)
+        except (AttributeError, RuntimeError):
+            self._pending_width_refresh = False
+
+    def _rerender_current_payload(self) -> None:
+        self._pending_width_refresh = False
+        if getattr(self, "_title", None) is None:
+            return
+        self._render_current_payload()
+
+    def _write_wrapped(self, content: Text) -> None:
+        """Render wrapped prose against the pane's current width."""
+        width = self._current_render_width()
+        if width is None:
+            self.write(content)
+            self._queue_width_refresh()
+            return
+        self.write(content, width=width)
 
     def show_context(self, title: str, lines: Sequence[str]) -> None:
-        self.clear()
-        self.write(Text.from_markup(f"[bold]{title}[/bold]"))
-        for line in lines:
-            self.write(Text.from_markup(line))
-        self.scroll_home()
+        self._title = title
+        self._context_lines = list(lines)
+        self._scene_art = None
+        self._narrative_text = None
+        self._render_current_payload()
 
     def show_inspect(
         self,
@@ -395,17 +433,34 @@ class DungeonTransitionPane(RichLog):
         Scene art is written with ``no_wrap`` so ASCII layouts are preserved.
         Narrative text is written normally and will word-wrap to the panel width.
         """
+        self._title = title
+        self._context_lines = []
+        self._scene_art = scene_art
+        self._narrative_text = narrative_text
+        self._render_current_payload()
+
+    def _render_current_payload(self) -> None:
+        """Repaint the pane from the stored payload."""
+        title = self._title
+        if title is None:
+            return
         self.clear()
-        self.write(Text.from_markup(f"[bold]{title}[/bold]"))
-        if scene_art:
-            for art_line in scene_art.splitlines():
-                self.write(Text(art_line, no_wrap=True, overflow="ignore"))
-            if narrative_text:
-                # Blank separator between art and prose
-                self.write(Text(""))
-        if narrative_text:
-            self.write(Text.from_markup(narrative_text))
+        self._write_wrapped(Text.from_markup(f"[bold]{title}[/bold]"))
+        if self._scene_art is not None or self._narrative_text is not None:
+            if self._scene_art:
+                for art_line in self._scene_art.splitlines():
+                    self.write(Text(art_line, no_wrap=True, overflow="ignore"))
+                if self._narrative_text:
+                    self.write(Text(""))
+            if self._narrative_text:
+                self._write_wrapped(Text.from_markup(self._narrative_text))
+        else:
+            for line in self._context_lines:
+                self._write_wrapped(Text.from_markup(line))
         self.scroll_home()
+
+    def on_resize(self) -> None:
+        self._rerender_current_payload()
 
 
 class DungeonStatusPane(RichLog):
