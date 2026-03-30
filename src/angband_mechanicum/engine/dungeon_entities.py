@@ -572,15 +572,9 @@ class DungeonEntity:
             elif self.alert_state == "attending":
                 message = f"{self.name} watches the player warily."
             else:
-                message = f"{self.name} holds position."
-        elif self.movement_ai == DungeonMovementAI.PATROL:
-            message = f"{self.name} continues patrol."
-        elif self.movement_ai == DungeonMovementAI.FOLLOW_PLAYER:
-            message = f"{self.name} keeps pace with the player."
-        elif self.movement_ai == DungeonMovementAI.WANDER:
-            message = f"{self.name} drifts through the chamber."
+                message = ""
         else:
-            message = f"{self.name} waits."
+            message = ""
 
         if self.alert_state == "searching" and self.alert_turns >= 3:
             self.alert_state = "idle"

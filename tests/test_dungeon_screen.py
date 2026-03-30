@@ -606,6 +606,33 @@ class TestDungeonMapState:
         assert reports[0].moved_to == (4, 2)
         assert state.messages == []
 
+    def test_advance_creature_turns_suppresses_visible_hold_logs(self) -> None:
+        level = _make_level()
+        level.player_pos = (2, 2)
+        level.compute_fov((2, 2), 5)
+
+        sentry = DungeonMapEntity(
+            entity_id="neutral-observer",
+            name="Neutral Observer",
+            x=5,
+            y=2,
+            disposition="neutral",
+            movement_ai="stationary",
+            hp=8,
+            max_hp=8,
+            attack=3,
+            movement=0,
+            attack_range=1,
+            armor=1,
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[sentry])
+
+        reports = state.advance_creature_turns()
+
+        assert reports[0].action == "hold"
+        assert reports[0].message == ""
+        assert state.messages == []
+
     def test_hostile_bump_attacks_and_clears_tile(self) -> None:
         level = _make_level()
         hostile = DungeonMapEntity(
