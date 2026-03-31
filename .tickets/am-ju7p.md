@@ -1,6 +1,6 @@
 ---
 id: am-ju7p
-status: open
+status: closed
 deps: [am-2akc]
 links: []
 created: 2026-03-29T23:54:30Z
@@ -48,3 +48,7 @@ Actionable implementation guidance for `am-ju7p`:
 - Split the implementation if needed into subtasks such as: content schema support, shared room/set-piece library, environment-specific packs, reactive environ rules, and discovery/lore surfacing.
 
 Review ~/projects/t-engine4 if relevant for inspiration.  
+
+**2026-03-31T00:55:52Z**
+
+Implemented environment content-plan layering in dungeon generation: rare per-environment variants, entry/reveal/descent/climax floor bands, discovery placement metadata, expanded themed-room coverage for late environs, debug-catalog surfacing, and docs/tests updates. Verified with uv run pytest tests/test_dungeon_gen.py tests/test_dungeon_screen.py tests/test_app.py.

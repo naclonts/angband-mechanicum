@@ -28,6 +28,7 @@ from angband_mechanicum.engine.dungeon_gen import (
     GeneratedMap,
     RoomHint,
     SpawnPoints,
+    build_environment_debug_catalog,
     generate_dungeon_floor,
     generate_map,
     generate_map_from_hint,
@@ -1054,6 +1055,62 @@ class TestDungeonFloorGeneration:
 
         assert first.placed_items == second.placed_items
 
+    def test_floor_records_content_plan_metadata_and_discoveries(self) -> None:
+        floor = generate_dungeon_floor(
+            level_id="floor-discovery-plan",
+            depth=5,
+            environment="data_vault",
+            seed=211,
+        )
+
+        assert floor.content_variant_id
+        assert floor.content_variant_name
+        assert floor.floor_band == "climax"
+        assert floor.ambience_lines
+        assert floor.placed_discoveries
+        for discovery in floor.placed_discoveries:
+            x, y = discovery.position
+            assert floor.level.in_bounds(x, y)
+            assert floor.level.get_tile(x, y).passable
+
+    def test_floor_band_progression_changes_with_depth(self) -> None:
+        entry = generate_dungeon_floor(
+            level_id="floor-band-entry",
+            depth=1,
+            environment="forge",
+            seed=301,
+        )
+        reveal = generate_dungeon_floor(
+            level_id="floor-band-reveal",
+            depth=3,
+            environment="forge",
+            seed=301,
+        )
+        climax = generate_dungeon_floor(
+            level_id="floor-band-climax",
+            depth=5,
+            environment="forge",
+            seed=301,
+        )
+
+        assert entry.floor_band == "entry"
+        assert reveal.floor_band == "reveal"
+        assert climax.floor_band == "climax"
+
+    def test_environment_variants_are_not_single_profile_forever(self) -> None:
+        variants = {
+            generate_dungeon_floor(
+                level_id=f"variant-test-{seed}",
+                depth=7,
+                environment="forge",
+                seed=seed,
+            ).content_variant_id
+            for seed in range(20)
+        }
+
+        assert "standard" in variants
+        assert len(variants) >= 2
+
 
 class TestThemedRoomComposition:
     def test_themed_room_catalog_is_scoped_by_environment(self) -> None:
@@ -1109,3 +1166,25 @@ class TestThemedRoomComposition:
             assert level.get_terrain(*position) == terrain
         for position in instance.feature_tiles:
             assert level.get_tile(*position).terrain != DungeonTerrain.FLOOR
+
+    def test_late_environment_catalogs_have_unique_themed_rooms(self) -> None:
+        assert any(
+            template.name == "Glyph Nexus"
+            for template in _themed_room_templates_for_environment("xenos_ruin")
+        )
+        assert any(
+            template.name == "Cipher Stack"
+            for template in _themed_room_templates_for_environment("data_vault")
+        )
+
+
+class TestEnvironmentDebugCatalog:
+    def test_catalog_includes_variants_discoveries_and_reactive_rules(self) -> None:
+        catalog = build_environment_debug_catalog()
+        by_environment = {entry.environment_id: entry for entry in catalog}
+
+        forge = by_environment["forge"]
+        assert "Standard Profile" in forge.variant_names
+        assert "Smelter Lockdown" in forge.variant_names
+        assert forge.discovery_titles
+        assert forge.reactive_rule

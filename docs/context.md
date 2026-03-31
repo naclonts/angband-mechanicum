@@ -47,6 +47,7 @@ Story-specific dungeon profiles sit above that coarse environment layer so autho
 Dungeon floors can also include reusable themed set-pieces that combine room dressing, grouped hostiles, and optional NPCs to create more memorable encounters than plain procedural geometry alone, and those set-pieces now add to the baseline contact pressure instead of fully replacing it.
 Those floors now also seed environment-specific dressing objects and footprints, including multi-tile blocking set pieces such as machinery clusters, wreckage, shrines, and rock formations that preserve required traversal routes instead of sealing the floor.
 They still seed a small number of persistent item objects on safe floor tiles, so generated spaces can contain actual loot/interactables instead of only terrain and contacts.
+They now also resolve floor-band pacing and occasional rare environment variants, so entry floors, mid-run reveal floors, and climax floors can surface different themed rooms, ambience, discoveries, and escalation hooks inside the same environ.
 Door placement is gated by a valid room-threshold chokepoint test so tiny or open rooms do not get over-documented with free-standing doors; generated doors only appear where corridors or other passages actually breach a room boundary.
 
 ## UI Layout

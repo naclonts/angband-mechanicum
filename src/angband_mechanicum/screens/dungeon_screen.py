@@ -1106,8 +1106,12 @@ class DungeonScreen(Screen[None]):
                 f"Objects: {_comma_list(selected.object_templates)}",
                 f"Loose items: {_comma_list(selected.item_names)}",
                 f"Themed rooms: {_comma_list(selected.themed_rooms, limit=3)}",
+                f"Discoveries: {_comma_list(selected.discovery_titles, limit=3)}",
+                f"Variants: {_comma_list(selected.variant_names, limit=2)}",
             ]
         )
+        if selected.reactive_rule:
+            lines.append(f"Reactive rule: {selected.reactive_rule}")
         return lines
 
     def _open_environment_catalog(self) -> None:

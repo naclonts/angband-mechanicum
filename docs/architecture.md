@@ -120,7 +120,9 @@ Primary files:
 - `DungeonSession` persists the canonical dungeon-generation profile for the current location, so environment id, faction bias, landmark bias, and content exclusions survive `/explore`, save/load, and floor transitions.
 - `generate_dungeon_floor()` now seeds an environment-aware roster of hostile and non-hostile contacts alongside the floor geometry, with deeper floors and denser themed rooms pushing more hostile pressure without erasing each environment's faction mix.
 - `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
+- `generate_dungeon_floor()` now resolves a floor-band plus an optional rare environment variant before placement, so entry, reveal, descent, and climax floors bias toward different room counts, set pieces, encounter tags, ambience, and discovery families.
 - `generate_dungeon_floor()` also seeds a small number of persistent item objects on safe floor tiles and records those placements on `GeneratedFloor`.
+- Floors also record lightweight discovery placements plus ambience/reactive-rule metadata, giving each environ a reusable pool of lore beats and escalation hooks rather than only static terrain dressing.
 - It additionally places environment-specific dressing objects, including multi-tile blocking footprints, while preserving the remaining traversable floor graph so stairs and connected routes do not get sealed off by decorative set pieces.
 - Hostile contacts are planned as clustered groups when possible, with room-aware placement so packs and swarms occupy the same encounter space instead of scattering randomly across the floor.
 - Door placement only promotes tiles that still read as genuine room-threshold chokepoints, and it skips sparse candidate sets so small rooms do not get forced doors or free-standing floor artifacts.
@@ -133,7 +135,7 @@ Primary files:
 - Ctrl+direction travel reuses the same step resolution and stops when the path opens up, a contact appears, or combat/terrain interrupts control.
 - Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.
 - `DungeonTransitionPane.show_inspect()` renders ambient discoveries by keeping `scene_art` on unwrapped lines while allowing `narrative_text` to wrap to the pane width.
-- The same inspect pane also supports debug overlays. `F3` opens an environment catalog view that lists the preset dungeon environments and shows the generation tables currently wired for each one, including contacts, themed rooms, object templates, and loose item pools.
+- The same inspect pane also supports debug overlays. `F3` opens an environment catalog view that lists the preset dungeon environments and shows the generation tables currently wired for each one, including contacts, themed rooms, discovery families, rare variants, reactive rules, object templates, and loose item pools.
 - `DungeonStatusPane` now renders player HP/integrity and other gameplay-relevant status instead of a log-entry count.
 - The screen refreshes the render widgets after each action.
 - Dungeon-to-text bridges use the active dungeon session location for the text status panel, and stale pending text-bridge context is not allowed to override that fresh location state.

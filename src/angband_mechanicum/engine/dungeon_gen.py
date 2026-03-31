@@ -166,6 +166,9 @@ class EnvironmentDebugEntry:
     item_names: tuple[str, ...]
     object_templates: tuple[str, ...]
     themed_rooms: tuple[str, ...]
+    discovery_titles: tuple[str, ...] = ()
+    variant_names: tuple[str, ...] = ()
+    reactive_rule: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -769,6 +772,12 @@ class GeneratedFloor:
     placed_objects: list["PlacedEnvironmentObject"] = field(default_factory=list)
     entity_roster: DungeonEntityRoster = field(default_factory=DungeonEntityRoster)
     themed_rooms: list["ThemedRoomInstance"] = field(default_factory=list)
+    placed_discoveries: list["PlacedDiscovery"] = field(default_factory=list)
+    content_variant_id: str = "standard"
+    content_variant_name: str = "Standard"
+    floor_band: str = "descent"
+    ambience_lines: tuple[str, ...] = ()
+    reactive_rule: str | None = None
 
 
 @dataclass(frozen=True)
@@ -791,6 +800,73 @@ class PlacedEnvironmentObject:
     anchor: tuple[int, int]
     footprint: tuple[tuple[int, int], ...]
     blocking: bool
+
+
+@dataclass(frozen=True)
+class DiscoveryTemplate:
+    """Ambient discovery snippet anchored to a floor position."""
+
+    title: str
+    summary: str
+    environments: tuple[str, ...]
+    min_depth: int = 1
+    max_depth: int = 999
+    weight: int = 1
+    tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PlacedDiscovery:
+    """A concrete lore/scenery discovery placed on a generated floor."""
+
+    title: str
+    summary: str
+    position: tuple[int, int]
+    tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class FloorBandProfile:
+    """Depth-sensitive profile for entry, reveal, descent, and climax floors."""
+
+    band_id: str
+    room_count_delta: int = 0
+    set_piece_bonus: int = 0
+    preferred_themed_room_tags: tuple[str, ...] = ()
+    hostile_tags: tuple[str, ...] = ()
+    friendly_tags: tuple[str, ...] = ()
+    neutral_tags: tuple[str, ...] = ()
+    ambience_lines: tuple[str, ...] = ()
+    discovery_tags: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class EnvironmentVariantProfile:
+    """Environment-specific rare variant that biases content selection."""
+
+    variant_id: str
+    name: str
+    weight: int = 1
+    preferred_themed_room_tags: tuple[str, ...] = ()
+    required_themed_room_names: tuple[str, ...] = ()
+    hostile_tags: tuple[str, ...] = ()
+    friendly_tags: tuple[str, ...] = ()
+    neutral_tags: tuple[str, ...] = ()
+    ambience_lines: tuple[str, ...] = ()
+    discovery_tags: tuple[str, ...] = ()
+    reactive_rule: str | None = None
+
+
+@dataclass(frozen=True)
+class EnvironmentContentPlan:
+    """Resolved generation plan for a specific floor."""
+
+    variant: EnvironmentVariantProfile
+    floor_band: FloorBandProfile
+    profile: DungeonGenerationProfile
+    ambience_lines: tuple[str, ...]
+    discovery_tags: tuple[str, ...]
+    reactive_rule: str | None = None
 
 
 def _fill_level(level: DungeonLevel, terrain: DungeonTerrain) -> None:
@@ -1060,6 +1136,540 @@ _FLOOR_OBJECTS: dict[str, tuple[str, ...]] = {
     "ash_dune_outpost": ("beacon", "ration-crate", "survey-map", "repair-kit"),
     "default": ("supply-crate", "cogitator-slate", "field-kit"),
 }
+
+_FLOOR_BANDS: tuple[FloorBandProfile, ...] = (
+    FloorBandProfile(
+        band_id="entry",
+        room_count_delta=-1,
+        preferred_themed_room_tags=("entry", "survey", "checkpoint", "watchpost"),
+        friendly_tags=("crew", "survivor", "attendant", "custodian", "guide"),
+        neutral_tags=("clerk", "scribe", "broker", "surveyor"),
+        ambience_lines=(
+            "Entry strata still carry signs of recent passage and half-secured thresholds.",
+            "The machine spirit feels watchful here, as though the first rooms were prepared for witnesses.",
+        ),
+        discovery_tags=("entry", "warning", "cache"),
+    ),
+    FloorBandProfile(
+        band_id="reveal",
+        room_count_delta=1,
+        set_piece_bonus=1,
+        preferred_themed_room_tags=("vault", "reliquary", "breach", "ritual", "market"),
+        hostile_tags=("intruder", "cult", "warden", "gang", "scavenger"),
+        neutral_tags=("scribe", "broker", "guide", "surveyor"),
+        ambience_lines=(
+            "Mid-depth routes peel back enough of the environ's agenda to reveal who really owns the place.",
+            "The floor plan opens into spaces built for transactions, rites, or organized predation.",
+        ),
+        discovery_tags=("lore", "ritual", "stash"),
+    ),
+    FloorBandProfile(
+        band_id="descent",
+        room_count_delta=0,
+        preferred_themed_room_tags=("machine_cult", "underhive", "wastes", "forge", "necron"),
+        hostile_tags=("predator", "raider", "mutant", "guardian"),
+        ambience_lines=(
+            "The deeper route settles into a hostile routine of scavengers, patrols, and half-ruined infrastructure.",
+        ),
+        discovery_tags=("remains", "machinery"),
+    ),
+    FloorBandProfile(
+        band_id="climax",
+        room_count_delta=-1,
+        set_piece_bonus=1,
+        preferred_themed_room_tags=("titan", "reactor", "warp", "vault", "command", "breach"),
+        hostile_tags=("guardian", "daemon", "ork", "reactor", "boarding", "sentinel"),
+        ambience_lines=(
+            "This depth compresses toward a defended heart-space where the environ's strongest idea is forced on the player.",
+            "Routes narrow and converge around a chamber that feels deliberate rather than incidental.",
+        ),
+        discovery_tags=("climax", "command", "relic"),
+    ),
+)
+
+_STANDARD_VARIANT = EnvironmentVariantProfile(
+    variant_id="standard",
+    name="Standard Profile",
+    weight=0,
+)
+
+_ENVIRONMENT_VARIANTS: dict[str, tuple[EnvironmentVariantProfile, ...]] = {
+    "forge": (
+        EnvironmentVariantProfile(
+            variant_id="smelter_lockdown",
+            name="Smelter Lockdown",
+            weight=1,
+            preferred_themed_room_tags=("forge", "reactor", "machine_cult"),
+            hostile_tags=("reactor", "heretek", "forge"),
+            friendly_tags=("engineer", "adept"),
+            ambience_lines=(
+                "Blast shutters and emergency rites have turned the forge into a corridor of sealed heat-traps.",
+            ),
+            discovery_tags=("reactor", "warning", "machinery"),
+            reactive_rule="Noise or prolonged fighting can draw additional forge-servitors from maintenance shafts.",
+        ),
+    ),
+    "manufactorum": (
+        EnvironmentVariantProfile(
+            variant_id="union_strike",
+            name="Union Strike",
+            weight=1,
+            preferred_themed_room_tags=("assembly", "freight", "machine_cult"),
+            hostile_tags=("saboteur", "cult", "machine"),
+            neutral_tags=("clerk", "broker", "overseer"),
+            ambience_lines=(
+                "Production lines stand half-abandoned, with sabotage scars and barricaded tool cages between stations.",
+            ),
+            discovery_tags=("stash", "machinery", "warning"),
+            reactive_rule="Once an alarmed line is entered, adjacent halls can wake dormant labor units.",
+        ),
+    ),
+    "voidship": (
+        EnvironmentVariantProfile(
+            variant_id="silent_bulkhead_breach",
+            name="Silent Bulkhead Breach",
+            weight=1,
+            preferred_themed_room_tags=("breach", "boarding", "command"),
+            hostile_tags=("boarding", "intruder", "mutiny"),
+            friendly_tags=("crew", "pilot"),
+            ambience_lines=(
+                "Vacuum-sealed decks alternate with improvised breach barricades and blood-slick companionways.",
+            ),
+            discovery_tags=("breach", "command", "cache"),
+            reactive_rule="Unsealed bulkheads can convert nearby quiet rooms into active boarding fronts.",
+        ),
+    ),
+    "cathedral": (
+        EnvironmentVariantProfile(
+            variant_id="pilgrim_purge",
+            name="Pilgrim Purge",
+            weight=1,
+            preferred_themed_room_tags=("chapel", "ritual", "reliquary"),
+            hostile_tags=("faith", "penitent", "heretic"),
+            friendly_tags=("custodian", "faith"),
+            neutral_tags=("attendant", "scribe"),
+            ambience_lines=(
+                "Improvised confession lines and hurried purgation rites have overtaken the nave-side chambers.",
+            ),
+            discovery_tags=("ritual", "warning", "relic"),
+            reactive_rule="Disturbed shrines can turn nearby penitents from passive observers into zealots.",
+        ),
+    ),
+    "reliquary": (
+        EnvironmentVariantProfile(
+            variant_id="sealed_translation",
+            name="Sealed Translation Vault",
+            weight=1,
+            preferred_themed_room_tags=("vault", "reliquary", "archive"),
+            friendly_tags=("custodian", "guardian"),
+            neutral_tags=("scribe", "attendant"),
+            ambience_lines=(
+                "Transit locks stand open around chambers prepared for the movement of saint-bones and forbidden texts.",
+            ),
+            discovery_tags=("relic", "archive", "warning"),
+            reactive_rule="Breaking the silence around caskets can propagate a warding response along the vault chain.",
+        ),
+    ),
+    "hive": (
+        EnvironmentVariantProfile(
+            variant_id="gang_territory_war",
+            name="Gang Territory War",
+            weight=1,
+            preferred_themed_room_tags=("underhive", "gang", "stash"),
+            hostile_tags=("gang", "criminal", "riot"),
+            neutral_tags=("broker", "warden", "scout"),
+            ambience_lines=(
+                "Fresh gang marks, looted hab-stacks, and lookout fires turn the hive into overlapping kill-boxes.",
+            ),
+            discovery_tags=("stash", "warning", "remains"),
+            reactive_rule="Visible combat can escalate into roaming reinforcements from adjacent claim rooms.",
+        ),
+    ),
+    "sewer": (
+        EnvironmentVariantProfile(
+            variant_id="overflow_blackwater",
+            name="Overflow Blackwater",
+            weight=1,
+            preferred_themed_room_tags=("sump", "underhive", "filtration"),
+            hostile_tags=("rat", "mutant", "sewer"),
+            neutral_tags=("broker", "guide"),
+            ambience_lines=(
+                "Flood surges have redistributed corpses, contraband, and vermin nests through the drainage lattice.",
+            ),
+            discovery_tags=("warning", "remains", "cache"),
+            reactive_rule="Crossing contaminated channels can stir hidden vermin clusters into pursuit.",
+        ),
+    ),
+    "corrupted": (
+        EnvironmentVariantProfile(
+            variant_id="daemon_bloom",
+            name="Daemon Bloom",
+            weight=1,
+            preferred_themed_room_tags=("warp", "ritual", "chapel"),
+            hostile_tags=("warp", "daemon", "cult"),
+            neutral_tags=("victim", "remnant"),
+            ambience_lines=(
+                "The corruption here behaves like a spreading ecosystem, knotting chambers together with fresh growth.",
+            ),
+            discovery_tags=("ritual", "warning", "climax"),
+            reactive_rule="Activated shrines or warp scars can spread contamination into neighboring rooms.",
+        ),
+    ),
+    "overgrown": (
+        EnvironmentVariantProfile(
+            variant_id="reclaimed_greenhouse",
+            name="Reclaimed Greenhouse",
+            weight=1,
+            preferred_themed_room_tags=("growth", "reclaimed", "garden"),
+            hostile_tags=("growth", "predator"),
+            friendly_tags=("survivor", "guide"),
+            ambience_lines=(
+                "Ancient irrigation systems have revived whole chambers into fungal gardens and root-choked sanctuaries.",
+            ),
+            discovery_tags=("garden", "cache", "lore"),
+            reactive_rule="Cut through enough overgrowth and nearby nests can wake as a coordinated defense.",
+        ),
+    ),
+    "tomb": (
+        EnvironmentVariantProfile(
+            variant_id="funerary_wake",
+            name="Funerary Wake",
+            weight=1,
+            preferred_themed_room_tags=("tomb", "reliquary", "guardian"),
+            hostile_tags=("guardian", "tomb", "bone"),
+            neutral_tags=("scribe", "guardian"),
+            ambience_lines=(
+                "A chain of opened sarcophagi and ward-lit side chambers suggests the dead were only recently disturbed.",
+            ),
+            discovery_tags=("relic", "warning", "remains"),
+            reactive_rule="Disturbing burial clusters can wake dormant sentinels on the same floor.",
+        ),
+    ),
+    "radwastes": (
+        EnvironmentVariantProfile(
+            variant_id="scrap_storm_front",
+            name="Scrap Storm Front",
+            weight=1,
+            preferred_themed_room_tags=("wastes", "wreck", "titan"),
+            hostile_tags=("scavenger", "marauder", "ork"),
+            neutral_tags=("trader", "surveyor", "guide"),
+            ambience_lines=(
+                "Shifting scrap drifts and rad-burned wreckage have remade the outskirts into a moving salvage front.",
+            ),
+            discovery_tags=("wreck", "warning", "cache"),
+            reactive_rule="Gunfire or beacon use can pull scavenger packs toward the strongest signal source.",
+        ),
+    ),
+    "data_vault": (
+        EnvironmentVariantProfile(
+            variant_id="archive_purge",
+            name="Archive Purge",
+            weight=1,
+            preferred_themed_room_tags=("vault", "archive", "cipher"),
+            hostile_tags=("vault", "saboteur", "warden"),
+            friendly_tags=("adept", "guardian"),
+            neutral_tags=("scribe", "clerk"),
+            ambience_lines=(
+                "Index halls are marked for emergency deletion, with sealed stacks and half-purged logic shrines.",
+            ),
+            discovery_tags=("archive", "warning", "relic"),
+            reactive_rule="Accessing sealed stacks can awaken deeper counter-intrusion patrols.",
+        ),
+    ),
+    "xenos_ruin": (
+        EnvironmentVariantProfile(
+            variant_id="phase_shifted_sanctum",
+            name="Phase-Shifted Sanctum",
+            weight=1,
+            preferred_themed_room_tags=("xenos", "glyph", "sanctum"),
+            hostile_tags=("xenos", "sentinel", "predator"),
+            neutral_tags=("observer", "guide"),
+            ambience_lines=(
+                "Some chambers no longer seem to agree on geometry, forcing the route through unstable alien nodes.",
+            ),
+            discovery_tags=("glyph", "lore", "climax"),
+            reactive_rule="Crossing activated glyph nodes can reorient nearby patrols and access lanes.",
+        ),
+    ),
+    "ice_crypt": (
+        EnvironmentVariantProfile(
+            variant_id="thawing_crypt",
+            name="Thawing Crypt",
+            weight=1,
+            preferred_themed_room_tags=("ice", "cryo", "tomb"),
+            hostile_tags=("guardian", "frozen"),
+            neutral_tags=("scribe", "attendant"),
+            ambience_lines=(
+                "Cracked cryo-seals and meltwater channels expose chambers that were meant to stay frozen forever.",
+            ),
+            discovery_tags=("warning", "relic", "remains"),
+            reactive_rule="Breaking cryo seals can wake preserved guardians in nearby burial aisles.",
+        ),
+    ),
+    "sump_market": (
+        EnvironmentVariantProfile(
+            variant_id="contraband_auction",
+            name="Contraband Auction",
+            weight=1,
+            preferred_themed_room_tags=("market", "underhive", "stash"),
+            hostile_tags=("criminal", "broker", "gang"),
+            neutral_tags=("broker", "guide", "trader"),
+            ambience_lines=(
+                "Stalls have condensed into defended auction rings where information and salvage change hands fast.",
+            ),
+            discovery_tags=("stash", "cache", "lore"),
+            reactive_rule="Violence near stalls can flip neutral traders into runners who alert nearby gangs.",
+        ),
+    ),
+    "plasma_reactorum": (
+        EnvironmentVariantProfile(
+            variant_id="meltdown_containment",
+            name="Meltdown Containment",
+            weight=1,
+            preferred_themed_room_tags=("reactor", "machine_cult", "containment"),
+            hostile_tags=("reactor", "cult", "warden"),
+            friendly_tags=("engineer", "tech"),
+            ambience_lines=(
+                "Containment shutters and scorched maintenance galleries have turned the reactorum into a deliberate gauntlet.",
+            ),
+            discovery_tags=("reactor", "warning", "machinery"),
+            reactive_rule="Disrupting control banks can open hotter routes and invite reinforced reactor guardians.",
+        ),
+    ),
+    "penal_oubliette": (
+        EnvironmentVariantProfile(
+            variant_id="riot_transfer",
+            name="Riot Transfer",
+            weight=1,
+            preferred_themed_room_tags=("penal", "execution", "cellblock"),
+            hostile_tags=("convict", "warden", "riot"),
+            neutral_tags=("confessor", "witness"),
+            ambience_lines=(
+                "Cells stand open and transfer chains hang loose, leaving the oubliette between riot and purge.",
+            ),
+            discovery_tags=("warning", "remains", "stash"),
+            reactive_rule="Once one cell block is disturbed, neighboring wings can spill convicts into the route.",
+        ),
+    ),
+    "ash_dune_outpost": (
+        EnvironmentVariantProfile(
+            variant_id="dust_siege",
+            name="Dust Siege",
+            weight=1,
+            preferred_themed_room_tags=("wreck", "titan", "watchpost"),
+            hostile_tags=("ork", "loota", "scavenger"),
+            neutral_tags=("survivor", "surveyor", "reclaimator"),
+            ambience_lines=(
+                "Signal masts and sandbag nests have been reoriented for a prolonged siege under ash-choked skies.",
+            ),
+            discovery_tags=("wreck", "warning", "command"),
+            reactive_rule="Beacon activation can draw rival scavengers or defenders toward the same redoubt.",
+        ),
+    ),
+}
+
+_DISCOVERY_TEMPLATES: dict[str, tuple[DiscoveryTemplate, ...]] = {
+    "default": (
+        DiscoveryTemplate(
+            title="Warning Sigils",
+            summary="Fresh caution marks and coded warnings show that someone still expects traffic through these halls.",
+            environments=tuple(ENVIRONMENTS.keys()),
+            weight=3,
+            tags=("warning", "entry"),
+        ),
+        DiscoveryTemplate(
+            title="Survivor Cache",
+            summary="A hidden cache of ration tins, spent cells, and hurried notes suggests recent desperation.",
+            environments=tuple(ENVIRONMENTS.keys()),
+            weight=2,
+            tags=("cache", "stash"),
+        ),
+        DiscoveryTemplate(
+            title="Corpse Tableau",
+            summary="The dead have been left in a configuration that reads like a message, ritual, or warning.",
+            environments=tuple(ENVIRONMENTS.keys()),
+            weight=2,
+            tags=("remains", "warning"),
+        ),
+    ),
+    "forge": (
+        DiscoveryTemplate(
+            title="Machine Debris",
+            summary="Sheared cog-teeth and sanctified wiring lie where a machine spirit was stripped for parts.",
+            environments=("forge", "manufactorum", "plasma_reactorum"),
+            tags=("machinery", "warning"),
+        ),
+    ),
+    "cathedral": (
+        DiscoveryTemplate(
+            title="Pilgrim Petition Wall",
+            summary="Wax-sealed petitions and blood-marked vows cover the wall in overlapping layers of devotion and fear.",
+            environments=("cathedral", "reliquary"),
+            tags=("lore", "ritual"),
+        ),
+    ),
+    "hive": (
+        DiscoveryTemplate(
+            title="Claim Marker Shrine",
+            summary="Scrap icons, gang glyphs, and spent casings mark an improvised shrine to local ownership.",
+            environments=("hive", "sump_market", "penal_oubliette"),
+            tags=("stash", "warning"),
+        ),
+    ),
+    "sewer": (
+        DiscoveryTemplate(
+            title="Blackwater Shrine",
+            summary="Oil lamps and floating bones drift around a sump-side devotional marker.",
+            environments=("sewer", "sump_market"),
+            tags=("ritual", "warning"),
+        ),
+    ),
+    "corrupted": (
+        DiscoveryTemplate(
+            title="Warp Scar",
+            summary="Reality here has puckered around a wound of heat, static, and whispered machine-cant.",
+            environments=("corrupted",),
+            tags=("ritual", "climax"),
+        ),
+    ),
+    "overgrown": (
+        DiscoveryTemplate(
+            title="Seed Vault",
+            summary="A moss-swallowed locker still protects seed tubes and patient notes from a forgotten caretaker.",
+            environments=("overgrown",),
+            tags=("garden", "cache"),
+        ),
+    ),
+    "tomb": (
+        DiscoveryTemplate(
+            title="Funerary Register",
+            summary="Ceremonial inventory strips list the dead, their watch-rotations, and the seals that failed them.",
+            environments=("tomb", "ice_crypt"),
+            tags=("relic", "lore"),
+        ),
+    ),
+    "radwastes": (
+        DiscoveryTemplate(
+            title="Survey Beacon Ring",
+            summary="A circle of burnt-out beacons marks where salvage crews once measured the edge of a kill-zone.",
+            environments=("radwastes", "ash_dune_outpost"),
+            tags=("wreck", "command"),
+        ),
+    ),
+    "data_vault": (
+        DiscoveryTemplate(
+            title="Purge Ledger",
+            summary="A torn ledger records entire stacks scheduled for deletion, quarantine, or private removal.",
+            environments=("data_vault",),
+            tags=("archive", "warning"),
+        ),
+    ),
+    "xenos_ruin": (
+        DiscoveryTemplate(
+            title="Glyph Constellation",
+            summary="Alien sigils repeat across broken angles, as if the ruin is trying to remember its own sky.",
+            environments=("xenos_ruin",),
+            tags=("glyph", "lore"),
+        ),
+    ),
+}
+
+
+def _dedupe_tuple(*parts: tuple[str, ...]) -> tuple[str, ...]:
+    values: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        for value in part:
+            lowered = value.lower()
+            if lowered in seen:
+                continue
+            seen.add(lowered)
+            values.append(value)
+    return tuple(values)
+
+
+def _select_floor_band(depth: int) -> FloorBandProfile:
+    if depth <= 1:
+        return _FLOOR_BANDS[0]
+    if depth % 5 == 0:
+        return _FLOOR_BANDS[3]
+    if depth % 3 == 0:
+        return _FLOOR_BANDS[1]
+    return _FLOOR_BANDS[2]
+
+
+def _select_environment_variant(
+    environment: str,
+    rng: random.Random,
+) -> EnvironmentVariantProfile:
+    variants = _ENVIRONMENT_VARIANTS.get(environment, ())
+    if not variants:
+        return _STANDARD_VARIANT
+    total_weight = 12 + sum(max(1, variant.weight) for variant in variants)
+    roll = rng.randint(1, total_weight)
+    if roll <= 12:
+        return _STANDARD_VARIANT
+    roll -= 12
+    for variant in variants:
+        roll -= max(1, variant.weight)
+        if roll <= 0:
+            return variant
+    return variants[-1]
+
+
+def _merge_generation_profile(
+    environment: str,
+    base_profile: DungeonGenerationProfile | None,
+    variant: EnvironmentVariantProfile,
+    floor_band: FloorBandProfile,
+) -> DungeonGenerationProfile:
+    profile = base_profile or DungeonGenerationProfile(environment=environment)
+    return DungeonGenerationProfile(
+        environment=profile.environment,
+        profile_id=profile.profile_id,
+        location_name=profile.location_name,
+        hostile_tags=_dedupe_tuple(profile.hostile_tags, variant.hostile_tags, floor_band.hostile_tags),
+        friendly_tags=_dedupe_tuple(profile.friendly_tags, variant.friendly_tags, floor_band.friendly_tags),
+        neutral_tags=_dedupe_tuple(profile.neutral_tags, variant.neutral_tags, floor_band.neutral_tags),
+        preferred_themed_room_tags=_dedupe_tuple(
+            profile.preferred_themed_room_tags,
+            variant.preferred_themed_room_tags,
+            floor_band.preferred_themed_room_tags,
+        ),
+        required_themed_room_names=_dedupe_tuple(
+            profile.required_themed_room_names,
+            variant.required_themed_room_names,
+        ),
+        excluded_contact_tags=profile.excluded_contact_tags,
+        excluded_contact_names=profile.excluded_contact_names,
+        excluded_themed_room_names=profile.excluded_themed_room_names,
+        excluded_themed_room_tags=profile.excluded_themed_room_tags,
+    )
+
+
+def _resolve_environment_content_plan(
+    environment: str,
+    depth: int,
+    rng: random.Random,
+    profile: DungeonGenerationProfile | None,
+) -> EnvironmentContentPlan:
+    floor_band = _select_floor_band(depth)
+    variant = _select_environment_variant(environment, rng)
+    merged_profile = _merge_generation_profile(environment, profile, variant, floor_band)
+    ambience_lines = _dedupe_tuple(floor_band.ambience_lines, variant.ambience_lines)
+    discovery_tags = _dedupe_tuple(floor_band.discovery_tags, variant.discovery_tags)
+    return EnvironmentContentPlan(
+        variant=variant,
+        floor_band=floor_band,
+        profile=merged_profile,
+        ambience_lines=ambience_lines,
+        discovery_tags=discovery_tags,
+        reactive_rule=variant.reactive_rule,
+    )
+
+
+def _discovery_templates_for_environment(environment: str) -> tuple[DiscoveryTemplate, ...]:
+    return _DISCOVERY_TEMPLATES.get(environment, ()) + _DISCOVERY_TEMPLATES["default"]
 
 _LINE_2 = ((0, 0), (1, 0))
 _LINE_3 = ((0, 0), (1, 0), (2, 0))
@@ -1398,6 +2008,82 @@ def _scatter_environment_objects(
             break
 
     return placements, placed_objects
+
+
+def _scatter_environment_discoveries(
+    level: DungeonLevel,
+    rooms: list[DungeonRoom],
+    environment: str,
+    depth: int,
+    reserved: set[tuple[int, int]],
+    rng: random.Random,
+    plan: EnvironmentContentPlan,
+) -> list[PlacedDiscovery]:
+    templates = [
+        template
+        for template in _discovery_templates_for_environment(environment)
+        if template.min_depth <= depth <= template.max_depth
+    ]
+    if not templates or not rooms:
+        return []
+
+    matched = [
+        template
+        for template in templates
+        if not plan.discovery_tags or _matches_any_tag(template.tags, plan.discovery_tags)
+    ]
+    if matched:
+        templates = matched + [template for template in templates if template not in matched]
+
+    candidate_rooms = [
+        room
+        for index, room in enumerate(rooms)
+        if index not in {0, len(rooms) - 1} and room.room_type != "corridor"
+    ]
+    if not candidate_rooms:
+        candidate_rooms = list(rooms)
+    if not candidate_rooms:
+        return []
+
+    rng.shuffle(candidate_rooms)
+    target_count = max(1, min(3, 1 + depth // 4))
+    discoveries: list[PlacedDiscovery] = []
+    used_titles: set[str] = set()
+
+    for room in candidate_rooms:
+        if len(discoveries) >= target_count:
+            break
+        room_tiles = _room_tiles_by_focus(level, room, reserved, focus="edge")
+        if not room_tiles:
+            continue
+        available = [
+            template
+            for template in templates
+            if template.title not in used_titles
+        ]
+        if not available:
+            break
+        total_weight = sum(max(1, template.weight) for template in available)
+        roll = rng.randint(1, total_weight)
+        choice = available[-1]
+        for template in available:
+            roll -= max(1, template.weight)
+            if roll <= 0:
+                choice = template
+                break
+        position = room_tiles[0]
+        reserved.add(position)
+        used_titles.add(choice.title)
+        discoveries.append(
+            PlacedDiscovery(
+                title=choice.title,
+                summary=choice.summary,
+                position=position,
+                tags=choice.tags,
+            )
+        )
+
+    return discoveries
 
 
 def _scatter_environment_features(
@@ -3448,6 +4134,7 @@ def _generate_themed_rooms(
     entity_roster: DungeonEntityRoster,
     occupied: set[tuple[int, int]],
     profile: DungeonGenerationProfile | None = None,
+    set_piece_bonus: int = 0,
 ) -> tuple[list[ThemedRoomInstance], int]:
     templates = list(_themed_room_templates_for_environment(environment, profile))
     if not templates or len(rooms) < 2:
@@ -3470,6 +4157,7 @@ def _generate_themed_rooms(
         max_set_pieces = 1
     if depth >= 8 and len(rooms) >= 6 and rng.random() < 0.5:
         max_set_pieces += 1
+    max_set_pieces += max(0, set_piece_bonus)
     if profile is not None and (
         profile.required_themed_room_names or profile.preferred_themed_room_tags
     ):
@@ -3665,6 +4353,20 @@ def build_environment_debug_catalog() -> tuple[EnvironmentDebugEntry, ...]:
         themed_rooms = tuple(
             template.name for template in _themed_room_templates_for_environment(environment_id)
         )
+        discoveries = tuple(
+            template.title for template in _discovery_templates_for_environment(environment_id)
+        )
+        variants = tuple(
+            variant.name for variant in (_STANDARD_VARIANT,) + _ENVIRONMENT_VARIANTS.get(environment_id, ())
+        )
+        reactive_rule = next(
+            (
+                variant.reactive_rule
+                for variant in _ENVIRONMENT_VARIANTS.get(environment_id, ())
+                if variant.reactive_rule
+            ),
+            None,
+        )
         entries.append(
             EnvironmentDebugEntry(
                 environment_id=environment_id,
@@ -3679,6 +4381,9 @@ def build_environment_debug_catalog() -> tuple[EnvironmentDebugEntry, ...]:
                     template.object_id for template in _environment_object_templates(environment_id)
                 ),
                 themed_rooms=themed_rooms,
+                discovery_titles=discoveries,
+                variant_names=variants,
+                reactive_rule=reactive_rule,
             )
         )
     return tuple(entries)
@@ -4094,6 +4799,199 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
             tags=("ork", "fortification", "scrap"),
         ),
     ),
+    "overgrown": (
+        ThemedRoomTemplate(
+            name="Spore Nursery",
+            description="A reclaimed chamber where fungal blooms and cocooned prey are cultivated in damp heat.",
+            environments=("overgrown",),
+            room_types=("open_room", "arena", "pillared_hall"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.GROWTH, DungeonTerrain.WATER),
+            props=(ThemedRoomPropSpec(DungeonTerrain.RUBBLE, (1, 2), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 5),
+                    preferred_tags=("growth", "predator"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="friendly",
+                    count_range=(0, 1),
+                    preferred_tags=("survivor", "guide"),
+                    optional=True,
+                ),
+            ),
+            tags=("growth", "garden", "reclaimed"),
+        ),
+    ),
+    "tomb": (
+        ThemedRoomTemplate(
+            name="Waking Sepulchre",
+            description="A burial chamber where broken seals and half-raised guardians imply a recent disturbance.",
+            environments=("tomb", "ice_crypt"),
+            room_types=("small_chamber", "cross_room", "pillared_hall"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            feature_terrains=(DungeonTerrain.SHRINE, DungeonTerrain.COLUMN),
+            props=(ThemedRoomPropSpec(DungeonTerrain.RUBBLE, (1, 2), room_focus="center"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 4),
+                    preferred_tags=("guardian", "tomb", "bone"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("scribe",),
+                    optional=True,
+                ),
+            ),
+            tags=("tomb", "guardian", "relic"),
+        ),
+    ),
+    "data_vault": (
+        ThemedRoomTemplate(
+            name="Cipher Stack",
+            description="A sealed archive cluster where stacked cogitators and recovery racks hide a deeper cache.",
+            environments=("data_vault", "manufactorum"),
+            room_types=("small_chamber", "pillared_hall", "cross_room"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            feature_terrains=(DungeonTerrain.TERMINAL, DungeonTerrain.COVER),
+            props=(ThemedRoomPropSpec(DungeonTerrain.COLUMN, (1, 2), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 4),
+                    preferred_tags=("vault", "warden", "saboteur"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("scribe", "clerk"),
+                    optional=True,
+                ),
+            ),
+            tags=("vault", "archive", "cipher"),
+        ),
+    ),
+    "xenos_ruin": (
+        ThemedRoomTemplate(
+            name="Glyph Nexus",
+            description="An alien junction chamber where repeating sigils align around an impossible focal point.",
+            environments=("xenos_ruin",),
+            room_types=("maze", "cross_room", "arena"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.SHRINE, DungeonTerrain.CHASM),
+            props=(ThemedRoomPropSpec(DungeonTerrain.COLUMN, (1, 2), room_focus="center"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 4),
+                    preferred_tags=("xenos", "predator", "sentinel"),
+                ),
+            ),
+            tags=("glyph", "xenos", "sanctum"),
+        ),
+    ),
+    "sump_market": (
+        ThemedRoomTemplate(
+            name="Contraband Exchange",
+            description="A defended market ring where smugglers barter amid blackwater trenches and hidden weapons.",
+            environments=("sump_market", "hive"),
+            room_types=("open_room", "l_shaped", "cross_room"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            feature_terrains=(DungeonTerrain.COVER, DungeonTerrain.WATER),
+            props=(ThemedRoomPropSpec(DungeonTerrain.SHRINE, (1, 1), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 5),
+                    preferred_tags=("criminal", "gang", "broker"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("broker", "guide"),
+                    optional=True,
+                ),
+            ),
+            tags=("market", "stash", "underhive"),
+        ),
+    ),
+    "plasma_reactorum": (
+        ThemedRoomTemplate(
+            name="Containment Choir",
+            description="A reactor ward where acolytes chant containment rites over failing plasma shielding.",
+            environments=("plasma_reactorum", "forge"),
+            room_types=("open_room", "arena", "pillared_hall"),
+            min_depth=3,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.LAVA, DungeonTerrain.TERMINAL),
+            props=(ThemedRoomPropSpec(DungeonTerrain.COVER, (1, 2), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(3, 5),
+                    preferred_tags=("reactor", "cult", "warden"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="friendly",
+                    count_range=(0, 1),
+                    preferred_tags=("engineer", "tech"),
+                    optional=True,
+                ),
+            ),
+            tags=("reactor", "containment", "machine_cult"),
+        ),
+    ),
+    "penal_oubliette": (
+        ThemedRoomTemplate(
+            name="Punishment Circuit",
+            description="A circular punishment hall where chained routes funnel prisoners past shrines and execution gear.",
+            environments=("penal_oubliette",),
+            room_types=("cross_room", "arena", "l_shaped"),
+            min_depth=2,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            feature_terrains=(DungeonTerrain.GRATE, DungeonTerrain.SHRINE),
+            props=(ThemedRoomPropSpec(DungeonTerrain.COVER, (1, 2), room_focus="center"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(3, 6),
+                    preferred_tags=("convict", "warden", "riot"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("confessor", "warden"),
+                    optional=True,
+                ),
+            ),
+            tags=("penal", "execution", "cellblock"),
+        ),
+    ),
 }
 
 
@@ -4199,9 +5097,11 @@ def generate_dungeon_floor(
     """Generate an exploration-scale persistent dungeon floor."""
     rng = random.Random(seed)
     env = ENVIRONMENTS.get(environment, ENVIRONMENTS["forge"])
+    content_plan = _resolve_environment_content_plan(env.name, depth, rng, profile)
     width = max(FLOOR_MIN_WIDTH, min(FLOOR_MAX_WIDTH, width))
     height = max(FLOOR_MIN_HEIGHT, min(FLOOR_MAX_HEIGHT, height))
     resolved_room_count = room_count if room_count is not None else max(6, (width * height) // 260)
+    resolved_room_count += content_plan.floor_band.room_count_delta
     resolved_room_count = max(4, min(18, resolved_room_count))
 
     level = DungeonLevel(
@@ -4257,10 +5157,20 @@ def generate_dungeon_floor(
         rng,
         entity_roster,
         reserved,
-        profile,
+        content_plan.profile,
+        set_piece_bonus=content_plan.floor_band.set_piece_bonus,
     )
     _scatter_environment_features(level, rooms, env.name, reserved, rng)
     placed_items, placed_objects = _scatter_environment_objects(level, rooms, env.name, depth, reserved, rng)
+    placed_discoveries = _scatter_environment_discoveries(
+        level,
+        rooms,
+        env.name,
+        depth,
+        reserved,
+        rng,
+        content_plan,
+    )
     entity_roster = _generate_contacts(
         level,
         rooms,
@@ -4272,7 +5182,7 @@ def generate_dungeon_floor(
         # baseline contact budget, so only trim part of their roster impact.
         budget_offset=themed_contact_count // 2,
         roster=entity_roster,
-        profile=profile,
+        profile=content_plan.profile,
     )
 
     # Late carving steps can brush over traversal tiles, so reapply them last.
@@ -4295,4 +5205,10 @@ def generate_dungeon_floor(
         placed_objects=placed_objects,
         entity_roster=entity_roster,
         themed_rooms=themed_rooms,
+        placed_discoveries=placed_discoveries,
+        content_variant_id=content_plan.variant.variant_id,
+        content_variant_name=content_plan.variant.name,
+        floor_band=content_plan.floor_band.band_id,
+        ambience_lines=content_plan.ambience_lines,
+        reactive_rule=content_plan.reactive_rule,
     )
