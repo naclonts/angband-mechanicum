@@ -1,6 +1,6 @@
 ---
 id: am-2dit
-status: open
+status: closed
 deps: []
 links: []
 created: 2026-03-30T00:19:53Z

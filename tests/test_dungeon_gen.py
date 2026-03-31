@@ -957,6 +957,28 @@ class TestDungeonFloorGeneration:
             assert floor.level.get_creature(x, y) == entity.entity_id
             assert floor.level.get_terrain(x, y) == DungeonTerrain.FLOOR
 
+    def test_floor_contacts_get_denser_with_depth(self) -> None:
+        shallow = generate_dungeon_floor(
+            level_id="floor-density-shallow",
+            depth=2,
+            environment="forge",
+            seed=109,
+        )
+        deep = generate_dungeon_floor(
+            level_id="floor-density-deep",
+            depth=10,
+            environment="forge",
+            seed=109,
+        )
+
+        shallow_contacts = list(shallow.entity_roster.values())
+        deep_contacts = list(deep.entity_roster.values())
+
+        assert len(deep_contacts) > len(shallow_contacts)
+        assert any(
+            entity.disposition != DungeonDisposition.HOSTILE for entity in deep_contacts
+        )
+
     def test_floor_hostile_contacts_spawn_in_groups(self) -> None:
         floor = generate_dungeon_floor(
             level_id="floor-8-grouped",
