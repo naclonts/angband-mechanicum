@@ -103,6 +103,7 @@ flowchart TD
 - `CharacterSetupScreen` captures the player name.
 - `StorySelectScreen` chooses a `StoryStart`.
 - `AngbandMechanicumApp.begin_new_game()` creates a fresh `GameEngine`, applies story setup, creates a save slot, seeds a dungeon session, and opens `GameScreen` with the story intro already printed.
+- `DungeonSession` carries a per-run generation seed so a new game gets a new dungeon layout while save/load keeps the same persistent dungeon state for that save.
 - The player uses `/explore` to enter `DungeonScreen` while preserving the same `DungeonSession`.
 
 Primary files:

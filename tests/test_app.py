@@ -510,6 +510,45 @@ def test_begin_new_game_opens_story_intro_in_text_view(monkeypatch: pytest.Monke
     assert restored_state["info_update"] == {"LOCATION": "Forge-Cathedral Alpha"}
 
 
+def test_fresh_new_games_use_distinct_dungeon_generation_seeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Separate new games should not reuse the same dungeon seed or layout."""
+    generated_seeds: list[int] = []
+
+    def _fake_generate_dungeon_floor(**kwargs: object) -> GeneratedFloor:
+        seed = int(kwargs["seed"])
+        generated_seeds.append(seed)
+        return _make_travel_floor(
+            level_id=str(kwargs["level_id"]),
+            name=f"Floor {seed}",
+            depth=int(kwargs["depth"]),
+            environment=str(kwargs["environment"]),
+        )
+
+    monkeypatch.setattr(app_module, "generate_dungeon_floor", _fake_generate_dungeon_floor)
+
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="intro-test",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="ART",
+    )
+
+    first_session = app.build_dungeon_session(story)
+    second_session = app.build_dungeon_session(story)
+
+    assert first_session.generation_seed is not None
+    assert second_session.generation_seed is not None
+    assert first_session.generation_seed != second_session.generation_seed
+    assert first_session.state.level.name != second_session.state.level.name
+    assert len(generated_seeds) == 2
+    assert generated_seeds[0] != generated_seeds[1]
+
+
 def test_build_dungeon_session_includes_generated_contacts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -770,6 +809,7 @@ def test_dungeon_session_round_trip_preserves_generation_profile() -> None:
     assert restored.generation_profile.environment == "ash_dune_outpost"
     assert restored.generation_profile.required_themed_room_names == ("Titan Hull Breach",)
     assert restored.current_environment_id == "ash_dune_outpost"
+    assert restored.generation_seed == session.generation_seed
 
 
 def test_story_profile_builder_uses_explicit_story_metadata() -> None:

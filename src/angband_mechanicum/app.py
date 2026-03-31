@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
+import secrets
 import time
 import zlib
 from dataclasses import dataclass, field
@@ -63,11 +65,18 @@ def _generate_slot_id() -> str:
     return f"save-{int(time.time())}"
 
 
+def _fold_seed(*parts: object) -> int:
+    """Combine stable inputs into a 32-bit deterministic seed."""
+    text = ":".join(str(part) for part in parts)
+    return zlib.adler32(text.encode("utf-8"))
+
+
 @dataclass
 class DungeonSession:
     """Persistent dungeon bridge state owned by the app."""
 
     state: DungeonMapState
+    generation_seed: int | None = None
     story_id: str | None = None
     location: str | None = None
     intro_narrative: str | None = None
@@ -81,6 +90,8 @@ class DungeonSession:
     level_states: dict[str, DungeonMapState] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        if self.generation_seed is None:
+            self.generation_seed = secrets.randbits(32)
         self.level_states.setdefault(self.state.level.level_id, self.state)
         if self.current_environment_id is None:
             self.current_environment_id = self.state.level.environment
@@ -96,6 +107,7 @@ class DungeonSession:
         """Serialize the current dungeon session for persistence."""
         return {
             "state": self.state.to_dict(),
+            "generation_seed": self.generation_seed,
             "story_id": self.story_id,
             "location": self.location,
             "intro_narrative": self.intro_narrative,
@@ -124,6 +136,12 @@ class DungeonSession:
         else:
             state_data = data
         state = DungeonMapState.from_dict(state_data)
+        generation_seed = data.get("generation_seed")
+        if generation_seed is None:
+            generation_seed = _fold_seed(
+                "legacy-dungeon-session",
+                json.dumps(state_data, sort_keys=True, separators=(",", ":")),
+            )
         level_states_raw = data.get("level_states", {})
         level_states = {
             level_id: DungeonMapState.from_dict(level_state)
@@ -132,6 +150,7 @@ class DungeonSession:
         level_states[state.level.level_id] = state
         return cls(
             state=state,
+            generation_seed=int(generation_seed),
             story_id=data.get("story_id"),
             location=data.get("location") or data.get("destination_label") or state.level.name,
             intro_narrative=data.get("intro_narrative"),
@@ -190,6 +209,7 @@ class AngbandMechanicumApp(App[None]):
         self,
         floor: GeneratedFloor,
         *,
+        generation_seed: int | None = None,
         story_id: str | None = None,
         location: str | None = None,
         intro_narrative: str | None = None,
@@ -207,6 +227,7 @@ class AngbandMechanicumApp(App[None]):
                 entities=build_map_entities_from_roster(floor.entity_roster),
                 messages=list(messages or []),
             ),
+            generation_seed=generation_seed,
             story_id=story_id,
             location=location or floor.level.name,
             intro_narrative=intro_narrative,
@@ -239,7 +260,8 @@ class AngbandMechanicumApp(App[None]):
         """Create a fresh dungeon session for the active story."""
         profile = build_story_dungeon_profile(story_start)
         source = story_start.id if story_start else "default"
-        seed = zlib.adler32(source.encode("utf-8"))
+        generation_seed = secrets.randbits(32)
+        seed = _fold_seed("story", source, generation_seed)
         location = story_start.location if story_start else "Unknown Depths"
         floor = generate_dungeon_floor(
             level_id=source,
@@ -252,6 +274,7 @@ class AngbandMechanicumApp(App[None]):
         messages = [story_start.intro_narrative] if story_start else []
         session = self._build_session_from_floor(
             floor,
+            generation_seed=generation_seed,
             story_id=story_start.id if story_start else None,
             location=floor.level.name,
             intro_narrative=story_start.intro_narrative if story_start else None,
@@ -273,9 +296,14 @@ class AngbandMechanicumApp(App[None]):
             existing_story_id = self.dungeon_session.story_id
         if existing_story_id is None:
             existing_story_id = self._story_start.id if self._story_start else None
+        generation_seed = (
+            self.dungeon_session.generation_seed
+            if self.dungeon_session is not None and self.dungeon_session.generation_seed is not None
+            else secrets.randbits(32)
+        )
 
         level_id = f"travel:{destination.environment}:{zlib.adler32(request_text.encode('utf-8'))}"
-        seed = zlib.adler32(f"{destination.environment}:{request_text}".encode("utf-8"))
+        seed = _fold_seed("travel", destination.environment, request_text, generation_seed)
         floor = generate_dungeon_floor(
             level_id=level_id,
             depth=1,
@@ -286,6 +314,7 @@ class AngbandMechanicumApp(App[None]):
         )
         session = self._build_session_from_floor(
             floor,
+            generation_seed=generation_seed,
             story_id=existing_story_id,
             location=destination.display_name,
             generation_profile=profile,
@@ -324,13 +353,14 @@ class AngbandMechanicumApp(App[None]):
             location_name,
             session.state.level.level_id,
             encounter_name,
+            session.generation_seed,
         ]
         if room_hint and isinstance(room_hint.get("theme"), str):
             seed_components.append(room_hint["theme"])
         if room_hint and isinstance(room_hint.get("room_type"), str):
             seed_components.append(room_hint["room_type"])
 
-        seed = zlib.adler32(":".join(seed_components).encode("utf-8"))
+        seed = _fold_seed(*seed_components)
         floor = generate_dungeon_floor(
             level_id=f"{session.state.level.level_id}:combat:{seed}",
             depth=session.state.level.depth,
@@ -503,7 +533,7 @@ class AngbandMechanicumApp(App[None]):
                     depth=next_depth,
                     environment=session.current_environment_id or current.level.environment,
                     name=f"{session.location or current.level.name} Depth {next_depth}",
-                    seed=zlib.adler32(next_level_id.encode("utf-8")),
+                    seed=_fold_seed(session.generation_seed, next_level_id),
                     profile=profile,
                 )
                 next_state = DungeonMapState(
