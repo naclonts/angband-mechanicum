@@ -118,7 +118,7 @@ Primary files:
 - `DungeonScreen` owns or receives a `DungeonMapState`.
 - `DungeonMapState` wraps a persistent `DungeonLevel`, player position, FOV radius, messages, and lightweight map entities.
 - `DungeonSession` persists the canonical dungeon-generation profile for the current location, so environment id, faction bias, landmark bias, and content exclusions survive `/explore`, save/load, and floor transitions.
-- `generate_dungeon_floor()` now seeds a small environment-aware roster of hostile and non-hostile contacts alongside the floor geometry.
+- `generate_dungeon_floor()` now seeds an environment-aware roster of hostile and non-hostile contacts alongside the floor geometry, with deeper floors and denser themed rooms pushing more hostile pressure without erasing each environment's faction mix.
 - `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
 - `generate_dungeon_floor()` also seeds a small number of persistent item objects on safe floor tiles and records those placements on `GeneratedFloor`.
 - It additionally places environment-specific dressing objects, including multi-tile blocking footprints, while preserving the remaining traversable floor graph so stairs and connected routes do not get sealed off by decorative set pieces.

@@ -3570,7 +3570,7 @@ def _plan_contact_spawns(
     friendly_pool = contacts.get("friendly", ())
     neutral_pool = contacts.get("neutral", ())
     low, high = _ENVIRONMENT_CONTACT_RANGES.get(environment, (2, 5))
-    total_contacts = max(1, min(high, max(low, 1 + depth // 2 + len(rooms) // 5)))
+    total_contacts = max(1, min(high, max(low, 2 + depth // 2 + len(rooms) // 4)))
     if hostile_pool:
         total_contacts = max(3, total_contacts)
 
@@ -3744,24 +3744,24 @@ def _contacts_for_generation(
 
 
 _ENVIRONMENT_CONTACT_RANGES: dict[str, tuple[int, int]] = {
-    "forge": (2, 4),
-    "cathedral": (1, 4),
-    "hive": (3, 6),
-    "sewer": (3, 6),
-    "corrupted": (2, 5),
-    "overgrown": (2, 5),
-    "tomb": (1, 3),
-    "manufactorum": (2, 5),
-    "voidship": (3, 6),
-    "reliquary": (1, 4),
-    "radwastes": (2, 5),
-    "data_vault": (2, 4),
-    "xenos_ruin": (2, 5),
-    "ice_crypt": (1, 4),
-    "sump_market": (2, 5),
-    "plasma_reactorum": (2, 5),
-    "penal_oubliette": (2, 5),
-    "ash_dune_outpost": (2, 5),
+    "forge": (3, 5),
+    "cathedral": (2, 5),
+    "hive": (4, 7),
+    "sewer": (4, 7),
+    "corrupted": (3, 6),
+    "overgrown": (3, 6),
+    "tomb": (2, 4),
+    "manufactorum": (3, 6),
+    "voidship": (4, 7),
+    "reliquary": (2, 5),
+    "radwastes": (3, 6),
+    "data_vault": (3, 5),
+    "xenos_ruin": (3, 6),
+    "ice_crypt": (2, 5),
+    "sump_market": (3, 6),
+    "plasma_reactorum": (3, 6),
+    "penal_oubliette": (3, 6),
+    "ash_dune_outpost": (3, 6),
 }
 
 _ENVIRONMENT_CONTACT_WEIGHTS: dict[str, tuple[int, int, int]] = {
@@ -4268,7 +4268,9 @@ def generate_dungeon_floor(
         depth,
         rng,
         reserved_positions=reserved,
-        budget_offset=themed_contact_count,
+        # Themed rooms should add pressure instead of fully consuming the
+        # baseline contact budget, so only trim part of their roster impact.
+        budget_offset=themed_contact_count // 2,
         roster=entity_roster,
         profile=profile,
     )
