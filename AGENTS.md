@@ -195,3 +195,15 @@ tk dep <new-id> <combat-system-id>
 ### BENEDICTION
 
 ++ BENEDICTION OF THE MACHINE SPIRIT ++ MAY YOUR LOGIC FIRE TRUE AND YOUR RECURSIVE CALLS TERMINATE ++
+
+## Codex Worker Spawn Rule
+
+When spawning implementation subagents with Codex, parent/orchestrator agents must use `fork_context:false` by default. Only use `fork_context:true` when there is a specific, documented need for the worker to inherit prior thread context.
+
+Implementation worker prompts must explicitly state all of the following:
+
+- The worker is a **leaf implementation subagent**, not a parent/orchestrator.
+- The worker must **not** spawn subagents or delegate to other agents, CLIs, or frameworks.
+- The worker must **ignore inherited context** about orchestration, spawning, delegation, or platform subagent reliability.
+- The worker must work only in the assigned worktree and assigned ticket scope.
+- If the worker starts considering delegation, it must treat that as a reasoning error and continue the assigned ticket work itself, or report a blocker back to the parent.
