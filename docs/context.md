@@ -36,6 +36,7 @@ When the player is directly speaking to or closely examining a specific characte
 Travel requests entered in text view are resolved to the closest supported dungeon environment, then a matching dungeon session is generated and mounted on arrival.
 Text-view responses that ask the player to resume exploration keep their scene art and info updates in the dungeon session so the next bridge back to text can restore the same context.
 Curated story starts now seed explicit dungeon-generation profiles instead of relying on free-text environment inference. Those profiles carry canonical environment identity, faction bias, landmark/set-piece preferences, and content exclusions across story intro, `/explore`, save/load, and later floor transitions.
+Each fresh run also gets its own dungeon generation seed, so new games rebuild dungeon layouts from scratch while saved runs still resume the same persistent dungeon state after load.
 
 ### Transitions Between Views
 - **Map → Text**: Bump a friendly NPC (conversation), interact with a special object (spaceship, terminal), or look/examine something in detail
