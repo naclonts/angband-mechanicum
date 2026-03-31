@@ -120,6 +120,7 @@ Primary files:
 - `DungeonMapState` wraps a persistent `DungeonLevel`, player position, FOV radius, messages, and lightweight map entities.
 - `DungeonSession` persists the canonical dungeon-generation profile for the current location, so environment id, faction bias, landmark bias, and content exclusions survive `/explore`, save/load, and floor transitions.
 - `generate_dungeon_floor()` now seeds an environment-aware roster of hostile and non-hostile contacts alongside the floor geometry, with deeper floors and denser themed rooms pushing more hostile pressure without erasing each environment's faction mix.
+- Environment metadata now also carries a topology mode, so outdoor biomes such as swamp, forest, and mountains can generate marsh-island routes, broad glade networks, or cliffside switchbacks instead of defaulting to indoor room-and-corridor layouts.
 - `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
 - `generate_dungeon_floor()` now resolves a floor-band plus an optional rare environment variant before placement, so entry, reveal, descent, and climax floors bias toward different room counts, set pieces, encounter tags, ambience, and discovery families.
 - `generate_dungeon_floor()` also seeds a small number of persistent item objects on safe floor tiles and records those placements on `GeneratedFloor`.

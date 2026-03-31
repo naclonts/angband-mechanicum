@@ -530,6 +530,9 @@ _THEME_FEATURES: dict[str, list[str]] = {
     "overgrown": ["growths", "water"],
     "industrial": ["columns", "debris", "terminals"],
     "hive": ["cover", "debris"],
+    "swamp": ["water", "growths", "cover"],
+    "forest": ["growths", "cover", "debris"],
+    "mountains": ["debris", "cover"],
 }
 
 _THEME_TRANSITIONS: dict[str, DungeonTerrain] = {
@@ -539,6 +542,9 @@ _THEME_TRANSITIONS: dict[str, DungeonTerrain] = {
     "cathedral": DungeonTerrain.GATE,
     "tomb": DungeonTerrain.GATE,
     "corrupted": DungeonTerrain.PORTAL,
+    "swamp": DungeonTerrain.GATE,
+    "forest": DungeonTerrain.GATE,
+    "mountains": DungeonTerrain.GATE,
 }
 
 
@@ -869,6 +875,16 @@ class EnvironmentContentPlan:
     reactive_rule: str | None = None
 
 
+@dataclass(frozen=True)
+class FloorLayoutPlan:
+    """Geometry plan for a generated floor before content placement."""
+
+    rooms: tuple[DungeonRoom, ...]
+    secret_passages: tuple[tuple[tuple[int, int], tuple[int, int]], ...] = ()
+    protected_feature_tiles: frozenset[tuple[int, int]] = frozenset()
+    allow_doors: bool = True
+
+
 def _fill_level(level: DungeonLevel, terrain: DungeonTerrain) -> None:
     for y in range(level.height):
         for x in range(level.width):
@@ -901,6 +917,122 @@ def _set_feature_tile(
     current = level.get_terrain(x, y)
     if current == DungeonTerrain.FLOOR:
         level.set_terrain(x, y, terrain)
+
+
+def _clamp(value: int, minimum: int, maximum: int) -> int:
+    return max(minimum, min(maximum, value))
+
+
+def _room_from_center(
+    center_x: int,
+    center_y: int,
+    width: int,
+    height: int,
+    *,
+    level_width: int,
+    level_height: int,
+    room_type: str,
+) -> DungeonRoom:
+    x = _clamp(center_x - width // 2, 1, max(1, level_width - width - 1))
+    y = _clamp(center_y - height // 2, 1, max(1, level_height - height - 1))
+    return DungeonRoom(x=x, y=y, width=width, height=height, room_type=room_type)
+
+
+def _carve_blob(
+    level: DungeonLevel,
+    center: tuple[int, int],
+    radius_x: int,
+    radius_y: int,
+    rng: random.Random,
+    *,
+    terrain: DungeonTerrain = DungeonTerrain.FLOOR,
+    protected: set[tuple[int, int]] | None = None,
+    jitter: float = 0.18,
+) -> set[tuple[int, int]]:
+    carved: set[tuple[int, int]] = set()
+    cx, cy = center
+    for y in range(max(1, cy - radius_y - 1), min(level.height - 1, cy + radius_y + 2)):
+        for x in range(max(1, cx - radius_x - 1), min(level.width - 1, cx + radius_x + 2)):
+            if protected is not None and (x, y) in protected:
+                continue
+            dx = (x - cx) / max(1, radius_x)
+            dy = (y - cy) / max(1, radius_y)
+            threshold = 1.0 + rng.uniform(-jitter, jitter)
+            if (dx * dx) + (dy * dy) > threshold:
+                continue
+            if terrain == DungeonTerrain.FLOOR:
+                level.set_terrain(x, y, terrain)
+                carved.add((x, y))
+                continue
+            _set_feature_tile(level, x, y, terrain)
+            if level.get_terrain(x, y) == terrain:
+                carved.add((x, y))
+    return carved
+
+
+def _carve_polyline(
+    level: DungeonLevel,
+    points: Sequence[tuple[int, int]],
+    *,
+    brush_radius: int,
+    rng: random.Random,
+) -> set[tuple[int, int]]:
+    carved: set[tuple[int, int]] = set()
+    if len(points) < 2:
+        return carved
+
+    for start, end in zip(points, points[1:]):
+        x, y = start
+        target_x, target_y = end
+        carved.update(
+            _carve_blob(level, (x, y), brush_radius + 1, brush_radius + 1, rng, jitter=0.08)
+        )
+        while (x, y) != (target_x, target_y):
+            dx = target_x - x
+            dy = target_y - y
+            if dx and dy:
+                if abs(dx) > abs(dy):
+                    x += 1 if dx > 0 else -1
+                    if rng.random() < 0.35:
+                        y += 1 if dy > 0 else -1
+                else:
+                    y += 1 if dy > 0 else -1
+                    if rng.random() < 0.35:
+                        x += 1 if dx > 0 else -1
+            elif dx:
+                x += 1 if dx > 0 else -1
+                if brush_radius >= 2 and rng.random() < 0.2:
+                    y = _clamp(y + rng.choice((-1, 1)), 1, level.height - 2)
+            elif dy:
+                y += 1 if dy > 0 else -1
+            carved.update(
+                _carve_blob(level, (x, y), brush_radius + 1, brush_radius + 1, rng, jitter=0.08)
+            )
+    return carved
+
+
+def _build_outdoor_room_on_level(
+    level: DungeonLevel,
+    room: DungeonRoom,
+    rng: random.Random,
+) -> None:
+    center = room.center
+    radius_x = max(3, room.width // 2)
+    radius_y = max(3, room.height // 2)
+    _carve_blob(level, center, radius_x, radius_y, rng)
+
+    if room.room_type in {"l_shaped", "cross_room", "pillared_hall"}:
+        horizontal_offset = max(2, room.width // 4)
+        vertical_offset = max(2, room.height // 4)
+        if room.room_type == "l_shaped":
+            extra_center = (center[0] + horizontal_offset, center[1] - vertical_offset)
+            _carve_blob(level, extra_center, max(2, radius_x - 2), max(2, radius_y - 1), rng)
+        else:
+            _carve_blob(level, (center[0] - horizontal_offset, center[1]), max(2, radius_x - 2), max(2, radius_y - 1), rng)
+            _carve_blob(level, (center[0] + horizontal_offset, center[1]), max(2, radius_x - 2), max(2, radius_y - 1), rng)
+            if room.room_type == "cross_room":
+                _carve_blob(level, (center[0], center[1] - vertical_offset), max(2, radius_x - 2), max(2, radius_y - 1), rng)
+                _carve_blob(level, (center[0], center[1] + vertical_offset), max(2, radius_x - 2), max(2, radius_y - 1), rng)
 
 
 def _build_room_on_level(level: DungeonLevel, room: DungeonRoom, rng: random.Random) -> None:
@@ -1134,6 +1266,9 @@ _FLOOR_OBJECTS: dict[str, tuple[str, ...]] = {
     "tomb": ("funerary-token", "seal-stone", "prayer-scroll", "relic"),
     "radwastes": ("survey-beacon", "rad-shield", "scrap-cache", "water-flask"),
     "ash_dune_outpost": ("beacon", "ration-crate", "survey-map", "repair-kit"),
+    "swamp": ("reed-kit", "filter-pack", "bog-map", "anti-toxin"),
+    "forest": ("field-rations", "waystone-charm", "survival-knife", "water-flask"),
+    "mountains": ("piton-bundle", "cliff-map", "cold-weather-pack", "signal-flare"),
     "default": ("supply-crate", "cogitator-slate", "field-kit"),
 }
 
@@ -1466,6 +1601,51 @@ _ENVIRONMENT_VARIANTS: dict[str, tuple[EnvironmentVariantProfile, ...]] = {
             reactive_rule="Beacon activation can draw rival scavengers or defenders toward the same redoubt.",
         ),
     ),
+    "swamp": (
+        EnvironmentVariantProfile(
+            variant_id="sump_tide_uprising",
+            name="Sump Tide Uprising",
+            weight=1,
+            preferred_themed_room_tags=("marsh", "sump", "shrine"),
+            hostile_tags=("mutant", "bog", "predator"),
+            neutral_tags=("guide", "survivor"),
+            ambience_lines=(
+                "The blackwater has crept across old causeways, leaving only reed-choked islands and desperate camps.",
+            ),
+            discovery_tags=("warning", "remains", "cache"),
+            reactive_rule="Crossing fresh blackwater can disturb nearby predators and flush them toward the driest route.",
+        ),
+    ),
+    "forest": (
+        EnvironmentVariantProfile(
+            variant_id="machine_hunt_canopy",
+            name="Machine Hunt Canopy",
+            weight=1,
+            preferred_themed_room_tags=("glade", "waystone", "hunt"),
+            hostile_tags=("stalker", "predator", "forest"),
+            friendly_tags=("scout", "survivor"),
+            ambience_lines=(
+                "The tree line watches back, with fresh kill-sign and machine prayers tied to trunks around the glades.",
+            ),
+            discovery_tags=("lore", "warning", "garden"),
+            reactive_rule="Violence in one glade can send hunters ghosting through adjacent cover belts.",
+        ),
+    ),
+    "mountains": (
+        EnvironmentVariantProfile(
+            variant_id="avalanche_watch",
+            name="Avalanche Watch",
+            weight=1,
+            preferred_themed_room_tags=("pass", "watchpost", "shrine"),
+            hostile_tags=("raider", "guardian", "mountain"),
+            neutral_tags=("surveyor", "guide"),
+            ambience_lines=(
+                "Fresh rockfall and warning braziers have turned every shelf into a guarded approach to the high pass.",
+            ),
+            discovery_tags=("warning", "command", "relic"),
+            reactive_rule="Disturbing loose scree on one shelf can alert lookouts or collapse a neighboring approach.",
+        ),
+    ),
 }
 
 _DISCOVERY_TEMPLATES: dict[str, tuple[DiscoveryTemplate, ...]] = {
@@ -1554,6 +1734,30 @@ _DISCOVERY_TEMPLATES: dict[str, tuple[DiscoveryTemplate, ...]] = {
             summary="A circle of burnt-out beacons marks where salvage crews once measured the edge of a kill-zone.",
             environments=("radwastes", "ash_dune_outpost"),
             tags=("wreck", "command"),
+        ),
+    ),
+    "swamp": (
+        DiscoveryTemplate(
+            title="Reedbound Effigy",
+            summary="An idol of reeds, bone, and brass wire marks a path someone feared would vanish with the tide.",
+            environments=("swamp",),
+            tags=("ritual", "warning"),
+        ),
+    ),
+    "forest": (
+        DiscoveryTemplate(
+            title="Waystone Clearing",
+            summary="A mossed standing stone and a ring of bootprints show that this glade still guides travellers.",
+            environments=("forest",),
+            tags=("lore", "garden"),
+        ),
+    ),
+    "mountains": (
+        DiscoveryTemplate(
+            title="Prayer Cairn",
+            summary="Stacked stones, wax drippings, and wind-torn purity seals mark the last safe halt before the climb.",
+            environments=("mountains",),
+            tags=("warning", "relic"),
         ),
     ),
     "data_vault": (
@@ -1811,6 +2015,27 @@ _ENVIRONMENT_OBJECTS: dict[str, tuple[EnvironmentObjectTemplate, ...]] = {
         EnvironmentObjectTemplate("crashed-skiff", DungeonTerrain.COLUMN, _LINE_3, blocking=True, focus="center"),
         EnvironmentObjectTemplate("field-beacon", DungeonTerrain.TERMINAL, _LINE_2, focus="edge"),
         EnvironmentObjectTemplate("dust-wreckage", DungeonTerrain.RUBBLE, _LINE_2, focus="corner"),
+    ),
+    "swamp": (
+        EnvironmentObjectTemplate("reed-blind", DungeonTerrain.GROWTH, _LINE_3, focus="edge"),
+        EnvironmentObjectTemplate("sunken-jetty", DungeonTerrain.WATER, _LINE_2, focus="center"),
+        EnvironmentObjectTemplate("bog-hut", DungeonTerrain.COVER, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("rotted-pylon", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="edge"),
+        EnvironmentObjectTemplate("sump-idol", DungeonTerrain.SHRINE, _LINE_2, focus="center"),
+    ),
+    "forest": (
+        EnvironmentObjectTemplate("thorn-thicket", DungeonTerrain.GROWTH, _BLOCK_2, focus="corner"),
+        EnvironmentObjectTemplate("hunter-hide", DungeonTerrain.COVER, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("fallen-waystone", DungeonTerrain.RUBBLE, _LINE_3, focus="center"),
+        EnvironmentObjectTemplate("standing-stones", DungeonTerrain.COLUMN, _LINE_2, blocking=True, focus="center"),
+        EnvironmentObjectTemplate("glade-shrine", DungeonTerrain.SHRINE, _LINE_2, focus="edge"),
+    ),
+    "mountains": (
+        EnvironmentObjectTemplate("prayer-cairn", DungeonTerrain.SHRINE, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("rock-spur", DungeonTerrain.COLUMN, _BLOCK_2, blocking=True, focus="corner"),
+        EnvironmentObjectTemplate("scree-field", DungeonTerrain.RUBBLE, _LINE_3, focus="center"),
+        EnvironmentObjectTemplate("windbreak", DungeonTerrain.COVER, _LINE_2, focus="edge"),
+        EnvironmentObjectTemplate("broken-span", DungeonTerrain.CHASM, _LINE_2, focus="center"),
     ),
     "default": _DEFAULT_ENVIRONMENT_OBJECTS,
 }
@@ -2171,6 +2396,397 @@ def _find_nearest_floor(level: DungeonLevel, origin: tuple[int, int]) -> tuple[i
     return best
 
 
+def _generate_interior_layout(
+    level: DungeonLevel,
+    env: "Environment",
+    room_count: int,
+    rng: random.Random,
+) -> FloorLayoutPlan:
+    rooms = _place_rooms(level.width, level.height, env.room_types, room_count, rng)
+    for room in rooms:
+        _build_room_on_level(level, room, rng)
+
+    for room_a, room_b in zip(rooms, rooms[1:]):
+        _carve_connection(level, room_a.center, room_b.center, rng)
+
+    extra_connections = min(3, max(1, len(rooms) // 3))
+    for _ in range(extra_connections):
+        room_a, room_b = rng.sample(rooms, 2)
+        _carve_connection(level, room_a.center, room_b.center, rng)
+
+    _add_doors(level, rng, rooms)
+    secret_passages = tuple(_add_secret_passage(level, rooms, set(), rng))
+    return FloorLayoutPlan(rooms=tuple(rooms), secret_passages=secret_passages)
+
+
+def _generate_swamp_layout(
+    level: DungeonLevel,
+    env: "Environment",
+    room_count: int,
+    rng: random.Random,
+) -> FloorLayoutPlan:
+    main_count = max(5, min(7, room_count))
+    rooms: list[DungeonRoom] = []
+    centers: list[tuple[int, int]] = []
+    y = level.height // 2
+    for index in range(main_count):
+        progress = index / max(1, main_count - 1)
+        center_x = int(4 + progress * (level.width - 8)) + rng.randint(-2, 2)
+        y = _clamp(y + rng.randint(-4, 4), 5, level.height - 6)
+        center = (_clamp(center_x, 4, level.width - 5), y)
+        centers.append(center)
+        rooms.append(
+            _room_from_center(
+                center[0],
+                center[1],
+                width=rng.randint(10, 16),
+                height=rng.randint(8, 12),
+                level_width=level.width,
+                level_height=level.height,
+                room_type=rng.choice(env.room_types),
+            )
+        )
+
+    for room in rooms:
+        _build_outdoor_room_on_level(level, room, rng)
+
+    protected: set[tuple[int, int]] = set()
+    for start, end in zip(centers, centers[1:]):
+        mid = (
+            (start[0] + end[0]) // 2,
+            _clamp((start[1] + end[1]) // 2 + rng.randint(-2, 2), 2, level.height - 3),
+        )
+        protected.update(_carve_polyline(level, (start, mid, end), brush_radius=1, rng=rng))
+
+    side_rooms = max(1, min(2, room_count - main_count))
+    for _ in range(side_rooms):
+        anchor_index = rng.randint(1, max(1, len(rooms) - 2))
+        anchor = rooms[anchor_index].center
+        side_center = (
+            _clamp(anchor[0] + rng.randint(-5, 5), 4, level.width - 5),
+            _clamp(anchor[1] + rng.choice((-6, -5, 5, 6)), 4, level.height - 5),
+        )
+        side_room = _room_from_center(
+            side_center[0],
+            side_center[1],
+            width=rng.randint(8, 12),
+            height=rng.randint(7, 10),
+            level_width=level.width,
+            level_height=level.height,
+            room_type=rng.choice(env.room_types),
+        )
+        rooms.append(side_room)
+        _build_outdoor_room_on_level(level, side_room, rng)
+        protected.update(_carve_polyline(level, (anchor, side_room.center), brush_radius=1, rng=rng))
+
+    return FloorLayoutPlan(
+        rooms=tuple(sorted(rooms, key=lambda room: (room.center[0], room.center[1]))),
+        protected_feature_tiles=frozenset(protected),
+        allow_doors=False,
+    )
+
+
+def _generate_forest_layout(
+    level: DungeonLevel,
+    env: "Environment",
+    room_count: int,
+    rng: random.Random,
+) -> FloorLayoutPlan:
+    core_count = max(5, min(8, room_count + 1))
+    rooms: list[DungeonRoom] = []
+    centers: list[tuple[int, int]] = []
+    for index in range(core_count):
+        progress = index / max(1, core_count - 1)
+        center = (
+            _clamp(int(4 + progress * (level.width - 8)) + rng.randint(-3, 3), 4, level.width - 5),
+            _clamp(level.height // 2 + rng.randint(-6, 6), 4, level.height - 5),
+        )
+        centers.append(center)
+        rooms.append(
+            _room_from_center(
+                center[0],
+                center[1],
+                width=rng.randint(11, 18),
+                height=rng.randint(9, 14),
+                level_width=level.width,
+                level_height=level.height,
+                room_type=rng.choice(env.room_types),
+            )
+        )
+
+    for room in rooms:
+        _build_outdoor_room_on_level(level, room, rng)
+
+    protected: set[tuple[int, int]] = set()
+    for start, end in zip(centers, centers[1:]):
+        mid = (
+            (start[0] + end[0]) // 2,
+            _clamp((start[1] + end[1]) // 2 + rng.randint(-4, 4), 2, level.height - 3),
+        )
+        protected.update(_carve_polyline(level, (start, mid, end), brush_radius=2, rng=rng))
+
+    canopy_glades = max(2, min(4, room_count // 2))
+    for _ in range(canopy_glades):
+        center = (
+            rng.randint(5, level.width - 6),
+            rng.randint(4, level.height - 5),
+        )
+        glade = _room_from_center(
+            center[0],
+            center[1],
+            width=rng.randint(9, 14),
+            height=rng.randint(7, 11),
+            level_width=level.width,
+            level_height=level.height,
+            room_type="open_room",
+        )
+        rooms.append(glade)
+        _build_outdoor_room_on_level(level, glade, rng)
+        target = min(centers, key=lambda candidate: abs(candidate[0] - center[0]) + abs(candidate[1] - center[1]))
+        protected.update(_carve_polyline(level, (target, center), brush_radius=2, rng=rng))
+
+    return FloorLayoutPlan(
+        rooms=tuple(sorted(rooms, key=lambda room: (room.center[0], room.center[1]))),
+        protected_feature_tiles=frozenset(protected),
+        allow_doors=False,
+    )
+
+
+def _generate_mountain_layout(
+    level: DungeonLevel,
+    env: "Environment",
+    room_count: int,
+    rng: random.Random,
+) -> FloorLayoutPlan:
+    shelf_count = max(4, min(6, room_count))
+    rooms: list[DungeonRoom] = []
+    protected: set[tuple[int, int]] = set()
+    centers: list[tuple[int, int]] = []
+    current_y = rng.randint(5, level.height - 6)
+
+    for index in range(shelf_count):
+        progress = index / max(1, shelf_count - 1)
+        center_x = _clamp(int(4 + progress * (level.width - 8)) + rng.randint(-1, 1), 4, level.width - 5)
+        if index > 0:
+            direction = -1 if index % 2 else 1
+            current_y = _clamp(current_y + (direction * rng.randint(4, 6)), 4, level.height - 5)
+        center = (center_x, current_y)
+        centers.append(center)
+        plateau = _room_from_center(
+            center[0],
+            center[1],
+            width=rng.randint(8, 13),
+            height=rng.randint(6, 9),
+            level_width=level.width,
+            level_height=level.height,
+            room_type=rng.choice(env.room_types),
+        )
+        rooms.append(plateau)
+        _build_outdoor_room_on_level(level, plateau, rng)
+
+    for start, end in zip(centers, centers[1:]):
+        bend_x = _clamp((start[0] + end[0]) // 2 + rng.randint(-2, 2), 3, level.width - 4)
+        protected.update(
+            _carve_polyline(
+                level,
+                (start, (bend_x, start[1]), (bend_x, end[1]), end),
+                brush_radius=1,
+                rng=rng,
+            )
+        )
+
+    ledge_count = max(1, min(2, room_count - shelf_count))
+    for _ in range(ledge_count):
+        anchor = rooms[rng.randint(1, max(1, len(rooms) - 2))].center
+        ledge_center = (
+            _clamp(anchor[0] + rng.randint(-4, 4), 4, level.width - 5),
+            _clamp(anchor[1] + rng.choice((-4, 4)), 4, level.height - 5),
+        )
+        ledge = _room_from_center(
+            ledge_center[0],
+            ledge_center[1],
+            width=rng.randint(7, 10),
+            height=rng.randint(5, 8),
+            level_width=level.width,
+            level_height=level.height,
+            room_type="open_room",
+        )
+        rooms.append(ledge)
+        _build_outdoor_room_on_level(level, ledge, rng)
+        protected.update(_carve_polyline(level, (anchor, ledge.center), brush_radius=1, rng=rng))
+
+    return FloorLayoutPlan(
+        rooms=tuple(sorted(rooms, key=lambda room: (room.center[0], room.center[1]))),
+        protected_feature_tiles=frozenset(protected),
+        allow_doors=False,
+    )
+
+
+def _generate_floor_layout(
+    level: DungeonLevel,
+    env: "Environment",
+    room_count: int,
+    rng: random.Random,
+) -> FloorLayoutPlan:
+    if env.topology != "outdoor":
+        return _generate_interior_layout(level, env, room_count, rng)
+    if env.name == "swamp":
+        return _generate_swamp_layout(level, env, room_count, rng)
+    if env.name == "forest":
+        return _generate_forest_layout(level, env, room_count, rng)
+    if env.name == "mountains":
+        return _generate_mountain_layout(level, env, room_count, rng)
+    return _generate_forest_layout(level, env, room_count, rng)
+
+
+def _candidate_floor_tiles(
+    level: DungeonLevel,
+    *,
+    protected: set[tuple[int, int]] | None = None,
+) -> list[tuple[int, int]]:
+    return [
+        (x, y)
+        for y in range(1, level.height - 1)
+        for x in range(1, level.width - 1)
+        if level.get_terrain(x, y) == DungeonTerrain.FLOOR
+        and (protected is None or (x, y) not in protected)
+    ]
+
+
+def _paint_environment_clusters(
+    level: DungeonLevel,
+    *,
+    candidates: list[tuple[int, int]],
+    terrain: DungeonTerrain,
+    cluster_count: int,
+    radius_range: tuple[int, int],
+    rng: random.Random,
+    protected: set[tuple[int, int]],
+) -> None:
+    if not candidates:
+        return
+    sample_count = min(cluster_count, len(candidates))
+    for origin in rng.sample(candidates, sample_count):
+        radius_x = rng.randint(radius_range[0], radius_range[1])
+        radius_y = rng.randint(max(1, radius_range[0] - 1), radius_range[1])
+        _carve_blob(
+            level,
+            origin,
+            radius_x,
+            radius_y,
+            rng,
+            terrain=terrain,
+            protected=protected,
+            jitter=0.12,
+        )
+
+
+def _shape_outdoor_environment(
+    level: DungeonLevel,
+    environment: str,
+    protected: set[tuple[int, int]],
+    rng: random.Random,
+) -> None:
+    candidates = _candidate_floor_tiles(level, protected=protected)
+    if not candidates:
+        return
+
+    if environment == "swamp":
+        _paint_environment_clusters(
+            level,
+            candidates=candidates,
+            terrain=DungeonTerrain.WATER,
+            cluster_count=5,
+            radius_range=(2, 4),
+            rng=rng,
+            protected=protected,
+        )
+        growth_candidates = _candidate_floor_tiles(level, protected=protected)
+        _paint_environment_clusters(
+            level,
+            candidates=growth_candidates,
+            terrain=DungeonTerrain.GROWTH,
+            cluster_count=6,
+            radius_range=(1, 3),
+            rng=rng,
+            protected=protected,
+        )
+        acid_candidates = _candidate_floor_tiles(level, protected=protected)
+        _paint_environment_clusters(
+            level,
+            candidates=acid_candidates,
+            terrain=DungeonTerrain.ACID_POOL,
+            cluster_count=2,
+            radius_range=(1, 2),
+            rng=rng,
+            protected=protected,
+        )
+        return
+
+    if environment == "forest":
+        _paint_environment_clusters(
+            level,
+            candidates=candidates,
+            terrain=DungeonTerrain.GROWTH,
+            cluster_count=8,
+            radius_range=(2, 4),
+            rng=rng,
+            protected=protected,
+        )
+        cover_candidates = _candidate_floor_tiles(level, protected=protected)
+        _paint_environment_clusters(
+            level,
+            candidates=cover_candidates,
+            terrain=DungeonTerrain.COVER,
+            cluster_count=5,
+            radius_range=(1, 2),
+            rng=rng,
+            protected=protected,
+        )
+        shrine_candidates = _candidate_floor_tiles(level, protected=protected)
+        _paint_environment_clusters(
+            level,
+            candidates=shrine_candidates,
+            terrain=DungeonTerrain.SHRINE,
+            cluster_count=2,
+            radius_range=(1, 1),
+            rng=rng,
+            protected=protected,
+        )
+        return
+
+    if environment == "mountains":
+        _paint_environment_clusters(
+            level,
+            candidates=candidates,
+            terrain=DungeonTerrain.CHASM,
+            cluster_count=4,
+            radius_range=(1, 2),
+            rng=rng,
+            protected=protected,
+        )
+        rubble_candidates = _candidate_floor_tiles(level, protected=protected)
+        _paint_environment_clusters(
+            level,
+            candidates=rubble_candidates,
+            terrain=DungeonTerrain.RUBBLE,
+            cluster_count=6,
+            radius_range=(1, 3),
+            rng=rng,
+            protected=protected,
+        )
+        shrine_candidates = _candidate_floor_tiles(level, protected=protected)
+        _paint_environment_clusters(
+            level,
+            candidates=shrine_candidates,
+            terrain=DungeonTerrain.SHRINE,
+            cluster_count=2,
+            radius_range=(1, 1),
+            rng=rng,
+            protected=protected,
+        )
+
+
 @dataclass(frozen=True)
 class _ContactArchetype:
     name: str
@@ -2321,6 +2937,8 @@ def _group_size_for_archetype(
     if environment in {"sewer", "radwastes"} and kind in {"swarm", "pack"}:
         high = min(10, high + 1)
     if environment in {"corrupted", "hive", "voidship"} and kind == "pack":
+        high = min(10, high + 1)
+    if environment in {"swamp", "forest"} and kind in {"swarm", "pack"}:
         high = min(10, high + 1)
 
     high = max(low, high)
@@ -3723,6 +4341,255 @@ _ENVIRONMENT_CONTACTS: dict[str, dict[str, tuple[_ContactArchetype, ...]]] = {
             ),
         ),
     },
+    "swamp": {
+        "hostile": (
+            _ContactArchetype(
+                name="Bog Skulker",
+                description="A half-submerged killer moving where the water deepens without warning.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=6,
+                attack=3,
+                armor=0,
+                movement=4,
+                attack_range=1,
+                portrait_hint="assassin",
+                weight=3,
+                tags=("bog", "predator", "swamp"),
+            ),
+            _ContactArchetype(
+                name="Marsh Leech-Swarm",
+                description="A writhing blackwater nest eager for warm blood and exposed augmetics.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=4,
+                attack=2,
+                armor=0,
+                movement=4,
+                attack_range=1,
+                portrait_hint="servo-skull",
+                weight=3,
+                tags=("swarm", "bog", "vermin"),
+            ),
+            _ContactArchetype(
+                name="Fen Mutant",
+                description="A sump-scarred brute that knows every drowned path by instinct.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=7,
+                attack=4,
+                armor=0,
+                movement=3,
+                attack_range=1,
+                portrait_hint="servitor",
+                weight=2,
+                tags=("mutant", "swamp", "bog"),
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Reed Guide",
+                description="A wary local who can still read the causeways through the mist.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=1,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="mechanicus",
+                weight=2,
+                tags=("guide", "swamp", "survivor"),
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Mire Prospector",
+                description="A scavenger probing the waterline for relics and safe footing.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=5,
+                attack=1,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="adept",
+                weight=2,
+                tags=("prospector", "swamp", "bog"),
+            ),
+        ),
+    },
+    "forest": {
+        "hostile": (
+            _ContactArchetype(
+                name="Canopy Stalker",
+                description="A hunter ghosting between trunks and shrine-stones with patient intent.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=6,
+                attack=3,
+                armor=0,
+                movement=5,
+                attack_range=1,
+                portrait_hint="assassin",
+                weight=3,
+                tags=("forest", "stalker", "predator"),
+            ),
+            _ContactArchetype(
+                name="Rootbound Hound",
+                description="A feral beast trained to run glade paths faster than prey can react.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=5,
+                attack=3,
+                armor=0,
+                movement=5,
+                attack_range=1,
+                portrait_hint="servitor",
+                weight=2,
+                tags=("beast", "forest", "hunt"),
+            ),
+            _ContactArchetype(
+                name="Thorn Cultist",
+                description="A shrine-keeper gone feral, daubed in sap, ash, and machine prayers.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=7,
+                attack=3,
+                armor=1,
+                movement=3,
+                attack_range=1,
+                portrait_hint="priest",
+                weight=2,
+                tags=("cult", "forest", "shrine"),
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Wayfinder",
+                description="A path-reader who keeps the glades connected with wards and patience.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=1,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="mechanicus",
+                weight=2,
+                tags=("guide", "forest", "scout"),
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Shrine Warden",
+                description="A solitary keeper watching the old stones and weighing every stranger.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=2,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="priest",
+                weight=2,
+                tags=("warden", "forest", "shrine"),
+            ),
+        ),
+    },
+    "mountains": {
+        "hostile": (
+            _ContactArchetype(
+                name="Cliff Raider",
+                description="A high-pass brigand striking where the trail narrows and footing fails.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=7,
+                attack=4,
+                armor=0,
+                movement=4,
+                attack_range=1,
+                portrait_hint="assassin",
+                weight=3,
+                tags=("raider", "mountain", "pass"),
+            ),
+            _ContactArchetype(
+                name="Scree Ambusher",
+                description="A scavenger using loose rock and blind corners as a weapon.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=6,
+                attack=3,
+                armor=0,
+                movement=4,
+                attack_range=1,
+                portrait_hint="pit_slave",
+                weight=2,
+                tags=("ambusher", "mountain", "scree"),
+            ),
+            _ContactArchetype(
+                name="Pass Guardian",
+                description="A shrine-armed sentinel holding the approach with stubborn discipline.",
+                disposition=DungeonDisposition.HOSTILE,
+                movement_ai=DungeonMovementAI.AGGRESSIVE,
+                can_talk=False,
+                max_hp=8,
+                attack=4,
+                armor=1,
+                movement=3,
+                attack_range=1,
+                portrait_hint="skitarii",
+                weight=2,
+                tags=("guardian", "mountain", "shrine"),
+            ),
+        ),
+        "friendly": (
+            _ContactArchetype(
+                name="Peak Surveyor",
+                description="A wind-burned surveyor mapping which shelves still hold underfoot.",
+                disposition=DungeonDisposition.FRIENDLY,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=6,
+                attack=1,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="adept",
+                weight=2,
+                tags=("survey", "mountain", "guide"),
+            ),
+        ),
+        "neutral": (
+            _ContactArchetype(
+                name="Cairn Keeper",
+                description="A solitary attendant tending prayer cairns and warning travellers away from bad stone.",
+                disposition=DungeonDisposition.NEUTRAL,
+                movement_ai=DungeonMovementAI.STATIONARY,
+                can_talk=True,
+                max_hp=5,
+                attack=1,
+                armor=0,
+                movement=2,
+                attack_range=1,
+                portrait_hint="priest",
+                weight=2,
+                tags=("keeper", "mountain", "shrine"),
+            ),
+        ),
+    },
 }
 
 
@@ -4467,6 +5334,9 @@ _ENVIRONMENT_CONTACT_RANGES: dict[str, tuple[int, int]] = {
     "plasma_reactorum": (3, 6),
     "penal_oubliette": (3, 6),
     "ash_dune_outpost": (3, 6),
+    "swamp": (3, 6),
+    "forest": (3, 6),
+    "mountains": (3, 5),
 }
 
 _ENVIRONMENT_CONTACT_WEIGHTS: dict[str, tuple[int, int, int]] = {
@@ -4488,6 +5358,9 @@ _ENVIRONMENT_CONTACT_WEIGHTS: dict[str, tuple[int, int, int]] = {
     "plasma_reactorum": (70, 20, 10),
     "penal_oubliette": (80, 10, 10),
     "ash_dune_outpost": (65, 10, 25),
+    "swamp": (70, 10, 20),
+    "forest": (60, 20, 20),
+    "mountains": (65, 15, 20),
 }
 
 
@@ -4797,6 +5670,92 @@ _THEMED_ROOM_TEMPLATES: dict[str, tuple[ThemedRoomTemplate, ...]] = {
                 ),
             ),
             tags=("ork", "fortification", "scrap"),
+        ),
+    ),
+    "swamp": (
+        ThemedRoomTemplate(
+            name="Drowned Causeway",
+            description="A half-submerged shrine road where scavengers and predators stalk the last dry stones.",
+            environments=("swamp",),
+            room_types=("open_room", "cross_room", "arena"),
+            min_depth=1,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.WATER, DungeonTerrain.SHRINE),
+            props=(ThemedRoomPropSpec(DungeonTerrain.GROWTH, (1, 3), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(3, 6),
+                    preferred_tags=("bog", "mutant", "predator", "swarm"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("guide", "prospector"),
+                    optional=True,
+                ),
+            ),
+            tags=("marsh", "sump", "shrine"),
+        ),
+    ),
+    "forest": (
+        ThemedRoomTemplate(
+            name="Waystone Glade",
+            description="A sacred glade where broken stones, hunter signs, and hidden paths converge.",
+            environments=("forest",),
+            room_types=("open_room", "pillared_hall", "cross_room"),
+            min_depth=1,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            requires_spacious_room=True,
+            feature_terrains=(DungeonTerrain.SHRINE, DungeonTerrain.GROWTH),
+            props=(ThemedRoomPropSpec(DungeonTerrain.COVER, (1, 2), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 5),
+                    preferred_tags=("forest", "stalker", "cult", "predator"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="friendly",
+                    count_range=(0, 1),
+                    preferred_tags=("guide", "scout"),
+                    optional=True,
+                ),
+            ),
+            tags=("glade", "waystone", "hunt"),
+        ),
+    ),
+    "mountains": (
+        ThemedRoomTemplate(
+            name="High Pass Redoubt",
+            description="A cliffside hold with prayer cairns, windbreaks, and a killing field over the switchback.",
+            environments=("mountains",),
+            room_types=("open_room", "arena", "l_shaped"),
+            min_depth=1,
+            max_depth=999,
+            weight=4,
+            max_per_floor=1,
+            feature_terrains=(DungeonTerrain.SHRINE, DungeonTerrain.COVER),
+            props=(ThemedRoomPropSpec(DungeonTerrain.RUBBLE, (1, 3), room_focus="edge"),),
+            encounter_groups=(
+                ThemedRoomEncounterSpec(
+                    category="hostile",
+                    count_range=(2, 5),
+                    preferred_tags=("mountain", "raider", "guardian", "ambusher"),
+                ),
+                ThemedRoomEncounterSpec(
+                    category="neutral",
+                    count_range=(0, 1),
+                    preferred_tags=("guide", "keeper", "survey"),
+                    optional=True,
+                ),
+            ),
+            tags=("pass", "watchpost", "shrine"),
         ),
     ),
     "overgrown": (
@@ -5114,17 +6073,8 @@ def generate_dungeon_floor(
     )
     _fill_level(level, DungeonTerrain.WALL)
 
-    rooms = _place_rooms(width, height, env.room_types, resolved_room_count, rng)
-    for room in rooms:
-        _build_room_on_level(level, room, rng)
-
-    for room_a, room_b in zip(rooms, rooms[1:]):
-        _carve_connection(level, room_a.center, room_b.center, rng)
-
-    extra_connections = min(3, max(1, len(rooms) // 3))
-    for _ in range(extra_connections):
-        room_a, room_b = rng.sample(rooms, 2)
-        _carve_connection(level, room_a.center, room_b.center, rng)
+    layout = _generate_floor_layout(level, env, resolved_room_count, rng)
+    rooms = list(layout.rooms)
 
     entry_room = rooms[0]
     exit_room = max(rooms, key=lambda room: abs(room.center[0] - entry_room.center[0]) + abs(room.center[1] - entry_room.center[1]))
@@ -5145,8 +6095,12 @@ def generate_dungeon_floor(
     level.player_pos = stairs_up
 
     reserved = {stairs_up, stairs_down}
-    _add_doors(level, rng, rooms)
-    secret_passages = _add_secret_passage(level, rooms, reserved, rng)
+    protected_feature_tiles = set(layout.protected_feature_tiles)
+    protected_feature_tiles.update(reserved)
+    if env.topology == "outdoor":
+        _shape_outdoor_environment(level, env.name, protected_feature_tiles, rng)
+
+    secret_passages = list(layout.secret_passages)
     reserved.update(pos for passage in secret_passages for pos in passage)
     entity_roster = DungeonEntityRoster()
     themed_rooms, themed_contact_count = _generate_themed_rooms(
@@ -5160,7 +6114,8 @@ def generate_dungeon_floor(
         content_plan.profile,
         set_piece_bonus=content_plan.floor_band.set_piece_bonus,
     )
-    _scatter_environment_features(level, rooms, env.name, reserved, rng)
+    feature_reserved = reserved if env.topology != "outdoor" else reserved | protected_feature_tiles
+    _scatter_environment_features(level, rooms, env.name, feature_reserved, rng)
     placed_items, placed_objects = _scatter_environment_objects(level, rooms, env.name, depth, reserved, rng)
     placed_discoveries = _scatter_environment_discoveries(
         level,

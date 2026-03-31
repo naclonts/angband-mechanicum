@@ -172,7 +172,7 @@ class Environment:
 
     The LLM narrative determines which environment applies (cathedral,
     swamp, forge, etc.).  The generator uses ``feature_terrains`` and
-    ``room_types`` to shape the level layout.  The renderer uses
+    ``room_types`` plus ``topology`` to shape the level layout.  The renderer uses
     ``color_overrides`` layered on top of ``_TERRAIN_GLYPHS`` to tint
     terrain to match the setting.
     """
@@ -183,6 +183,7 @@ class Environment:
     room_types: tuple[str, ...]
     aliases: tuple[str, ...] = field(default_factory=tuple)
     color_overrides: dict[DungeonTerrain, str] = field(default_factory=dict)
+    topology: str = "interior"
 
 
 ENVIRONMENTS: dict[str, Environment] = {
@@ -448,6 +449,57 @@ ENVIRONMENTS: dict[str, Environment] = {
             DungeonTerrain.WALL:  "#8d7454",
             DungeonTerrain.TERMINAL: "#f0e17a",
         },
+    ),
+    "swamp": Environment(
+        name="swamp",
+        description="Swamp lowlands — blackwater channels, reed islands, drowned ruins",
+        feature_terrains=(
+            DungeonTerrain.WATER, DungeonTerrain.GROWTH,
+            DungeonTerrain.ACID_POOL, DungeonTerrain.COVER,
+        ),
+        room_types=("open_room", "arena", "l_shaped", "cross_room"),
+        aliases=("marsh", "fen", "bog", "swamp"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#48543f",
+            DungeonTerrain.WALL: "#2d3a2d",
+            DungeonTerrain.WATER: "#2d5f5b",
+            DungeonTerrain.GROWTH: "#5e8c43",
+        },
+        topology="outdoor",
+    ),
+    "forest": Environment(
+        name="forest",
+        description="Machine-haunted forest — broad glades, root belts, fallen shrine-stones",
+        feature_terrains=(
+            DungeonTerrain.GROWTH, DungeonTerrain.COVER,
+            DungeonTerrain.RUBBLE, DungeonTerrain.SHRINE,
+        ),
+        room_types=("open_room", "arena", "pillared_hall", "cross_room"),
+        aliases=("wood", "woods", "forest", "glade", "wilds"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#445235",
+            DungeonTerrain.WALL: "#24311f",
+            DungeonTerrain.GROWTH: "#63b34d",
+            DungeonTerrain.SHRINE: "#d9cf90",
+        },
+        topology="outdoor",
+    ),
+    "mountains": Environment(
+        name="mountains",
+        description="Mountain approaches — cliff shelves, broken switchbacks, shrine-cut passes",
+        feature_terrains=(
+            DungeonTerrain.CHASM, DungeonTerrain.RUBBLE,
+            DungeonTerrain.COVER, DungeonTerrain.SHRINE,
+        ),
+        room_types=("open_room", "arena", "cross_room", "l_shaped"),
+        aliases=("mountain", "mountains", "ridge", "high pass", "cliff pass"),
+        color_overrides={
+            DungeonTerrain.FLOOR: "#666a63",
+            DungeonTerrain.WALL: "#3f433d",
+            DungeonTerrain.CHASM: "#1e2326",
+            DungeonTerrain.RUBBLE: "#8b887f",
+        },
+        topology="outdoor",
     ),
 }
 
