@@ -71,6 +71,23 @@ class TestListSaves:
         assert len(saves) == 1
         assert saves[0].slot_id == "good"
 
+    def test_dead_save_skipped(
+        self, save_manager: SaveManager, sample_state: dict[str, Any]
+    ) -> None:
+        live_state = dict(sample_state)
+        live_state["integrity"] = 12
+        live_state["max_integrity"] = 20
+        dead_state = dict(sample_state)
+        dead_state["integrity"] = 0
+        dead_state["max_integrity"] = 20
+
+        save_manager.save("live", live_state)
+        save_manager.save("dead", dead_state)
+
+        saves = save_manager.list_saves()
+
+        assert [save.slot_id for save in saves] == ["live"]
+
 
 class TestDeleteSave:
     def test_delete_existing(

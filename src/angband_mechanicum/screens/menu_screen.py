@@ -88,21 +88,7 @@ class MenuScreen(MenuNavigationMixin, Screen[None]):
             save_list.mount(btn)
 
     def _load_game(self, slot_id: str) -> None:
-        from angband_mechanicum.engine.game_engine import GameEngine
-        from angband_mechanicum.app import DungeonSession
-
-        manager: SaveManager = SaveManager()
-        state = manager.load(slot_id)
-        engine: GameEngine = GameEngine.from_dict(state)
-        self.app.game_engine = engine  # type: ignore[attr-defined]
-        self.app.save_slot = slot_id  # type: ignore[attr-defined]
-        if state.get("dungeon_session"):
-            session = DungeonSession.from_dict(state["dungeon_session"])
-            session.story_id = state.get("story_start_id", session.story_id)
-            self.app.dungeon_session = session  # type: ignore[attr-defined]
-            self.app.open_dungeon_view()  # type: ignore[attr-defined]
-            return
-        self.app.open_text_view(restored_state=state)  # type: ignore[attr-defined]
+        self.app.load_saved_game(slot_id)  # type: ignore[attr-defined]
 
 
 def _generate_slot_id() -> str:

@@ -545,6 +545,9 @@ class GameScreen(Screen[None]):
             if not slot_id:
                 return
             engine = self.app.game_engine  # type: ignore[attr-defined]
+            if getattr(engine, "integrity", None) is not None and engine.integrity <= 0:
+                logger.info("Skipping autosave for depleted run in slot %s", slot_id)
+                return
             state: dict[str, Any] = engine.to_dict()
             state["narrative_log"] = list(self._narrative_log)
             dungeon_session = getattr(self.app, "dungeon_session", None)

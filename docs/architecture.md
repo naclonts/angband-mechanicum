@@ -205,6 +205,7 @@ Primary files:
 - On defeat, the dungeon view asks `GameEngine` for a memorial summary and hands it to `AngbandMechanicumApp.handle_player_death()`.
 - `archive_player_death()` persists the memorial, deletes the live save, resets transient dungeon state, and opens the Hall of the Dead so the new record is visible immediately.
 - `HallOfDeadScreen` reads persisted memorials from `SaveManager` and now serves as the post-death landing screen.
+- Save listing now excludes non-resumable runs with depleted integrity, and `AngbandMechanicumApp.load_saved_game()` recovers any stale dead save into the Hall instead of reopening a locked dungeon screen.
 
 Primary files:
 
