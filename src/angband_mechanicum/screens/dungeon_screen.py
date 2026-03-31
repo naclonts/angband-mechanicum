@@ -30,6 +30,7 @@ from angband_mechanicum.engine.dungeon_gen import (
     build_environment_debug_catalog,
     generate_dungeon_floor,
 )
+from angband_mechanicum.engine.dungeon_items import DungeonItem, build_item_instance
 from angband_mechanicum.engine.dungeon_level import (
     DungeonLevel,
     DungeonTerrain,
@@ -115,6 +116,7 @@ class DungeonInteractionKind(enum.Enum):
     OBJECT = "object"
     TRANSITION = "transition"
     NEUTRAL = "neutral"
+    ITEM = "item"
     BLOCKED = "blocked"
 
 
@@ -137,6 +139,9 @@ class DungeonActionResult:
     moved_to: tuple[int, int] | None = None
     scene_art: str | None = None
     speaking_npc_id: str | None = None
+    item_instance_id: str | None = None
+    item_display_name: str | None = None
+    player_healing: int = 0
     interaction_context: dict[str, Any] = field(default_factory=dict)
 
 
@@ -150,6 +155,8 @@ class DungeonMapState:
     player_attack: int = 4
     player_attack_range: int = 8
     entities: list[DungeonMapEntity] = field(default_factory=list)
+    inventory: list[str] = field(default_factory=list)
+    item_entities: dict[str, DungeonItem] = field(default_factory=dict)
     messages: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -160,6 +167,7 @@ class DungeonMapState:
         if self.player_pos is None:
             self.player_pos = self._first_passable_tile()
         self._apply_position()
+        self._hydrate_item_entities()
         self.recompute_fov()
 
     def _first_passable_tile(self) -> tuple[int, int]:
@@ -175,6 +183,58 @@ class DungeonMapState:
 
     def append_message(self, text: str) -> None:
         self.messages.append(text)
+
+    def _hydrate_item_entities(self) -> None:
+        known_ids = set(self.item_entities)
+        for y in range(self.level.height):
+            for x in range(self.level.width):
+                tile = self.level.get_tile(x, y)
+                resolved_ids: list[str] = []
+                for slot, raw_item_id in enumerate(list(tile.items)):
+                    item_id = str(raw_item_id)
+                    if item_id in self.item_entities:
+                        resolved_ids.append(item_id)
+                        known_ids.add(item_id)
+                        continue
+                    instance_id = f"{self.level.level_id}:{x}:{y}:{slot}:{item_id}"
+                    counter = 1
+                    while instance_id in known_ids:
+                        counter += 1
+                        instance_id = f"{self.level.level_id}:{x}:{y}:{slot}:{item_id}:{counter}"
+                    self.item_entities[instance_id] = build_item_instance(
+                        item_id,
+                        instance_id=instance_id,
+                    )
+                    known_ids.add(instance_id)
+                    resolved_ids.append(instance_id)
+                tile.items = resolved_ids
+
+    def item_at_id(self, item_id: str) -> DungeonItem | None:
+        return self.item_entities.get(item_id)
+
+    def item_display_name(self, item_id: str) -> str:
+        item = self.item_at_id(item_id)
+        if item is None:
+            return item_id.replace("_", " ").replace("-", " ").title()
+        return item.display_name
+
+    def item_names_at(self, position: tuple[int, int]) -> list[str]:
+        x, y = position
+        return [self.item_display_name(item_id) for item_id in self.level.get_items(x, y)]
+
+    def inventory_items(self) -> list[DungeonItem]:
+        items: list[DungeonItem] = []
+        for item_id in self.inventory:
+            item = self.item_at_id(item_id)
+            if item is not None:
+                items.append(item)
+        return items
+
+    def next_usable_inventory_item(self) -> DungeonItem | None:
+        for item in self.inventory_items():
+            if item.usable:
+                return item
+        return None
 
     def _tile_is_visible(self, position: tuple[int, int] | None) -> bool:
         if position is None:
@@ -217,7 +277,8 @@ class DungeonMapState:
             "terrain": terrain.value,
             "terrain_passable": tile.passable,
             "terrain_transparent": tile.transparent,
-            "items": list(tile.items),
+            "item_instance_ids": list(tile.items),
+            "items": self.item_names_at(position),
             "creature_id": tile.creature_id,
             "surroundings": surroundings,
         }
@@ -240,13 +301,22 @@ class DungeonMapState:
         else:
             context["target_kind"] = "terrain"
             context["target_label"] = terrain.value.replace("_", " ").title()
-        if tile.items:
-            context["target_label"] = context.get("target_label", terrain.value)
-            if len(tile.items) == 1:
+        item_names = self.item_names_at(position)
+        if item_names:
+            context["item_summary"] = _comma_list(item_names)
+            if entity is None and len(item_names) == 1:
                 context["target_kind"] = "item"
-                context["target_label"] = f"{context['target_label']} with 1 item"
+                context["target_label"] = item_names[0]
+                item = self.item_at_id(tile.items[0])
+                if item is not None:
+                    context["target_description"] = item.description
+            elif entity is None:
+                context["target_kind"] = "item"
+                context["target_label"] = f"{len(item_names)} cached items"
             else:
-                context["target_label"] = f"{context['target_label']} with {len(tile.items)} items"
+                context["target_label"] = (
+                    f"{context.get('target_label', terrain.value)} with {_comma_list(item_names, limit=2)}"
+                )
         if tile.creature_id and entity is None:
             context["target_kind"] = "creature"
             context["target_label"] = f"Creature marker at {x},{y}"
@@ -273,6 +343,10 @@ class DungeonMapState:
             "player_attack": self.player_attack,
             "player_attack_range": self.player_attack_range,
             "entities": [entity.to_dict() for entity in self.entities],
+            "inventory": list(self.inventory),
+            "item_entities": {
+                item_id: item.to_dict() for item_id, item in self.item_entities.items()
+            },
             "messages": list(self.messages),
         }
 
@@ -293,6 +367,11 @@ class DungeonMapState:
                 DungeonMapEntity.from_dict(entity_data)
                 for entity_data in data.get("entities", [])
             ],
+            inventory=[str(item_id) for item_id in data.get("inventory", [])],
+            item_entities={
+                str(item_id): DungeonItem.from_dict(item_data)
+                for item_id, item_data in data.get("item_entities", {}).items()
+            },
             messages=[str(message) for message in data.get("messages", [])],
         )
 
@@ -620,7 +699,11 @@ class DungeonMapState:
             hazard_text = f" Molten lava scorches you for {hazard_damage} damage."
         else:
             hazard_text = ""
-        message = f"You move to {nx},{ny} across {terrain}.{hazard_text}"
+        item_names = self.item_names_at((nx, ny))
+        item_text = ""
+        if item_names:
+            item_text = f" You spot {_comma_list(item_names)} here."
+        message = f"You move to {nx},{ny} across {terrain}.{hazard_text}{item_text}"
         self.append_message(message)
         return DungeonActionResult(
             kind=DungeonInteractionKind.MOVE,
@@ -711,6 +794,63 @@ class DungeonMapState:
         assert self.player_pos is not None
         self.recompute_fov()
         self.append_message("You hold position and scan the chamber.")
+
+    def pickup_items(self) -> DungeonActionResult:
+        assert self.player_pos is not None
+        x, y = self.player_pos
+        item_ids = self.level.get_items(x, y)
+        if not item_ids:
+            message = "Nothing here can be stowed."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        self.level.get_tile(x, y).items = []
+        self.inventory.extend(item_ids)
+        item_names = [self.item_display_name(item_id) for item_id in item_ids]
+        if len(item_names) == 1:
+            message = f"You secure {item_names[0]}."
+        else:
+            message = f"You secure {_comma_list(item_names)}."
+        self.append_message(message)
+        return DungeonActionResult(
+            kind=DungeonInteractionKind.ITEM,
+            message=message,
+            moved_to=self.player_pos,
+            item_instance_id=item_ids[0] if len(item_ids) == 1 else None,
+            item_display_name=item_names[0] if len(item_names) == 1 else None,
+        )
+
+    def use_inventory_item(
+        self,
+        current_integrity: int,
+        max_integrity: int,
+    ) -> DungeonActionResult:
+        item = self.next_usable_inventory_item()
+        if item is None:
+            message = "No ready-use item is stowed."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if item.use_kind == "heal":
+            if current_integrity >= max_integrity:
+                message = "Your integrity is already at maximum."
+                self.append_message(message)
+                return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+            healing = min(item.use_amount, max_integrity - current_integrity)
+            if item.consumable:
+                self.inventory.remove(item.instance_id)
+                self.item_entities.pop(item.instance_id, None)
+            message = f"You use {item.display_name} and recover {healing} integrity."
+            self.append_message(message)
+            return DungeonActionResult(
+                kind=DungeonInteractionKind.ITEM,
+                message=message,
+                moved_to=self.player_pos,
+                item_instance_id=item.instance_id,
+                item_display_name=item.display_name,
+                player_healing=healing,
+            )
+        message = f"{item.display_name} has no field-use effect yet."
+        self.append_message(message)
+        return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
 
     def advance_creature_turns(self) -> list[DungeonTurnResult]:
         """Advance all living dungeon actors once and report their actions."""
@@ -857,6 +997,8 @@ class DungeonScreen(Screen[None]):
         Binding("ctrl+end", "travel_southwest", "Travel southwest", show=False),
         Binding("ctrl+pagedown", "travel_southeast", "Travel southeast", show=False),
         Binding("tab", "cycle_panel", "Cycle panels", show=True, priority=True),
+        Binding("g", "pickup", "Pick up", show=True),
+        Binding("i", "use_item", "Use item", show=True),
         Binding("o", "open_door", "Open door", show=True),
         Binding("c", "close_door", "Close door", show=True),
         Binding("f", "fire", "Fire", show=True),
@@ -872,6 +1014,8 @@ class DungeonScreen(Screen[None]):
     HOTKEYS: list[tuple[str, str]] = [
         ("Arrow keys", "Move"),
         ("HJK", "Cardinal movement"),
+        ("G", "Pick up items on the current tile"),
+        ("I", "Use the next ready inventory item"),
         ("F", "Fire at a visible hostile"),
         ("F3", "Debug environment catalog"),
         ("L", "Look"),
@@ -1010,6 +1154,8 @@ class DungeonScreen(Screen[None]):
                     self._get_player_pos,
                     self._get_entities,
                     self._get_integrity,
+                    self._get_inventory_count,
+                    self._get_ready_item,
                     self._get_look_cursor,
                     self._get_look_summary,
                     self._get_target_mode,
@@ -1052,6 +1198,15 @@ class DungeonScreen(Screen[None]):
 
     def _get_look_cursor(self) -> tuple[int, int] | None:
         return self._look_cursor_pos
+
+    def _get_inventory_count(self) -> int:
+        return len(self._state.inventory)
+
+    def _get_ready_item(self) -> str | None:
+        item = self._state.next_usable_inventory_item()
+        if item is None:
+            return None
+        return item.display_name
 
     def _get_look_summary(self) -> str | None:
         if self._look_cursor_pos is None:
@@ -1454,11 +1609,20 @@ class DungeonScreen(Screen[None]):
     def _process_step_result(self, result: DungeonActionResult) -> None:
         if self._death_in_progress:
             return
-        if result.kind in {DungeonInteractionKind.MOVE, DungeonInteractionKind.DOOR}:
+        if result.kind in {
+            DungeonInteractionKind.MOVE,
+            DungeonInteractionKind.DOOR,
+            DungeonInteractionKind.ITEM,
+        }:
             self._ambient_action_index += 1
         engine = getattr(self.app, "game_engine", None)
         if result.player_damage > 0 and engine is not None:
             engine.take_damage(result.player_damage)
+        if result.player_healing > 0 and engine is not None:
+            if hasattr(engine, "set_integrity"):
+                engine.set_integrity(engine.integrity + result.player_healing)
+            else:
+                engine.integrity = min(engine.max_integrity, engine.integrity + result.player_healing)
         self._refresh_all()
         if result.player_damage > 0 and self._player_has_fallen():
             self._death_in_progress = True
@@ -1478,6 +1642,7 @@ class DungeonScreen(Screen[None]):
             DungeonInteractionKind.DOOR,
             DungeonInteractionKind.ATTACK,
             DungeonInteractionKind.NEUTRAL,
+            DungeonInteractionKind.ITEM,
         }:
             if self._apply_creature_turns():
                 return
@@ -1844,6 +2009,24 @@ class DungeonScreen(Screen[None]):
             )
             return
         self._process_step_result(self._state.close_door_at(target))
+
+    def action_pickup(self) -> None:
+        if self._death_in_progress:
+            return
+        self._process_step_result(self._state.pickup_items())
+
+    def action_use_item(self) -> None:
+        if self._death_in_progress:
+            return
+        integrity = self._get_integrity()
+        if integrity is None:
+            self._state.append_message("No integrity track is available for item use.")
+            self._refresh_all()
+            return
+        current_integrity, max_integrity = integrity
+        self._process_step_result(
+            self._state.use_inventory_item(current_integrity, max_integrity)
+        )
 
     def _travel_or_step(self, dx: int, dy: int) -> None:
         if self._look_mode or self._fire_mode:

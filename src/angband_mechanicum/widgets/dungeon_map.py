@@ -149,6 +149,11 @@ def _render_cursor() -> str:
     return "[bold #ff66ff]◉[/bold #ff66ff]"
 
 
+def _render_item_marker() -> str:
+    """Render a visible loose-item marker."""
+    return "[bold #ffd700]![/bold #ffd700]"
+
+
 def _tile_visible(level: DungeonLevel, x: int, y: int) -> bool:
     return level.in_bounds(x, y) and level.get_tile(x, y).fog == FogState.VISIBLE
 
@@ -228,6 +233,9 @@ def render_dungeon_map(
             if entity is not None and tile.fog == FogState.VISIBLE:
                 row.append(f"[bold {entity.fg}]{entity.symbol}[/bold {entity.fg}]")
                 continue
+            if tile.items and tile.fog == FogState.VISIBLE:
+                row.append(_render_item_marker())
+                continue
 
             glyph = get_terrain_glyph(tile.terrain, level.environment)
             row.append(_render_glyph(glyph, tile.fog == FogState.VISIBLE))
@@ -251,6 +259,8 @@ def render_dungeon_status(
     player_pos: tuple[int, int],
     integrity: tuple[int, int] | None,
     entities: Sequence[DungeonMapEntity] = (),
+    inventory_count: int = 0,
+    ready_item: str | None = None,
     look_cursor: tuple[int, int] | None = None,
     look_summary: str | None = None,
     target_mode: str | None = None,
@@ -284,6 +294,10 @@ def render_dungeon_status(
                 f"HP:    [{'═' * filled}{'─' * empty}] {hp}/{max_hp}",
             ]
         )
+    if inventory_count > 0:
+        lines.append(f"PACK:  {inventory_count} item{'s' if inventory_count != 1 else ''}")
+        if ready_item is not None:
+            lines.append(f"READY: {ready_item}")
     if look_cursor is not None:
         lx, ly = look_cursor
         mode_label = "FIRE MODE:" if target_mode == "fire" else "LOOK MODE:"
@@ -308,6 +322,7 @@ def render_dungeon_status(
             [
                 "",
                 "[dim]l: look / Enter: inspect / Esc: cancel[/dim]",
+                "[dim]g: pick up / i: use ready item[/dim]",
                 "[dim]o/c: open or close adjacent doors[/dim]",
                 "[dim]f: fire / l: look[/dim]",
                 "[dim]o/c: open or close adjacent doors[/dim]",
@@ -485,6 +500,8 @@ class DungeonStatusPane(RichLog):
         get_player_pos: Callable[[], tuple[int, int]],
         get_entities: Callable[[], Sequence[DungeonMapEntity]],
         get_integrity: Callable[[], tuple[int, int] | None],
+        get_inventory_count: Callable[[], int],
+        get_ready_item: Callable[[], str | None],
         get_look_cursor: Callable[[], tuple[int, int] | None] | None = None,
         get_look_summary: Callable[[], str | None] | None = None,
         get_target_mode: Callable[[], str | None] | None = None,
@@ -496,6 +513,8 @@ class DungeonStatusPane(RichLog):
         self._get_player_pos = get_player_pos
         self._get_entities = get_entities
         self._get_integrity = get_integrity
+        self._get_inventory_count = get_inventory_count
+        self._get_ready_item = get_ready_item
         self._get_look_cursor = get_look_cursor
         self._get_look_summary = get_look_summary
         self._get_target_mode = get_target_mode
@@ -519,6 +538,8 @@ class DungeonStatusPane(RichLog):
                 self._get_player_pos(),
                 self._get_integrity(),
                 self._get_entities(),
+                self._get_inventory_count(),
+                self._get_ready_item(),
                 look_cursor=look_cursor,
                 look_summary=look_summary,
                 target_mode=target_mode,

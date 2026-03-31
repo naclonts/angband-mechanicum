@@ -1,8 +1,8 @@
-"""Procedural dungeon / room generation for tactical combat maps.
+"""Procedural dungeon and room generation for the unified dungeon view.
 
 Generates Grid instances with varied room archetypes, terrain features,
-and spawn points.  Designed to fit visible terminal dimensions (60-80 wide,
-20-30 tall) and integrate with the existing combat engine.
+and spawn points, then also builds persistent exploration floors with live
+contacts, loose items, discoveries, and transition tiles.
 
 No LLM calls -- pure deterministic (seeded) generation.
 """

@@ -28,6 +28,7 @@ Tab cycles focus between the map, field log, and side panels so the non-map pane
 Creature turns now advance on the map after player actions: hostiles pursue or hold range based on line of sight, while friendly and neutral actors can follow, patrol, or wander in scenario-appropriate ways.
 The field log only records creature events the player could actually perceive in the current FOV/LOS window, so hidden movement stays silent while visible actions still report their results and damage.
 Hazard tiles such as acid pools and lava can be crossed, but they inflict deterministic traversal damage, with lava punishing the player more heavily than acid.
+Loose items now live directly in the unified dungeon session: visible floor loot renders on the map, `g` picks it up into the field pack, and `i` consumes the next ready-use item such as a toolkit or stimm pack without leaving map view.
 
 ### Text View (narrative + dialogue + travel)
 The existing 4-pane layout: scene art, character portrait, narrative log, and command prompt. Used for NPC conversations, examining things in detail, and long-range travel ("board the ship and fly to Mars"). LLM generates narrative responses.
@@ -47,7 +48,7 @@ The destination vocabulary is built around an expandable environment catalog, so
 Story-specific dungeon profiles sit above that coarse environment layer so authored starts like titan recovery, necron tomb delves, or STC vault breaches keep their faction and landmark identity instead of collapsing into generic biome content.
 Dungeon floors can also include reusable themed set-pieces that combine room dressing, grouped hostiles, and optional NPCs to create more memorable encounters than plain procedural geometry alone, and those set-pieces now add to the baseline contact pressure instead of fully replacing it.
 Those floors now also seed environment-specific dressing objects and footprints, including multi-tile blocking set pieces such as machinery clusters, wreckage, shrines, and rock formations that preserve required traversal routes instead of sealing the floor.
-They still seed a small number of persistent item objects on safe floor tiles, so generated spaces can contain actual loot/interactables instead of only terrain and contacts.
+They still seed a small number of persistent item objects on safe floor tiles, and those pickups now persist as live inventory inside the dungeon session instead of belonging to the removed tactical subsystem.
 They now also resolve floor-band pacing and occasional rare environment variants, so entry floors, mid-run reveal floors, and climax floors can surface different themed rooms, ambience, discoveries, and escalation hooks inside the same environ.
 Door placement is gated by a valid room-threshold chokepoint test so tiny or open rooms do not get over-documented with free-standing doors; generated doors only appear where corridors or other passages actually breach a room boundary.
 

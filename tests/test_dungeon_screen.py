@@ -140,6 +140,13 @@ class TestDungeonMapRendering:
         rendered = render_dungeon_map(level, (2, 2), cursor_pos=(3, 2))
         assert "◉" in rendered
 
+    def test_render_shows_visible_loose_items(self) -> None:
+        level = _make_level()
+        level.place_item(3, 2, "toolkit")
+        rendered = render_dungeon_map(level, (2, 2))
+
+        assert "!" in Text.from_markup(rendered).plain
+
     def test_status_panel_reports_fov_and_tile(self) -> None:
         level = _make_level()
         status = render_dungeon_status(level, (2, 2), integrity=(12, 20))
@@ -149,6 +156,19 @@ class TestDungeonMapRendering:
         assert "HP:" in status
         assert "12/20" in status
         assert "LOG:" not in status
+
+    def test_status_panel_reports_inventory_ready_item(self) -> None:
+        level = _make_level()
+        status = render_dungeon_status(
+            level,
+            (2, 2),
+            integrity=(12, 20),
+            inventory_count=2,
+            ready_item="Field Toolkit",
+        )
+
+        assert "PACK:  2 items" in status
+        assert "READY: Field Toolkit" in status
 
     def test_status_panel_reports_fire_mode_targeting_details(self) -> None:
         level = _make_level()
@@ -220,6 +240,8 @@ class TestDungeonScreenBindings:
     def test_help_text_lists_each_diagonal_direction(self) -> None:
         hotkeys = dict(DungeonScreen.HOTKEYS)
         assert hotkeys["Y / U / B / N"] == "Vi diagonals"
+        assert hotkeys["G"] == "Pick up items on the current tile"
+        assert hotkeys["I"] == "Use the next ready inventory item"
         assert hotkeys["F3"] == "Debug environment catalog"
         assert hotkeys["7 / Home"] == "Move northwest"
         assert hotkeys["9 / PgUp"] == "Move northeast"
@@ -479,6 +501,53 @@ class TestDungeonMapState:
         assert restored.messages == ["First contact"]
         assert restored.level.name == "Test Floor"
         assert restored.entities[0].history_entity_id == "skitarius-alpha-7"
+
+    def test_pickup_items_moves_tile_items_into_inventory_and_round_trips(self) -> None:
+        level = _make_level()
+        level.place_item(2, 2, "toolkit")
+        level.place_item(2, 2, "data-slate")
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=2)
+
+        result = state.pickup_items()
+        restored = DungeonMapState.from_dict(state.to_dict())
+
+        assert result.kind == DungeonInteractionKind.ITEM
+        assert level.get_items(2, 2) == []
+        assert len(state.inventory) == 2
+        assert [item.display_name for item in state.inventory_items()] == [
+            "Field Toolkit",
+            "Data Slate",
+        ]
+        assert restored.level.get_items(2, 2) == []
+        assert [item.display_name for item in restored.inventory_items()] == [
+            "Field Toolkit",
+            "Data Slate",
+        ]
+
+    def test_use_inventory_item_restores_integrity_and_consumes_repair_item(self) -> None:
+        level = _make_level()
+        level.place_item(2, 2, "toolkit")
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=2)
+        pickup = state.pickup_items()
+
+        result = state.use_inventory_item(current_integrity=13, max_integrity=20)
+
+        assert pickup.kind == DungeonInteractionKind.ITEM
+        assert result.kind == DungeonInteractionKind.ITEM
+        assert result.player_healing == 4
+        assert result.item_display_name == "Field Toolkit"
+        assert state.inventory == []
+        assert state.messages[-1] == "You use Field Toolkit and recover 4 integrity."
+
+    def test_move_onto_item_tile_mentions_loot(self) -> None:
+        level = _make_level()
+        level.place_item(3, 2, "toolkit")
+        state = DungeonMapState(level=level, player_pos=(2, 2), fov_radius=2)
+
+        result = state.attempt_step(1, 0)
+
+        assert result.kind == DungeonInteractionKind.MOVE
+        assert "You spot Field Toolkit here." in state.messages[-1]
 
     def test_advance_creature_turns_moves_melee_hostile_around_obstacle(self) -> None:
         level = DungeonLevel(

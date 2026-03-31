@@ -123,6 +123,7 @@ Primary files:
 - `generate_dungeon_floor()` can also layer reusable themed set-piece rooms onto the floor, combining dressing props, grouped encounters, and optional NPCs while recording the resulting themed-room metadata on `GeneratedFloor`.
 - `generate_dungeon_floor()` now resolves a floor-band plus an optional rare environment variant before placement, so entry, reveal, descent, and climax floors bias toward different room counts, set pieces, encounter tags, ambience, and discovery families.
 - `generate_dungeon_floor()` also seeds a small number of persistent item objects on safe floor tiles and records those placements on `GeneratedFloor`.
+- `DungeonMapState` normalizes those floor pickups into live item instances, tracks inventory ownership, and serializes both the floor-loot and carried-item state through `DungeonSession`.
 - Floors also record lightweight discovery placements plus ambience/reactive-rule metadata, giving each environ a reusable pool of lore beats and escalation hooks rather than only static terrain dressing.
 - It additionally places environment-specific dressing objects, including multi-tile blocking footprints, while preserving the remaining traversable floor graph so stairs and connected routes do not get sealed off by decorative set pieces.
 - Hostile contacts are planned as clustered groups when possible, with room-aware placement so packs and swarms occupy the same encounter space instead of scattering randomly across the floor.
@@ -131,6 +132,7 @@ Primary files:
 - Creature turns now advance from the dungeon map itself, with hostile pursuit, ranged engagement, and idle/search transitions driven by the live map state instead of the legacy combat screen.
 - Creature log lines are gated by the player's current LOS/FOV perception so off-screen movement stays quiet while visible attacks and movement still surface in the field log.
 - Movement, bump, and adjacent door open/close interactions are resolved by `DungeonMapState.attempt_step()` and its door helpers.
+- Item pickup and quick-use also resolve in `DungeonMapState`, so exploration and combat both stay on the same map surface for loot, storage, and consumable effects.
 - Player ranged attacks now also resolve in `DungeonMapState`, with `DungeonScreen` exposing a cursor-based fire mode that validates visibility, range, and line of sight before creature turns advance.
 - Hazard traversal damage is also resolved during `DungeonMapState.attempt_step()`, then applied by `DungeonScreen` before creature turns advance so the status pane and death handling stay in sync with deterministic map movement.
 - Ctrl+direction travel reuses the same step resolution and stops when the path opens up, a contact appears, or combat/terrain interrupts control.
@@ -138,6 +140,7 @@ Primary files:
 - `DungeonTransitionPane.show_inspect()` renders ambient discoveries by keeping `scene_art` on unwrapped lines while allowing `narrative_text` to wrap to the pane width.
 - The same inspect pane also supports debug overlays. `F3` opens an environment catalog view that lists the preset dungeon environments and shows the generation tables currently wired for each one, including contacts, themed rooms, discovery families, rare variants, reactive rules, object templates, and loose item pools.
 - `DungeonStatusPane` now renders player HP/integrity and other gameplay-relevant status instead of a log-entry count.
+- `DungeonStatusPane` also surfaces field-pack state, including how many items are carried and which consumable is currently ready for quick use.
 - The screen refreshes the render widgets after each action.
 - Dungeon-to-text bridges use the active dungeon session location for the text status panel, and stale pending text-bridge context is not allowed to override that fresh location state.
 - Conversations or object interactions transition to `GameScreen` through app-level bridging.
@@ -419,6 +422,7 @@ The tree below focuses on tracked, architecture-relevant files. Generated caches
 |       |   |-- combat_engine.py        - Deterministic legacy tactical combat rules, units, maps, AI, and results.
 |       |   |-- dungeon_entities.py     - Dungeon NPC/creature models, party-follow logic, and placement helpers.
 |       |   |-- dungeon_gen.py          - Procedural room and floor generation for combat maps and exploration floors.
+|       |   |-- dungeon_items.py        - Dungeon item templates and live inventory-instance serialization helpers.
 |       |   |-- dungeon_level.py        - Persistent exploration tile-map model, terrain definitions, FOV, and serialization.
 |       |   |-- game_engine.py          - Narrative engine, Anthropic integration, encounter generation, status state, and save schema.
 |       |   |-- history.py              - Structured step log and entity registry for LLM context.

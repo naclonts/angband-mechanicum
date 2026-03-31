@@ -667,6 +667,37 @@ def test_dungeon_session_round_trip_preserves_generated_contacts(
     assert restored.state.entities[1].hp == 7
 
 
+def test_dungeon_session_round_trip_preserves_inventory_and_floor_items() -> None:
+    app = AngbandMechanicumApp()
+    story = StoryStart(
+        id="forge-items",
+        title="The Silent Forge",
+        description="A forge goes silent.",
+        location="Forge-Cathedral Alpha",
+        intro_narrative="The forge awaits.",
+        scene_art="ART",
+    )
+    session = app.build_dungeon_session(story)
+    assert session.state.player_pos is not None
+    px, py = session.state.player_pos
+    session.state.level.place_item(px, py, "toolkit")
+    session.state.level.place_item(px, py, "data-slate")
+    session.state._hydrate_item_entities()
+    session.state.pickup_items()
+    stair_x, stair_y = session.state.level.stairs_down[0]
+    session.state.level.place_item(stair_x, stair_y, "power-cell")
+    session.state._hydrate_item_entities()
+    session.snapshot_current_state()
+
+    restored = DungeonSession.from_dict(session.to_dict())
+
+    assert [item.display_name for item in restored.state.inventory_items()] == [
+        "Field Toolkit",
+        "Data Slate",
+    ]
+    assert restored.state.item_names_at((stair_x, stair_y)) == ["Power Cell"]
+
+
 def test_travel_to_destination_builds_environment_specific_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
