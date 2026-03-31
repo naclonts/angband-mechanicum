@@ -23,7 +23,12 @@ from angband_mechanicum.engine.dungeon_entities import (
     DungeonMovementAI,
     DungeonTurnResult,
 )
-from angband_mechanicum.engine.combat_engine import CombatStats
+from angband_mechanicum.engine.combat_engine import (
+    CombatStats,
+    Power,
+    PowerType,
+    manhattan_distance,
+)
 from angband_mechanicum.engine.dungeon_gen import (
     EnvironmentDebugEntry,
     GeneratedFloor,
@@ -51,6 +56,33 @@ from angband_mechanicum.widgets.dungeon_map import (
 from angband_mechanicum.widgets.help_overlay import HelpOverlay
 
 logger = logging.getLogger(__name__)
+
+
+def _default_dungeon_player_powers() -> list[Power]:
+    """Return a fresh power loadout for unified dungeon combat."""
+    return [
+        Power(
+            name="Rite of Repair",
+            description="Self-directed machine prayer that restores integrity",
+            power_type=PowerType.HEALING,
+            range=0,
+            amount=5,
+            cooldown_turns=2,
+        ),
+        Power(
+            name="Electro-Shock",
+            description="Arcing discharge that lashes a visible impact point",
+            power_type=PowerType.OFFENSIVE,
+            range=6,
+            amount=4,
+            cooldown_turns=1,
+            area_of_effect=1,
+        ),
+    ]
+
+
+def _is_self_targeted_power(power: Power) -> bool:
+    return power.range <= 0 and power.power_type in {PowerType.HEALING, PowerType.BUFF}
 
 
 def _comma_list(items: Sequence[str], *, limit: int = 4) -> str:
@@ -112,6 +144,7 @@ class DungeonInteractionKind(enum.Enum):
     MOVE = "move"
     DOOR = "door"
     ATTACK = "attack"
+    POWER = "power"
     CONVERSATION = "conversation"
     OBJECT = "object"
     TRANSITION = "transition"
@@ -139,6 +172,10 @@ class DungeonActionResult:
     moved_to: tuple[int, int] | None = None
     scene_art: str | None = None
     speaking_npc_id: str | None = None
+    power_name: str | None = None
+    power_type: str | None = None
+    healing_amount: int = 0
+    affected_positions: list[tuple[int, int]] = field(default_factory=list)
     item_instance_id: str | None = None
     item_display_name: str | None = None
     player_healing: int = 0
@@ -154,6 +191,8 @@ class DungeonMapState:
     fov_radius: int = 8
     player_attack: int = 4
     player_attack_range: int = 8
+    player_powers: list[Power] = field(default_factory=_default_dungeon_player_powers)
+    player_power_cooldowns: dict[str, int] = field(default_factory=dict)
     entities: list[DungeonMapEntity] = field(default_factory=list)
     inventory: list[str] = field(default_factory=list)
     item_entities: dict[str, DungeonItem] = field(default_factory=dict)
@@ -342,6 +381,8 @@ class DungeonMapState:
             "fov_radius": self.fov_radius,
             "player_attack": self.player_attack,
             "player_attack_range": self.player_attack_range,
+            "player_powers": [power.to_dict() for power in self.player_powers],
+            "player_power_cooldowns": dict(self.player_power_cooldowns),
             "entities": [entity.to_dict() for entity in self.entities],
             "inventory": list(self.inventory),
             "item_entities": {
@@ -363,6 +404,14 @@ class DungeonMapState:
             fov_radius=int(data.get("fov_radius", 8)),
             player_attack=int(data.get("player_attack", 4)),
             player_attack_range=int(data.get("player_attack_range", 8)),
+            player_powers=[
+                Power.from_dict(power_data)
+                for power_data in data.get("player_powers", [])
+            ] or _default_dungeon_player_powers(),
+            player_power_cooldowns={
+                str(name): int(turns)
+                for name, turns in data.get("player_power_cooldowns", {}).items()
+            },
             entities=[
                 DungeonMapEntity.from_dict(entity_data)
                 for entity_data in data.get("entities", [])
@@ -374,6 +423,35 @@ class DungeonMapState:
             },
             messages=[str(message) for message in data.get("messages", [])],
         )
+
+    def get_player_power(self, power_name: str) -> Power | None:
+        for power in self.player_powers:
+            if power.name == power_name:
+                return power
+        return None
+
+    def available_player_powers(self) -> list[Power]:
+        return [
+            power
+            for power in self.player_powers
+            if power.name not in self.player_power_cooldowns
+        ]
+
+    def advance_player_resources(self) -> None:
+        """Tick power cooldowns after a resolved player turn."""
+        expired: list[str] = []
+        for name in list(self.player_power_cooldowns):
+            turns = self.player_power_cooldowns[name] - 1
+            if turns <= 0:
+                expired.append(name)
+            else:
+                self.player_power_cooldowns[name] = turns
+        for name in expired:
+            del self.player_power_cooldowns[name]
+
+    def _set_power_cooldown(self, power: Power) -> None:
+        if power.cooldown_turns > 0:
+            self.player_power_cooldowns[power.name] = power.cooldown_turns + 1
 
     def entity_at(self, position: tuple[int, int]) -> DungeonMapEntity | None:
         for entity in self.entities:
@@ -566,6 +644,140 @@ class DungeonMapState:
             DungeonInteractionKind.ATTACK,
         )
         return result
+
+    def _hostile_entities_in_power_area(
+        self,
+        position: tuple[int, int],
+        radius: int,
+    ) -> list[DungeonMapEntity]:
+        targets = [
+            entity
+            for entity in self.entities
+            if entity.alive
+            and entity.disposition == "hostile"
+            and self.level.get_tile(entity.x, entity.y).fog == FogState.VISIBLE
+            and manhattan_distance(entity.x, entity.y, position[0], position[1]) <= radius
+        ]
+        targets.sort(
+            key=lambda entity: (
+                manhattan_distance(entity.x, entity.y, position[0], position[1]),
+                entity.name,
+            )
+        )
+        return targets
+
+    def attempt_power(
+        self,
+        power_name: str,
+        *,
+        position: tuple[int, int] | None = None,
+        player_integrity: int | None = None,
+        player_max_integrity: int | None = None,
+    ) -> DungeonActionResult:
+        """Resolve a dungeon-view power using the live map state."""
+        assert self.player_pos is not None
+        power = self.get_player_power(power_name)
+        if power is None:
+            message = f"Unknown power: {power_name}."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if power.name in self.player_power_cooldowns:
+            remaining = self.player_power_cooldowns[power.name]
+            message = f"{power.name} is still recharging ({remaining} turns remaining)."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        if _is_self_targeted_power(power):
+            if player_integrity is None or player_max_integrity is None:
+                message = "Power routing is unavailable outside a live dungeon run."
+                self.append_message(message)
+                return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+            healed = min(power.amount, max(0, player_max_integrity - player_integrity))
+            if healed <= 0:
+                message = "Your integrity is already at full strength."
+                self.append_message(message)
+                return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+            self._set_power_cooldown(power)
+            message = f"You invoke {power.name}, restoring {healed} integrity."
+            self.append_message(message)
+            return DungeonActionResult(
+                kind=DungeonInteractionKind.POWER,
+                message=message,
+                moved_to=self.player_pos,
+                power_name=power.name,
+                power_type=power.power_type.value,
+                healing_amount=healed,
+                affected_positions=[self.player_pos],
+            )
+
+        if position is None:
+            message = f"{power.name} requires a visible target."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        x, y = position
+        if not self.level.in_bounds(x, y):
+            message = "The targeting reticle cannot leave the map."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if self.level.get_tile(x, y).fog != FogState.VISIBLE:
+            message = "That target is not visible."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        distance = self.distance_from_player(position)
+        if distance > power.range:
+            message = f"{power.name} is out of range ({distance}/{power.range})."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+        if not self.level.line_of_sight(self.player_pos, position):
+            message = f"{power.name} requires an unobstructed path."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        targets = self._hostile_entities_in_power_area(position, power.area_of_effect)
+        if not targets:
+            message = "No hostile contact lies inside the power's effect radius."
+            self.append_message(message)
+            return DungeonActionResult(kind=DungeonInteractionKind.BLOCKED, message=message)
+
+        fragments: list[str] = []
+        affected_positions: list[tuple[int, int]] = []
+        primary_target = targets[0]
+        target_defeated = False
+        total_damage = 0
+        for entity in targets:
+            damage = max(1, power.amount - entity.armor)
+            entity.hp = max(0, entity.hp - damage)
+            total_damage += damage
+            affected_positions.append((entity.x, entity.y))
+            if entity.hp == 0:
+                self.remove_entity(entity.entity_id)
+                self.level.remove_creature(entity.x, entity.y)
+                fragments.append(f"{entity.name} takes {damage} damage and is destroyed")
+                if entity.entity_id == primary_target.entity_id:
+                    target_defeated = True
+            else:
+                fragments.append(
+                    f"{entity.name} takes {damage} damage ({entity.hp}/{entity.max_hp})"
+                )
+        self._set_power_cooldown(power)
+        message = f"You invoke {power.name}: " + "; ".join(fragments) + "."
+        self.append_message(message)
+        return DungeonActionResult(
+            kind=DungeonInteractionKind.POWER,
+            message=message,
+            target_entity_id=primary_target.entity_id,
+            target_entity_name=primary_target.name,
+            target_entity_type=primary_target.entity_type,
+            target_disposition=primary_target.disposition,
+            attack_damage=total_damage,
+            target_defeated=target_defeated,
+            ranged_attack=power.range > 1,
+            power_name=power.name,
+            power_type=power.power_type.value,
+            affected_positions=affected_positions,
+        )
 
     def _conversation_result(self, entity: DungeonMapEntity) -> DungeonActionResult:
         message = f"You address {entity.name}."
@@ -1002,6 +1214,7 @@ class DungeonScreen(Screen[None]):
         Binding("o", "open_door", "Open door", show=True),
         Binding("c", "close_door", "Close door", show=True),
         Binding("f", "fire", "Fire", show=True),
+        Binding("p", "power", "Power", show=True),
         Binding("f3", "show_environment_catalog", "Env debug", show=True),
         Binding("l", "look", "Look", show=True),
         Binding("enter", "confirm_look", "Inspect", show=False),
@@ -1017,6 +1230,7 @@ class DungeonScreen(Screen[None]):
         ("G", "Pick up items on the current tile"),
         ("I", "Use the next ready inventory item"),
         ("F", "Fire at a visible hostile"),
+        ("P", "Invoke a dungeon power"),
         ("F3", "Debug environment catalog"),
         ("L", "Look"),
         ("Tab", "Cycle focus between dungeon panels"),
@@ -1048,6 +1262,7 @@ class DungeonScreen(Screen[None]):
         self._save_manager: SaveManager = SaveManager()
         self._look_mode: bool = False
         self._fire_mode: bool = False
+        self._power_mode: bool = False
         self._environment_catalog_open: bool = False
         self._environment_catalog: tuple[EnvironmentDebugEntry, ...] = build_environment_debug_catalog()
         current_environment = (
@@ -1059,6 +1274,7 @@ class DungeonScreen(Screen[None]):
         )
         self._environment_catalog_index = self._resolve_environment_catalog_index(current_environment)
         self._look_cursor_pos: tuple[int, int] | None = None
+        self._selected_power_index: int = 0
         self._last_look_summary: str | None = None
         self._last_examine_title: str | None = None
         self._last_examine_lines: list[str] = []
@@ -1211,11 +1427,15 @@ class DungeonScreen(Screen[None]):
     def _get_look_summary(self) -> str | None:
         if self._look_cursor_pos is None:
             return self._last_look_summary
+        if self._power_mode:
+            return self._get_power_target_summary(self._look_cursor_pos)
         if self._fire_mode:
             return self._get_fire_target_summary(self._look_cursor_pos)
         return self._state.get_look_summary(self._look_cursor_pos)
 
     def _get_target_mode(self) -> str | None:
+        if self._power_mode:
+            return "power"
         if self._fire_mode:
             return "fire"
         if self._look_mode:
@@ -1223,6 +1443,8 @@ class DungeonScreen(Screen[None]):
         return None
 
     def _get_target_details(self) -> Sequence[str]:
+        if self._power_mode and self._look_cursor_pos is not None:
+            return self._build_power_target_details(self._look_cursor_pos)
         if not self._fire_mode or self._look_cursor_pos is None:
             return ()
         return self._build_fire_target_details(self._look_cursor_pos)
@@ -1271,6 +1493,8 @@ class DungeonScreen(Screen[None]):
 
     def _open_environment_catalog(self) -> None:
         self._look_mode = False
+        self._fire_mode = False
+        self._power_mode = False
         self._look_cursor_pos = None
         self._last_look_summary = None
         self._environment_catalog_open = True
@@ -1600,7 +1824,7 @@ class DungeonScreen(Screen[None]):
             if delta != 0:
                 self._move_environment_catalog(delta)
             return
-        if self._look_mode or self._fire_mode:
+        if self._look_mode or self._fire_mode or self._power_mode:
             self._move_look_cursor(dx, dy)
             return
         result = self._state.attempt_step(dx, dy)
@@ -1641,11 +1865,13 @@ class DungeonScreen(Screen[None]):
             DungeonInteractionKind.MOVE,
             DungeonInteractionKind.DOOR,
             DungeonInteractionKind.ATTACK,
+            DungeonInteractionKind.POWER,
             DungeonInteractionKind.NEUTRAL,
             DungeonInteractionKind.ITEM,
         }:
             if self._apply_creature_turns():
                 return
+            self._state.advance_player_resources()
             self._maybe_trigger_ambient_discovery()
             self._autosave()
         elif result.kind != DungeonInteractionKind.BLOCKED:
@@ -1679,6 +1905,16 @@ class DungeonScreen(Screen[None]):
             await asyncio.sleep(self.TRAVEL_INTERVAL)
 
     def _move_look_cursor(self, dx: int, dy: int) -> None:
+        if self._power_mode:
+            power = self._selected_power()
+            if power is not None and _is_self_targeted_power(power):
+                self._look_cursor_pos = self._state.player_pos
+                self._last_look_summary = self._get_power_target_summary(
+                    self._look_cursor_pos or self._state.player_pos or (0, 0)
+                )
+                self._state.append_message(f"{power.name} can only target the Tech-Priest.")
+                self._refresh_all()
+                return
         if self._look_cursor_pos is None:
             self._look_cursor_pos = self._state.player_pos
         assert self._look_cursor_pos is not None
@@ -1842,6 +2078,7 @@ class DungeonScreen(Screen[None]):
 
     def _begin_look_mode(self) -> None:
         self._fire_mode = False
+        self._power_mode = False
         self._look_mode = True
         self._look_cursor_pos = self._state.player_pos
         self._last_look_summary = self._state.get_look_summary(self._look_cursor_pos)
@@ -1856,6 +2093,162 @@ class DungeonScreen(Screen[None]):
         self._last_look_summary = None
         self._state.append_message("Look mode cancelled.")
         self._refresh_all()
+
+    def _available_powers(self) -> list[Power]:
+        return self._state.available_player_powers()
+
+    def _selected_power(self) -> Power | None:
+        available = self._available_powers()
+        if not available:
+            return None
+        self._selected_power_index %= len(available)
+        return available[self._selected_power_index]
+
+    def _default_power_target(self, power: Power) -> tuple[int, int]:
+        if _is_self_targeted_power(power):
+            assert self._state.player_pos is not None
+            return self._state.player_pos
+        hostiles = self._visible_hostile_targets()
+        if hostiles:
+            return (hostiles[0].x, hostiles[0].y)
+        assert self._state.player_pos is not None
+        return self._state.player_pos
+
+    def _set_cursor_for_selected_power(self) -> None:
+        power = self._selected_power()
+        if power is None:
+            self._look_cursor_pos = None
+            self._last_look_summary = None
+            return
+        self._look_cursor_pos = self._default_power_target(power)
+        self._last_look_summary = self._get_power_target_summary(self._look_cursor_pos)
+
+    def _power_status_summary(self) -> str:
+        parts = []
+        for power in self._state.player_powers:
+            remaining = self._state.player_power_cooldowns.get(power.name)
+            if remaining is None:
+                parts.append(f"{power.name} ready")
+            else:
+                parts.append(f"{power.name} {remaining}t")
+        return ", ".join(parts)
+
+    def _get_power_target_summary(self, position: tuple[int, int]) -> str:
+        power = self._selected_power()
+        if power is None:
+            return "No powers are ready."
+        if _is_self_targeted_power(power):
+            return f"{power.name} targets the Tech-Priest."
+        targets = self._state._hostile_entities_in_power_area(position, power.area_of_effect)
+        if not targets:
+            return f"{power.name} has no hostile lock at ({position[0]},{position[1]})."
+        if len(targets) == 1:
+            return f"{power.name} locked on {targets[0].name}."
+        return f"{power.name} will arc through {len(targets)} hostiles."
+
+    def _build_power_target_details(self, position: tuple[int, int]) -> list[str]:
+        power = self._selected_power()
+        if power is None:
+            return ["[dim]No powers are currently ready[/dim]"]
+        if _is_self_targeted_power(power):
+            engine = getattr(getattr(self, "_parent", None), "game_engine", None)
+            integrity = getattr(engine, "integrity", "?")
+            max_integrity = getattr(engine, "max_integrity", "?")
+            return [
+                f"POWER: {power.name}",
+                f"TYPE: {power.power_type.value}",
+                f"REPAIR: +{power.amount}",
+                f"INTEGRITY: {integrity}/{max_integrity}",
+            ]
+        distance = self._state.distance_from_player(position)
+        details = [
+            f"POWER: {power.name}",
+            f"TYPE: {power.power_type.value}",
+            f"RANGE: {distance}/{power.range}",
+            f"BLAST: {power.area_of_effect}",
+        ]
+        if not self._state.level.line_of_sight(self._state.player_pos, position):
+            details.append("[dim]No line of sight[/dim]")
+            return details
+        if distance > power.range:
+            details.append("[dim]Target point is out of range[/dim]")
+            return details
+        targets = self._state._hostile_entities_in_power_area(position, power.area_of_effect)
+        if not targets:
+            details.append("[dim]No hostile contact inside the blast radius[/dim]")
+            return details
+        details.append(
+            "TARGETS: " + ", ".join(f"{entity.name} ({entity.hp}/{entity.max_hp})" for entity in targets)
+        )
+        return details
+
+    def _begin_power_mode(self) -> None:
+        available = self._available_powers()
+        if not available:
+            self._state.append_message(f"No powers are ready: {self._power_status_summary()}.")
+            self._refresh_all()
+            return
+        self._look_mode = False
+        self._fire_mode = False
+        self._power_mode = True
+        self._selected_power_index %= len(available)
+        self._set_cursor_for_selected_power()
+        power = self._selected_power()
+        assert power is not None
+        self._state.append_message(
+            f"Power mode engaged: {power.name}. Press P to cycle ready powers."
+        )
+        self._refresh_all()
+
+    def _cycle_power_mode(self) -> None:
+        available = self._available_powers()
+        if not available:
+            self._cancel_power_mode()
+            self._state.append_message("No powers remain ready.")
+            self._refresh_all()
+            return
+        self._selected_power_index = (self._selected_power_index + 1) % len(available)
+        self._set_cursor_for_selected_power()
+        power = self._selected_power()
+        assert power is not None
+        self._state.append_message(f"Power selected: {power.name}.")
+        self._refresh_all()
+
+    def _cancel_power_mode(self) -> None:
+        if not self._power_mode:
+            return
+        self._power_mode = False
+        self._look_cursor_pos = None
+        self._last_look_summary = None
+        self._state.append_message("Power mode cancelled.")
+        self._refresh_all()
+
+    def _confirm_power_mode(self) -> None:
+        if not self._power_mode:
+            return
+        power = self._selected_power()
+        if power is None:
+            self._cancel_power_mode()
+            return
+        engine = getattr(getattr(self, "_parent", None), "game_engine", None)
+        result = self._state.attempt_power(
+            power.name,
+            position=self._look_cursor_pos,
+            player_integrity=getattr(engine, "integrity", None),
+            player_max_integrity=getattr(engine, "max_integrity", None),
+        )
+        if result.kind != DungeonInteractionKind.POWER:
+            self._last_look_summary = self._get_power_target_summary(
+                self._look_cursor_pos or self._state.player_pos or (0, 0)
+            )
+            self._refresh_all()
+            return
+        if result.healing_amount > 0 and engine is not None:
+            engine.set_integrity(engine.integrity + result.healing_amount)
+        self._power_mode = False
+        self._look_cursor_pos = None
+        self._last_look_summary = None
+        self._process_step_result(result)
 
     def _visible_hostile_targets(self) -> list[DungeonMapEntity]:
         hostiles = [
@@ -1913,6 +2306,7 @@ class DungeonScreen(Screen[None]):
             self._refresh_all()
             return
         self._look_mode = False
+        self._power_mode = False
         self._fire_mode = True
         self._look_cursor_pos = (hostiles[0].x, hostiles[0].y)
         self._last_look_summary = self._get_fire_target_summary(self._look_cursor_pos)
@@ -2029,7 +2423,7 @@ class DungeonScreen(Screen[None]):
         )
 
     def _travel_or_step(self, dx: int, dy: int) -> None:
-        if self._look_mode or self._fire_mode:
+        if self._look_mode or self._fire_mode or self._power_mode:
             self._step(dx, dy)
             return
         self._run_travel(dx, dy)
@@ -2082,6 +2476,9 @@ class DungeonScreen(Screen[None]):
         if self._fire_mode:
             self._confirm_fire_mode()
             return
+        if self._power_mode:
+            self._confirm_power_mode()
+            return
         if not self._look_mode or self._look_cursor_pos is None:
             return
         position = self._look_cursor_pos
@@ -2099,6 +2496,9 @@ class DungeonScreen(Screen[None]):
         if self._fire_mode:
             self._cancel_fire_mode()
             return
+        if self._power_mode:
+            self._cancel_power_mode()
+            return
         if self._environment_catalog_open:
             self._close_environment_catalog()
             return
@@ -2106,7 +2506,7 @@ class DungeonScreen(Screen[None]):
 
     def on_key(self, event: Key) -> None:
         """Ensure look-mode confirmation still works even if focus changes."""
-        if (self._look_mode or self._fire_mode) and event.key in {"enter", "return"}:
+        if (self._look_mode or self._fire_mode or self._power_mode) and event.key in {"enter", "return"}:
             self.action_confirm_look()
             event.stop()
             return
@@ -2118,9 +2518,16 @@ class DungeonScreen(Screen[None]):
         self._ambient_action_index += 1
         if self._apply_creature_turns():
             return
+        self._state.advance_player_resources()
         self._refresh_all()
         self._maybe_trigger_ambient_discovery()
         self._autosave()
+
+    def action_power(self) -> None:
+        if self._power_mode:
+            self._cycle_power_mode()
+            return
+        self._begin_power_mode()
 
     def action_show_help(self) -> None:
         self.app.push_screen(

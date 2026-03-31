@@ -187,6 +187,23 @@ class TestDungeonMapRendering:
         assert "RANGE: 2/8" in status
         assert "Enter: fire / Esc: cancel" in status
 
+    def test_status_panel_reports_power_mode_details(self) -> None:
+        level = _make_level()
+        status = render_dungeon_status(
+            level,
+            (2, 2),
+            integrity=(12, 20),
+            look_cursor=(2, 2),
+            look_summary="Rite of Repair targets the Tech-Priest.",
+            target_mode="power",
+            target_details=("POWER: Rite of Repair", "REPAIR: +5", "INTEGRITY: 12/20"),
+        )
+
+        assert "POWER MODE:" in status
+        assert "Rite of Repair targets the Tech-Priest." in status
+        assert "POWER: Rite of Repair" in status
+        assert "Enter: invoke / P: next / Esc: cancel" in status
+
 
 class TestDungeonScreenBindings:
     def test_diagonal_movement_bindings_include_vi_and_numpad_aliases(self) -> None:
@@ -226,6 +243,7 @@ class TestDungeonScreenBindings:
             "5",
             "o",
             "c",
+            "p",
         }
         assert expected <= keys
 
@@ -256,6 +274,7 @@ class TestDungeonScreenBindings:
         assert hotkeys["C"] == "Close adjacent door"
         assert hotkeys["5 / Space"] == "Wait / rescan"
         assert hotkeys["F"] == "Fire at a visible hostile"
+        assert hotkeys["P"] == "Invoke a dungeon power"
 
     def test_non_map_panels_are_focusable(self) -> None:
         assert DungeonMessageLog.can_focus is True
@@ -490,6 +509,7 @@ class TestDungeonMapState:
             fov_radius=2,
             player_attack=6,
             player_attack_range=9,
+            player_power_cooldowns={"Rite of Repair": 2},
             entities=[entity],
             messages=["First contact"],
         )
@@ -498,6 +518,8 @@ class TestDungeonMapState:
         assert restored.fov_radius == 2
         assert restored.player_attack == 6
         assert restored.player_attack_range == 9
+        assert [power.name for power in restored.player_powers] == ["Rite of Repair", "Electro-Shock"]
+        assert restored.player_power_cooldowns == {"Rite of Repair": 2}
         assert restored.messages == ["First contact"]
         assert restored.level.name == "Test Floor"
         assert restored.entities[0].history_entity_id == "skitarius-alpha-7"
@@ -866,6 +888,85 @@ class TestDungeonMapState:
         assert hostile.hp == 7
         assert state.messages[-1] == "No line of sight to target."
 
+    def test_self_targeted_power_restores_integrity_and_sets_cooldown(self) -> None:
+        level = _make_level()
+        state = DungeonMapState(level=level, player_pos=(2, 2))
+
+        result = state.attempt_power(
+            "Rite of Repair",
+            position=(2, 2),
+            player_integrity=12,
+            player_max_integrity=20,
+        )
+
+        assert result.kind == DungeonInteractionKind.POWER
+        assert result.healing_amount == 5
+        assert result.power_name == "Rite of Repair"
+        assert state.player_power_cooldowns == {"Rite of Repair": 3}
+        assert state.messages[-1] == "You invoke Rite of Repair, restoring 5 integrity."
+
+    def test_self_targeted_power_rejects_full_integrity(self) -> None:
+        level = _make_level()
+        state = DungeonMapState(level=level, player_pos=(2, 2))
+
+        result = state.attempt_power(
+            "Rite of Repair",
+            position=(2, 2),
+            player_integrity=20,
+            player_max_integrity=20,
+        )
+
+        assert result.kind == DungeonInteractionKind.BLOCKED
+        assert state.player_power_cooldowns == {}
+        assert state.messages[-1] == "Your integrity is already at full strength."
+
+    def test_area_power_hits_multiple_hostiles_in_blast_radius(self) -> None:
+        level = _make_level()
+        level.player_pos = (2, 2)
+        level.compute_fov((2, 2), 8)
+        first = DungeonMapEntity(
+            entity_id="loota-1",
+            name="Loota",
+            x=4,
+            y=2,
+            disposition="hostile",
+            hp=7,
+            max_hp=7,
+            attack=3,
+            movement=2,
+            attack_range=6,
+            armor=1,
+        )
+        second = DungeonMapEntity(
+            entity_id="burna-1",
+            name="Burna",
+            x=4,
+            y=3,
+            disposition="hostile",
+            hp=3,
+            max_hp=3,
+            attack=3,
+            movement=2,
+            attack_range=6,
+            armor=0,
+        )
+        state = DungeonMapState(level=level, player_pos=(2, 2), entities=[first, second])
+
+        result = state.attempt_power(
+            "Electro-Shock",
+            position=(4, 2),
+            player_integrity=20,
+            player_max_integrity=20,
+        )
+
+        assert result.kind == DungeonInteractionKind.POWER
+        assert sorted(result.affected_positions) == [(4, 2), (4, 3)]
+        assert first.hp == 4
+        assert state.entity_at((4, 3)) is None
+        assert state.player_power_cooldowns == {"Electro-Shock": 2}
+        assert "Loota takes 3 damage (4/7)" in state.messages[-1]
+        assert "Burna takes 4 damage and is destroyed" in state.messages[-1]
+
     def test_friendly_bump_prompts_conversation(self) -> None:
         level = _make_level()
         ally = DungeonMapEntity(
@@ -1146,6 +1247,75 @@ class TestDungeonLookMode:
         assert processed
         assert processed[0].ranged_attack is True
         assert screen._fire_mode is False
+        assert screen._look_cursor_pos is None
+
+    def test_power_mode_starts_on_self_targeted_power(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        screen.action_power()
+
+        assert screen._power_mode is True
+        assert screen._look_cursor_pos == (2, 2)
+        assert screen._selected_power() is not None
+        assert screen._selected_power().name == "Rite of Repair"
+
+    def test_power_mode_cycles_to_offensive_power(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        level.compute_fov((2, 2), 8)
+        hostile = DungeonMapEntity(
+            entity_id="loota-1",
+            name="Loota",
+            x=4,
+            y=2,
+            disposition="hostile",
+            hp=7,
+            max_hp=7,
+            attack=3,
+            movement=2,
+            attack_range=6,
+            armor=1,
+        )
+        screen = DungeonScreen(level=level, player_pos=(2, 2), entities=[hostile])
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+
+        screen.action_power()
+        screen.action_power()
+
+        assert screen._power_mode is True
+        assert screen._selected_power() is not None
+        assert screen._selected_power().name == "Electro-Shock"
+        assert screen._look_cursor_pos == (4, 2)
+
+    def test_confirm_in_power_mode_resolves_self_targeted_power(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        level = _make_level()
+        screen = DungeonScreen(level=level, player_pos=(2, 2))
+        monkeypatch.setattr(screen, "_refresh_all", lambda: None)
+        processed: list[DungeonActionResult] = []
+        monkeypatch.setattr(screen, "_process_step_result", lambda result: processed.append(result))
+        monkeypatch.setattr(
+            screen.state,
+            "attempt_power",
+            lambda *args, **kwargs: DungeonActionResult(
+                kind=DungeonInteractionKind.POWER,
+                message="You invoke Rite of Repair, restoring 5 integrity.",
+                power_name="Rite of Repair",
+                power_type="healing",
+                healing_amount=5,
+                moved_to=(2, 2),
+                affected_positions=[(2, 2)],
+            ),
+        )
+
+        screen.action_power()
+        screen.action_confirm_look()
+
+        assert processed
+        assert processed[0].kind == DungeonInteractionKind.POWER
+        assert processed[0].power_name == "Rite of Repair"
+        assert processed[0].healing_amount == 5
+        assert screen._power_mode is False
         assert screen._look_cursor_pos is None
 
 class TestDungeonEnvironmentCatalog:
@@ -1607,6 +1777,9 @@ class _FakeEngine:
     def take_damage(self, amount: int) -> None:
         self.integrity = max(0, self.integrity - amount)
 
+    def set_integrity(self, hp: int) -> None:
+        self.integrity = max(0, min(hp, self.max_integrity))
+
     def to_dict(self) -> dict[str, object]:
         return {"turn_count": self.turn_count}
 
@@ -1702,6 +1875,23 @@ class TestDungeonAutosave:
         assert app.game_engine.integrity == 15  # type: ignore[union-attr]
         assert screen.state.messages[-1].endswith("Molten lava scorches you for 5 damage.")
         assert len(save_manager.saved) == 1
+
+    def test_power_cast_autosaves_updated_cooldowns(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        level = _make_level()
+        screen, save_manager, app = _build_autosave_screen(level, monkeypatch)
+        app.game_engine.integrity = 12  # type: ignore[union-attr]
+        monkeypatch.setattr(screen, "_apply_creature_turns", lambda: False)
+
+        screen.action_power()
+        screen.action_confirm_look()
+
+        assert app.game_engine.integrity == 17  # type: ignore[union-attr]
+        assert len(save_manager.saved) == 1
+        assert save_manager.saved[0][1]["dungeon_session"]["state"]["player_power_cooldowns"] == {
+            "Rite of Repair": 2
+        }
 
 
 class TestDungeonPanelFocus:

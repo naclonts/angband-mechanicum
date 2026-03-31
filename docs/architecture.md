@@ -134,6 +134,8 @@ Primary files:
 - Movement, bump, and adjacent door open/close interactions are resolved by `DungeonMapState.attempt_step()` and its door helpers.
 - Item pickup and quick-use also resolve in `DungeonMapState`, so exploration and combat both stay on the same map surface for loot, storage, and consumable effects.
 - Player ranged attacks now also resolve in `DungeonMapState`, with `DungeonScreen` exposing a cursor-based fire mode that validates visibility, range, and line of sight before creature turns advance.
+- Dungeon powers now live in the same state object: cooldowns serialize with `DungeonMapState`, self-cast repair reads and updates player integrity through the screen/app seam, and offensive powers resolve against live map entities instead of the legacy tactical subsystem.
+- `DungeonScreen` now exposes a `p`-driven power mode alongside fire/look. The current slice supports a self-targeted `Rite of Repair` and a cursor-targeted `Electro-Shock` area blast, both feeding back into the same creature-turn and autosave loop as movement and attacks.
 - Hazard traversal damage is also resolved during `DungeonMapState.attempt_step()`, then applied by `DungeonScreen` before creature turns advance so the status pane and death handling stay in sync with deterministic map movement.
 - Ctrl+direction travel reuses the same step resolution and stops when the path opens up, a contact appears, or combat/terrain interrupts control.
 - Transition tiles are resolved in the app layer: the current floor is cached in the session stack, then a new or restored `DungeonMapState` is mounted for the destination level.
@@ -187,7 +189,7 @@ Primary files:
 - `GameScreen` can enter dungeon combat either explicitly (`/combat`) or from an LLM `combat_trigger`.
 - The app bridges that request into a generated dungeon encounter floor with hostile contacts already present on the map.
 - `CombatScreen` and `CombatEngine` remain only as legacy tactical references; the screen is quarantined and no longer part of the live combat flow.
-- The dungeon screen resolves combat through bump-to-attack, cursor-based ranged fire, and its local creature-turn loop.
+- The dungeon screen resolves combat through bump-to-attack, cursor-based ranged fire, cursor-based power targeting, and its local creature-turn loop.
 - `GameScreen` writes the transition narrative back into dungeon state and lets the map view take over.
 
 Primary files:

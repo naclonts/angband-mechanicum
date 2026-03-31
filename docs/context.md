@@ -14,7 +14,7 @@ A CLI roguelike set in the Warhammer 40K universe. The player is an Adeptus Mech
 ### Map View (dungeon exploration + combat)
 Roguelike overhead tile map. The player (@) moves through persistent dungeon levels using numpad/vi-keys. Combat is Angband-style bump-to-attack on the same map — no separate combat screen. FOV/line-of-sight determines visibility. NPCs, items, and terrain features populate the dungeon.
 Closed doors can be opened by bumping them or with adjacent `o` / `c` door controls, and opening or closing a doorway immediately updates line of sight.
-Combat stays on the same map: adjacent contacts use bump-to-attack, while `f` enters a cursor-based fire mode for visible hostile targets inside weapon range and line of sight.
+Combat stays on the same map: adjacent contacts use bump-to-attack, `f` enters a cursor-based fire mode for visible hostile targets inside weapon range and line of sight, and `p` enters a dungeon-power mode. The first power slice supports a self-cast `Rite of Repair` and a cursor-targeted `Electro-Shock` blast that can arc through clustered hostiles.
 Holding Ctrl while moving engages travel mode and keeps stepping in that direction until something notable appears or the route becomes blocked. Diagonal ctrl-travel covers the vi, numpad, and navigation-key aliases where supported.
 Wait is available on both space and numpad 5, spending a turn without moving.
 The dungeon viewport follows the player so large levels stay centered in the terminal instead of rendering from a fixed top-left corner.

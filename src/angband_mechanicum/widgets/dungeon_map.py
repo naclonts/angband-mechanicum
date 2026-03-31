@@ -300,7 +300,12 @@ def render_dungeon_status(
             lines.append(f"READY: {ready_item}")
     if look_cursor is not None:
         lx, ly = look_cursor
-        mode_label = "FIRE MODE:" if target_mode == "fire" else "LOOK MODE:"
+        if target_mode == "fire":
+            mode_label = "FIRE MODE:"
+        elif target_mode == "power":
+            mode_label = "POWER MODE:"
+        else:
+            mode_label = "LOOK MODE:"
         lines.extend(
             [
                 "",
@@ -315,6 +320,8 @@ def render_dungeon_status(
             lines.append(f"  {detail}")
         if target_mode == "fire":
             lines.append("  [dim]Enter: fire / Esc: cancel[/dim]")
+        elif target_mode == "power":
+            lines.append("  [dim]Enter: invoke / P: next / Esc: cancel[/dim]")
         else:
             lines.append("  [dim]Enter: inspect / Esc: cancel[/dim]")
     else:
@@ -324,8 +331,7 @@ def render_dungeon_status(
                 "[dim]l: look / Enter: inspect / Esc: cancel[/dim]",
                 "[dim]g: pick up / i: use ready item[/dim]",
                 "[dim]o/c: open or close adjacent doors[/dim]",
-                "[dim]f: fire / l: look[/dim]",
-                "[dim]o/c: open or close adjacent doors[/dim]",
+                "[dim]f: fire / p: power / l: look[/dim]",
             ]
         )
     if entities_here:
