@@ -24,6 +24,7 @@ from angband_mechanicum.engine.save_manager import (
     DeathRecord,
     SaveManager,
     generate_death_record_id,
+    save_state_allows_resume,
 )
 from angband_mechanicum.engine.dungeon_level import transition_terrain_label
 from angband_mechanicum.engine.story_starts import StoryStart
@@ -454,6 +455,116 @@ class AngbandMechanicumApp(App[None]):
     def return_to_menu_view(self) -> None:
         """Return to the main menu."""
         self.switch_screen(MenuScreen())
+
+    def _saved_location(self, state: dict[str, Any]) -> str:
+        """Extract the best available location label from a serialized save."""
+        info_panel = state.get("info_panel")
+        if isinstance(info_panel, dict):
+            location = info_panel.get("LOCATION")
+            if isinstance(location, str) and location.strip():
+                return location
+        dungeon_session = state.get("dungeon_session")
+        if isinstance(dungeon_session, dict):
+            location = dungeon_session.get("location")
+            if isinstance(location, str) and location.strip():
+                return location
+            session_state = dungeon_session.get("state")
+            if isinstance(session_state, dict):
+                level = session_state.get("level")
+                if isinstance(level, dict):
+                    name = level.get("name")
+                    if isinstance(name, str) and name.strip():
+                        return name
+        return "Unknown Depths"
+
+    def _saved_deepest_level_reached(self, state: dict[str, Any]) -> int:
+        """Derive the deepest explored floor from serialized dungeon session data."""
+        deepest = 0
+        dungeon_session = state.get("dungeon_session")
+        if not isinstance(dungeon_session, dict):
+            return deepest
+        level_states = dungeon_session.get("level_states")
+        if isinstance(level_states, dict):
+            for level_state in level_states.values():
+                if not isinstance(level_state, dict):
+                    continue
+                level = level_state.get("level")
+                if not isinstance(level, dict):
+                    continue
+                try:
+                    deepest = max(deepest, int(level.get("depth", 0)))
+                except (TypeError, ValueError):
+                    continue
+        state_level = dungeon_session.get("state")
+        if isinstance(state_level, dict):
+            level = state_level.get("level")
+            if isinstance(level, dict):
+                try:
+                    deepest = max(deepest, int(level.get("depth", 0)))
+                except (TypeError, ValueError):
+                    pass
+        return deepest
+
+    def _recover_non_resumable_save(self, slot_id: str, state: dict[str, Any]) -> None:
+        """Archive a stale dead save and route the player to the Hall."""
+        manager = SaveManager()
+        try:
+            existing_record = any(
+                record.save_slot_id == slot_id
+                for record in manager.list_death_records()
+            )
+            if not existing_record:
+                record = DeathRecord(
+                    record_id=generate_death_record_id(),
+                    timestamp=time.time(),
+                    player_name=str(state.get("player_name", "Unknown Tech-Priest")),
+                    location=self._saved_location(state),
+                    turns_survived=int(state.get("turn_count", 0)),
+                    enemies_slain=0,
+                    deepest_level_reached=self._saved_deepest_level_reached(state),
+                    cause_of_death="Critical integrity failure",
+                    summary=(
+                        "Recovered from a non-resumable autosave after the run had already ended."
+                    ),
+                    save_slot_id=slot_id,
+                    story_start_id=(
+                        str(state.get("story_start_id"))
+                        if state.get("story_start_id") is not None
+                        else None
+                    ),
+                )
+                manager.save_death_record(record)
+            manager.delete_save(slot_id)
+        except Exception as exc:
+            logger.error("Failed to recover non-resumable save %s: %s", slot_id, exc)
+        finally:
+            self.save_slot = None
+            self.dungeon_session = None
+            self.game_engine = GameEngine()
+            self.open_hall_of_dead_view()
+
+    def load_saved_game(self, slot_id: str) -> None:
+        """Load a saved run or recover it into the Hall if the player is already dead."""
+        manager = SaveManager()
+        state = manager.load(slot_id)
+        if not save_state_allows_resume(state):
+            logger.warning(
+                "Save %s cannot be resumed because the player integrity is already depleted.",
+                slot_id,
+            )
+            self._recover_non_resumable_save(slot_id, state)
+            return
+
+        engine: GameEngine = GameEngine.from_dict(state)
+        self.game_engine = engine
+        self.save_slot = slot_id
+        if state.get("dungeon_session"):
+            session = DungeonSession.from_dict(state["dungeon_session"])
+            session.story_id = state.get("story_start_id", session.story_id)
+            self.dungeon_session = session
+            self.open_dungeon_view()
+            return
+        self.open_text_view(restored_state=state)
 
     def begin_new_game(self, player_name: str, story_start: StoryStart) -> None:
         """Create engine and dungeon state for a new game, then enter text view."""

@@ -53,4 +53,6 @@ def save_manager(tmp_path: Path) -> SaveManager:
     """A SaveManager that writes to a temp directory."""
     mgr = SaveManager()
     mgr._saves_dir = tmp_path
+    mgr._deaths_dir = tmp_path / "hall_of_dead"
+    mgr._deaths_dir.mkdir(parents=True, exist_ok=True)
     return mgr

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -26,14 +26,31 @@ from angband_mechanicum.screens.game_screen import GameScreen
 
 @dataclass
 class _FakeSaveManager:
+    loaded_state: dict[str, object] | None = None
     saved_record: DeathRecord | None = None
     deleted_slot: str | None = None
+    existing_records: list[DeathRecord] = field(default_factory=list)
+
+    def load(self, slot_id: str) -> dict[str, object]:
+        assert self.loaded_state is not None
+        return dict(self.loaded_state)
 
     def save_death_record(self, record: DeathRecord) -> None:
         self.saved_record = record
 
     def delete_save(self, slot_id: str) -> None:
         self.deleted_slot = slot_id
+
+    def list_death_records(self) -> list[DeathRecord]:
+        return list(self.existing_records)
+
+
+@dataclass
+class _RecordingScreenSaveManager:
+    saved: list[tuple[str, dict[str, object]]] = field(default_factory=list)
+
+    def save(self, slot_id: str, state: dict[str, object]) -> None:
+        self.saved.append((slot_id, state))
 
 
 def _make_floor_with_contacts(
@@ -263,6 +280,119 @@ def test_return_to_dungeon_view_keeps_pending_text_context(
     assert app.dungeon_session.pending_text_context["scene_art"] == "BRIDGE ART"
     assert app.dungeon_session.pending_text_context["LOCATION"] == "Cargo Lift Shaft"
     assert app.dungeon_session.pending_text_context["OBJECTIVE"] == "Proceed below"
+
+
+def test_load_saved_game_restores_live_dungeon_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_manager = _FakeSaveManager()
+    monkeypatch.setattr(app_module, "SaveManager", lambda: fake_manager)
+
+    floor = _make_floor_with_contacts(
+        level_id="load-live",
+        name="Recovered Forge",
+        depth=2,
+    )
+    session = DungeonSession(
+        state=app_module.DungeonMapState(
+            level=floor.level,
+            player_pos=floor.level.player_pos,
+            entities=app_module.build_map_entities_from_roster(floor.entity_roster),
+        ),
+        location=floor.level.name,
+    )
+    fake_manager.loaded_state = {
+        "player_name": "Magos Explorator",
+        "conversation_history": [],
+        "turn_count": 4,
+        "current_scene_art": None,
+        "info_panel": {"LOCATION": floor.level.name},
+        "error_count": 0,
+        "integrity": 11,
+        "max_integrity": 20,
+        "dungeon_session": session.to_dict(),
+        "story_start_id": "forge-escape",
+    }
+
+    app = AngbandMechanicumApp()
+    opened: list[bool] = []
+    app.open_dungeon_view = lambda **kwargs: opened.append(True)  # type: ignore[assignment]
+
+    app.load_saved_game("slot-live")
+
+    assert opened == [True]
+    assert app.save_slot == "slot-live"
+    assert app.dungeon_session is not None
+    assert app.dungeon_session.location == "Recovered Forge"
+    assert fake_manager.saved_record is None
+    assert fake_manager.deleted_slot is None
+
+
+def test_load_saved_game_recovers_dead_save_into_hall(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_manager = _FakeSaveManager()
+    monkeypatch.setattr(app_module, "SaveManager", lambda: fake_manager)
+
+    fake_manager.loaded_state = {
+        "player_name": "Magos Explorator",
+        "conversation_history": [],
+        "turn_count": 7,
+        "current_scene_art": None,
+        "info_panel": {"LOCATION": "Forge-Cathedral Alpha"},
+        "error_count": 0,
+        "integrity": 0,
+        "max_integrity": 20,
+        "dungeon_session": {
+            "location": "Munitions Depot Outer Defenses Depth 2",
+            "state": {"level": {"name": "Munitions Depot Outer Defenses Depth 2", "depth": 2}},
+            "level_states": {
+                "depth-1": {"level": {"name": "Forge-Cathedral Alpha", "depth": 1}},
+                "depth-2": {
+                    "level": {"name": "Munitions Depot Outer Defenses Depth 2", "depth": 2}
+                },
+            },
+        },
+        "story_start_id": "forge-escape",
+    }
+
+    app = AngbandMechanicumApp()
+    hall_opened: list[bool] = []
+    app.open_hall_of_dead_view = lambda: hall_opened.append(True)  # type: ignore[assignment]
+
+    app.load_saved_game("slot-dead")
+
+    assert hall_opened == [True]
+    assert fake_manager.deleted_slot == "slot-dead"
+    assert fake_manager.saved_record is not None
+    assert fake_manager.saved_record.location == "Forge-Cathedral Alpha"
+    assert fake_manager.saved_record.deepest_level_reached == 2
+    assert fake_manager.saved_record.save_slot_id == "slot-dead"
+    assert app.save_slot is None
+    assert app.dungeon_session is None
+
+
+def test_game_screen_autosave_skips_dead_run() -> None:
+    save_manager = _RecordingScreenSaveManager()
+    screen = GameScreen()
+    screen._save_manager = save_manager  # type: ignore[assignment]
+
+    class _FakeEngine:
+        integrity = 0
+
+        def to_dict(self) -> dict[str, object]:
+            raise AssertionError("Dead runs should not be serialized")
+
+    class _FakeApp:
+        save_slot = "slot-dead"
+        game_engine = _FakeEngine()
+        dungeon_session = None
+
+    object.__setattr__(screen, "_parent", _FakeApp())
+
+    screen._autosave()
+
+    assert save_manager.saved == []
 
 
 def test_open_text_view_keeps_live_dungeon_location_on_bridge(

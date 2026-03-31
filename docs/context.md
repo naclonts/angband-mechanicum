@@ -38,6 +38,7 @@ Travel requests entered in text view are resolved to the closest supported dunge
 Text-view responses that ask the player to resume exploration keep their scene art and info updates in the dungeon session so the next bridge back to text can restore the same context.
 Curated story starts now seed explicit dungeon-generation profiles instead of relying on free-text environment inference. Those profiles carry canonical environment identity, faction bias, landmark/set-piece preferences, and content exclusions across story intro, `/explore`, save/load, and later floor transitions.
 Each fresh run also gets its own dungeon generation seed, so new games rebuild dungeon layouts from scratch while saved runs still resume the same persistent dungeon state after load.
+The load menu only surfaces resumable saves. Runs whose integrity has already been reduced to zero are treated as completed deaths and recovered into the Hall of the Dead instead of reopening a frozen dungeon screen.
 
 ### Transitions Between Views
 - **Map → Text**: Bump a friendly NPC (conversation), interact with a special object (spaceship, terminal), or look/examine something in detail

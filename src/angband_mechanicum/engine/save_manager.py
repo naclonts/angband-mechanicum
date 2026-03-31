@@ -9,9 +9,20 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 logger: logging.Logger = logging.getLogger(__name__)
+
+
+def save_state_allows_resume(state: Mapping[str, Any]) -> bool:
+    """Return whether a serialized save still represents a live run."""
+    integrity = state.get("integrity")
+    if integrity is None:
+        return True
+    try:
+        return int(integrity) > 0
+    except (TypeError, ValueError):
+        return True
 
 
 def _saves_dir() -> Path:
@@ -142,11 +153,14 @@ class SaveManager:
         return state
 
     def list_saves(self) -> list[SaveMetadata]:
-        """Return metadata for all save files, newest first."""
+        """Return metadata for resumable save files, newest first."""
         saves: list[SaveMetadata] = []
         for path in self._saves_dir.glob("*.json"):
             try:
                 data: dict[str, Any] = json.loads(path.read_text())
+                if not save_state_allows_resume(data):
+                    logger.info("Skipping non-resumable save %s", path)
+                    continue
                 meta: dict[str, Any] = data.get("meta", {})
                 info: dict[str, str] = data.get("info_panel", {})
                 saves.append(SaveMetadata(
