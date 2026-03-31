@@ -121,6 +121,9 @@ class TestTravelDestinationResolution:
             ("Take me to the sewer drains beneath the underhive.", "sewer", "Sub-hive drainage"),
             ("Lead me to the cathedral reliquary and shrine.", "reliquary", "Sacred reliquary"),
             ("Lead me into the cathedral nave and pillar hall.", "cathedral", "Imperial cathedral"),
+            ("Take me through the marsh and blackwater swamp.", "swamp", "Swamp lowlands"),
+            ("Lead me to the machine-haunted forest glades.", "forest", "Machine-haunted forest"),
+            ("Take me up the mountain pass and cliff trail.", "mountains", "Mountain approaches"),
         ],
     )
     def test_resolve_travel_destination_matches_supported_environment(

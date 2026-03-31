@@ -48,6 +48,7 @@ The destination vocabulary is built around an expandable environment catalog, so
 Story-specific dungeon profiles sit above that coarse environment layer so authored starts like titan recovery, necron tomb delves, or STC vault breaches keep their faction and landmark identity instead of collapsing into generic biome content.
 Dungeon floors can also include reusable themed set-pieces that combine room dressing, grouped hostiles, and optional NPCs to create more memorable encounters than plain procedural geometry alone, and those set-pieces now add to the baseline contact pressure instead of fully replacing it.
 Those floors now also seed environment-specific dressing objects and footprints, including multi-tile blocking set pieces such as machinery clusters, wreckage, shrines, and rock formations that preserve required traversal routes instead of sealing the floor.
+Outdoor environments now sit in the same catalog as indoor ones: swamp floors bias toward blackwater islands and causeways, forests toward open glades and cover belts, and mountain runs toward cliff shelves plus switchback paths.
 They still seed a small number of persistent item objects on safe floor tiles, and those pickups now persist as live inventory inside the dungeon session instead of belonging to the removed tactical subsystem.
 They now also resolve floor-band pacing and occasional rare environment variants, so entry floors, mid-run reveal floors, and climax floors can surface different themed rooms, ambience, discoveries, and escalation hooks inside the same environ.
 Door placement is gated by a valid room-threshold chokepoint test so tiny or open rooms do not get over-documented with free-standing doors; generated doors only appear where corridors or other passages actually breach a room boundary.
@@ -89,7 +90,7 @@ Door placement is gated by a valid room-threshold chokepoint test so tiny or ope
 
 - **Text view** (game_screen.py) — fully functional with LLM narrative, portraits, entity tracking
 - **Legacy tactical combat** (combat_screen.py + combat_engine.py) — quarantined compatibility surface; live combat now spawns directly into the unified map view with bump-to-attack
-- **Dungeon generation** (dungeon_gen.py) — procedural multi-room dungeon floors with seeded, environment-specific contact rosters, still expanding toward the full exploration loop
+- **Dungeon generation** (dungeon_gen.py) — procedural dungeon floors with seeded, environment-specific contact rosters and both indoor and outdoor topology variants
 - **Save/load** (save_manager.py) — game state persistence
 - **Entity/history tracking** (history.py) — structured world memory for LLM context
 

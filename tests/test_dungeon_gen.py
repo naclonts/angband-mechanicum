@@ -558,11 +558,14 @@ class TestEnvironmentContactRosters:
         [
             ("sewer", {"rat", "cutpurse", "warden"}),
             ("voidship", {"raider", "armsman", "pilgrim"}),
-            ("radwastes", {"mutant", "scavenger", "trader"}),
-            ("data_vault", {"intruder", "heretek", "logister"}),
-            ("penal_oubliette", {"convict", "warden", "scribe"}),
-            ("plasma_reactorum", {"reactor", "cultist", "servitor"}),
-        ],
+        ("radwastes", {"mutant", "scavenger", "trader"}),
+        ("data_vault", {"intruder", "heretek", "logister"}),
+        ("penal_oubliette", {"convict", "warden", "scribe"}),
+        ("plasma_reactorum", {"reactor", "cultist", "servitor"}),
+        ("swamp", {"bog", "leech", "guide"}),
+        ("forest", {"stalker", "wayfinder", "shrine"}),
+        ("mountains", {"cliff", "survey", "cairn"}),
+    ],
     )
     def test_environment_rosters_are_thematic(self, environment: str, expected_keywords: set[str]) -> None:
         roster = _contacts_for_environment(environment)
@@ -916,6 +919,78 @@ class TestDungeonFloorGeneration:
         }
         assert DungeonTerrain.WATER in terrains or DungeonTerrain.ACID_POOL in terrains
 
+    @pytest.mark.parametrize(
+        ("environment", "expected_terrain"),
+        [
+            ("swamp", DungeonTerrain.WATER),
+            ("forest", DungeonTerrain.GROWTH),
+            ("mountains", DungeonTerrain.CHASM),
+        ],
+    )
+    def test_outdoor_floors_use_environment_specific_terrain_and_no_doors(
+        self,
+        environment: str,
+        expected_terrain: DungeonTerrain,
+    ) -> None:
+        floor = generate_dungeon_floor(
+            level_id=f"outdoor-{environment}",
+            depth=6,
+            environment=environment,
+            seed=606,
+        )
+
+        terrains = {
+            floor.level.get_terrain(x, y)
+            for y in range(floor.level.height)
+            for x in range(floor.level.width)
+        }
+        door_count = sum(
+            1
+            for y in range(floor.level.height)
+            for x in range(floor.level.width)
+            if floor.level.get_terrain(x, y) in {DungeonTerrain.DOOR_OPEN, DungeonTerrain.DOOR_CLOSED}
+        )
+
+        assert floor.level.environment == environment
+        assert expected_terrain in terrains
+        assert door_count == 0
+        assert floor.level.stairs_down[0] in _reachable_tiles(floor.level, floor.level.player_pos)
+
+    def test_outdoor_layouts_have_distinct_open_tile_densities(self) -> None:
+        swamp = generate_dungeon_floor(
+            level_id="outdoor-swamp-density",
+            depth=6,
+            environment="swamp",
+            seed=910,
+        )
+        forest = generate_dungeon_floor(
+            level_id="outdoor-forest-density",
+            depth=6,
+            environment="forest",
+            seed=910,
+        )
+        mountains = generate_dungeon_floor(
+            level_id="outdoor-mountains-density",
+            depth=6,
+            environment="mountains",
+            seed=910,
+        )
+
+        def passable_count(floor: GeneratedFloor) -> int:
+            return sum(
+                1
+                for y in range(floor.level.height)
+                for x in range(floor.level.width)
+                if floor.level.get_tile(x, y).passable
+            )
+
+        swamp_open = passable_count(swamp)
+        forest_open = passable_count(forest)
+        mountain_open = passable_count(mountains)
+
+        assert forest_open > swamp_open > mountain_open
+        assert forest_open - mountain_open >= 100
+
     def test_floor_seed_reproducibility(self) -> None:
         first = generate_dungeon_floor(level_id="floor-6", depth=6, seed=106)
         second = generate_dungeon_floor(level_id="floor-6", depth=6, seed=106)
@@ -1188,3 +1263,13 @@ class TestEnvironmentDebugCatalog:
         assert "Smelter Lockdown" in forge.variant_names
         assert forge.discovery_titles
         assert forge.reactive_rule
+
+    def test_catalog_lists_new_outdoor_environments(self) -> None:
+        catalog = build_environment_debug_catalog()
+        by_environment = {entry.environment_id: entry for entry in catalog}
+
+        assert by_environment["swamp"].themed_rooms
+        assert "Sump Tide Uprising" in by_environment["swamp"].variant_names
+        assert by_environment["forest"].hostile_contacts
+        assert "Waystone Glade" in by_environment["forest"].themed_rooms
+        assert "High Pass Redoubt" in by_environment["mountains"].themed_rooms
